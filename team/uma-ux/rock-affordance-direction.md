@@ -22,6 +22,69 @@ the agent height `:4182`→`:4452`). Three `LowPolyZoneGen.cs` cites were off by
 only the anchors moved. **Round 2's numeric findings all re-verified true at `750f190`.**
 Unchanged and confirmed by round-2 review: §1, §2.2, §3, §7.
 
+**Revision 3.1 (`86cazhvdc`) — Priya's four review NITs on PR #391, plus one defect her N1 exposed
+upstream of itself.** Nothing in the channel audit moves: the two counted channels, the SCALE exclusion,
+the §4 withdrawal and every magnitude claim stand exactly as reviewed. What changed:
+
+- **§0.1 NEW — the measurement conventions are now DECLARED, once** (N1 + N2). The spec was carrying two
+  width conventions without saying so: the ore and decorative figures used **full** planar extent, while the
+  boulder figure was a **half**-width read (and on an unstated rate, so it reproduced exactly nowhere —
+  §8.0 shows the two candidate half-width values it sits between). Full width is now the single declared
+  convention; `b/a` is renamed for what
+  it always was (a **stand ratio** against footprint radius, not a width ratio) and the `P` nominal each row
+  uses is pinned. **Boulder width `76 px` → `~107–137 px`** (§8.0); §5.1's `0.69u × 0.41u` restated.
+- **§8.0's px-per-unit rate CORRECTED, and this one is mine, not a NIT** — found while re-verifying against
+  current `origin/main`. Round 3 computed screen scale as `720 px ÷ 45° = 16 px/°`, which assumes pixels are
+  linear in *angle*; a pinhole camera is linear in *tangent*. The correct rate is
+  `720 ÷ (2 × 14 × tan 22.5°) = 720 ÷ 11.598 = **62.1 px/u**`, not 65.5 — and it is exactly the figure the
+  amended `team/quality-bars.md` Bar 10 now states as canonical (*"720 / (2 × 14 × tan 22.5°) ≈ 62 px per
+  world metre"*), so round 3 as merged would have contradicted the bar it re-audits against. **Every absolute
+  px figure in the spec drops by ~5%; every RATIO, every separation multiple and every conclusion is
+  unchanged**, because the correction is a single scalar applied to a common base. The 1.6×-known-failing vs
+  3.0×-proposed calibration, the ×1.43–1.74 amplification and the 5.82 : 1 / 1.92 : 1 pair are all
+  arithmetically untouched — verified, not assumed.
+- **AC1 now gates BOTH sides of the inversion** (N3), on one explicitly-stated common metric, with the
+  minable side's tail honestly reported rather than over-gated. §8.2.
+- **§4.3's no-radial-readout claim carries its grep** (N4). §10.4 states the §6 NavMesh-carve hazard so a
+  Sponsor "yes" is actionable (Priya's fifth item). **No §10 flag is settled here — all three remain his.**
+
+⚠ **KNOWN INCOMPLETE, declared rather than discovered later.** `team/quality-bars.md` gained a
+**Bar 10 — the four checks** section (`86caz5na6`, merged in PR #386) *after* this spec's round-3 audit was
+written. C1 (amplitude stated as the **delta** between cued and non-cued, in px at a stated framing), C2
+(failure independence), C3 (the comparison set) and C4 (the two-sided artifact) are **not** re-audited here —
+revision 3.1 is scoped to the four NITs. Two are already substantially satisfied by construction (§8.1's
+failure-domain row ≈ C2; §8.2's populous-both-classes note ≈ C3), and this revision's AC1 change moves the
+spec *toward* C4's two-sided posture. **C1 is the open one**: this spec states magnitude as a *ratio
+separation* (5.82 : 1 vs 1.92 : 1) where C1 asks for a pixel **delta** plus a fraction of the object's own
+on-screen extent. **A round-4 C1 re-audit is OWED before this direction is called Bar-10-clean.**
+
+---
+
+## 0.1 Measurement conventions — declared once, and every figure in this spec is on them
+
+Round 3 carried two width conventions without naming either, which is how a boulder came to be quoted at
+~60% of its width (N1) and how a table of correct figures came to be glossed with a sentence they
+contradict (N2). Both are convention defects, not arithmetic defects — each figure was individually
+reproducible from *some* convention, which is exactly why the pair survived a careful review. The
+conventions below are now fixed;
+**any figure in this document that cannot be recomputed from them is a defect, not a variant reading.**
+
+| Term | Convention | Why this one |
+|---|---|---|
+| **Width** | **FULL planar extent** — tip to tip across the ground, i.e. `2 × planar half-extent`. Every px width, every world-unit width, and every plain-language *"wide" / "wider"* in this spec. | It is what AC5 measures: a capture shows you the whole silhouette, not half of it. |
+| **Height** | **Apex above ground**, NOT full vertical extent. | `LP_Rock` meshes are centred on the ground point (§5.1), so half the mesh is buried and never renders; minable meshes are *lifted*, so more than half does. Full vertical extent would count buried geometry as a cue. |
+| **Radius** | A half-extent by definition, always labelled *radius*, and never quoted as a width. | §2's table and every `FacetedRock(r, …)` argument. |
+| **`b/a` — the STAND RATIO** | `b` = apex above ground; `a` = planar **HALF**-extent (the footprint radius). Threshold **1.0**. **It is NOT a width ratio.** | It answers *"does this stone's top clear its own footprint radius?"*, and it is the **gate** metric because `Renderer.bounds.extents` is natively a half-extent (AC1). |
+| **Conversion** | Full-width flatness = `2 ÷ (b/a)`, before sink and tilt. | So the two never have to be guessed at from each other. |
+| **`P` (planar half-extent factor, §2.3)** | **Nominal and floor rows: `P = 1.00`. Worst-case / ceiling rows: `P = 1.20`.** Stated at every use. | Both sit inside §2.3's measured `P` range; a *tallest-slab* worst case correctly takes the high end, because tilting a wide shape raises its apex through the `a·sin θ` term. Every apex figure in §5.1 and §10.3 reproduces exactly on this pin. |
+
+⚠ **The rule this replaces N2's gloss with, and it must not be re-inverted.** On the declared width
+convention, **every stone class in this world is wider than tall** — an ore node is 59 px wide × 31 px tall
+(§8.0) and says so itself. **No "taller than wide" claim may be derived from a `b/a` figure.** What inverts
+between the classes is the **stand ratio** — whether the top clears the footprint radius — and what the
+*player* sees is not an inversion at all but a **magnitude**: a 3.0× separation in apparent flatness against
+a shipped 1.6× that already demonstrably fails (§8.0). The channel is unchanged; only the words are.
+
 ---
 
 ## 0. Round 3 — the re-audit the amended Bar 10 forces
@@ -39,8 +102,8 @@ Round 2 declared two channels. Re-audited against the amendment **and against th
 
 | Round-2 claim | Axis | Varies cued ↔ non-cued? | Magnitude at DEFAULT framing | Verdict |
 |---|---|---|---|---|
-| **Aspect inversion** (wider-than-tall vs taller-than-wide) | **FORM** | Yes — categorical at every draw (§2.3) | **AMPLIFIED ×1.43** by the 55° down-pitch (§8.0). Apparent flatness 5.8 : 1 vs 1.9 : 1 | **HOLDS — the load-bearing channel** |
-| **Apex-height ratio** (≥2×, later "nominal 3.5×") | **SCALE** — and SCALE is *silhouette geometry*, the same axis family as the aspect inversion | Yes, but nominal only | **SUPPRESSED ×0.57** by the same pitch. Worst case: 19 px vs 25 px | **NOT a second channel** — round 2 already withdrew the guarantee; round 3 additionally forbids **counting** it, because aspect + height is this spec's own bob-and-sway |
+| **Stand-ratio inversion** (top clears its own footprint radius vs does not — §0.1; round 3 called this "wider-than-tall vs taller-than-wide", which is wrong on the declared width convention) | **FORM** | Yes — categorical at every draw (§2.3) | **AMPLIFIED ×1.43** by the 55° down-pitch (§8.0). Apparent flatness 5.8 : 1 vs 1.9 : 1 | **HOLDS — the load-bearing channel** |
+| **Apex-height ratio** (≥2×, later "nominal 3.5×") | **SCALE** — and SCALE is *silhouette geometry*, the same axis family as the stand-ratio inversion | Yes, but nominal only | **SUPPRESSED ×0.57** by the same pitch. Worst case: 18 px vs 24 px | **NOT a second channel** — round 2 already withdrew the guarantee; round 3 additionally forbids **counting** it, because shape + height is this spec's own bob-and-sway |
 | **Radial domain split** (decorative r ≥ 17u, minable r ∈ [9,17]) | **POSITION** | Yes — real, shipped, per-instance | **ZERO.** There is no radial readout, no minimap, and the island is 292u across; a player at ground level cannot see the island centre. The variance is true and produces **no pixels** | **WITHDRAWN as a counted channel** — kept as an authoring invariant + guard test (§4.2, D2a) |
 
 **So round 2, honestly re-scored, ships ONE perceptible channel.** That is precisely the failure the ticket
@@ -198,9 +261,14 @@ low, broadly-spread tail. `P` is the **max over twelve** planar-bearing verts, s
 top of its range (≈ 0.96–1.38, nominal ≈ 1.00–1.05). **Vertical extent is one draw; planar extent is a
 maximum of twelve.** That single fact decides which of this spec's two FORM guarantees survives:
 
-- **The aspect inversion SURVIVES every tail.** It fails only if `V × q ≥ P` (`q` = the D1 squash). At
+- **The stand-ratio inversion SURVIVES every tail on the DECORATIVE side.** It fails only if `V × q ≥ P`
+  (`q` = the D1 squash). At
   `q = 0.60` that needs `V ≥ P / 0.60`, i.e. `V ≥ 1.60` at realistic `P` — and `V` cannot exceed **1.268**.
-  Unreachable. The inversion is **categorical at every draw**, which is exactly why §3 leads with it.
+  Unreachable: a decorative slab's `b/a` caps at `1.268 × 0.60 / 0.96` = **0.79**, always under 1.0. That
+  side is **categorical at every draw**, which is exactly why §3 leads with it. ⚠ **The MINABLE side is
+  not symmetric, and revision 3.1 stops implying it is (N3):** `b/a` there is `(lift + V)/P`, whose own tail
+  reaches `(0.45 + 0.636)/1.38` = **0.79** for a boulder — so the *inversion* is a strong nominal that must
+  be **measured**, not derived. §8.2's AC1c is that measurement, with a named lever if it comes back tight.
 - **The ≥2× apex-height separation DOES NOT survive.** Corrected numbers in §5.1. It holds ~3× nominal and
   degrades to **~1.3× worst-case**. It was quoted in round 1 as a floor; it is a *nominal*, and the
   round-1 figures (2.7× / 2.1×) were neither nominal-nominal nor worst-case but an inconsistent middle.
@@ -208,8 +276,9 @@ maximum of twelve.** That single fact decides which of this spec's two FORM guar
 **Consequences, applied throughout this round-2 revision:** the height ratio is demoted from a *derived
 guarantee* to a **measured report with a nominal target**; the impl must encapsulate the shipped
 `Renderer.bounds` (the idiom `MineOre.TryPlanarFootprint`, `MineOre.cs:812`, already uses) and print the
-achieved **minimum** ratio and the achieved **maximum** `b/a` aspect across every instance — failing the
-gate on any instance whose aspect inversion is violated, and *reporting* (not failing) the height ratio.
+achieved **minimum** ratio and the achieved **maximum** `b/a` **stand ratio** (§0.1 — apex above ground ÷
+planar half-extent, *not* a width ratio) across every instance — failing the
+gate on any instance whose stand-ratio inversion is violated, and *reporting* (not failing) the height ratio.
 §9's candidate bar and the `team/quality-bars.md` row are reworded to match.
 
 **One correction to the reviewer's own figure, for the record:** the round-2 review estimated the worst
@@ -268,13 +337,22 @@ cover, and nobody has named it:
 
 ## 3. PRIMARY CHANNEL — **FORM: attitude + aspect ratio** ("lying down vs standing up")
 
-> **One sentence:** *Decorative stone lies DOWN — wider than it is tall, tilted, half-buried, in a huddle
-> of peers. Minable stone stands UP — taller than it is wide, level, alone.*
+> **One sentence:** *Decorative stone lies DOWN — a flat lozenge whose top never clears the ground it
+> covers, tilted, half-buried, in a huddle of peers. Minable stone stands UP — its top clears its own
+> footprint, level, alone.*
 
-This is **FORM** in Bar 10's first rank, delivered as an **aspect-ratio inversion**: the decorative class
-crosses from `taller-than-wide` to `wider-than-tall`. That is a *categorical* read, not a magnitude read —
-the eye does not have to compare two objects to judge it, which is what makes it work at a glance on a lone
-rock.
+This is **FORM** in Bar 10's first rank, delivered as a **stand-ratio inversion**: the decorative class
+crosses from *apex above its footprint radius* to *apex below it* — `b/a` from ≈ **1.49** (ore) and
+≈ **1.39** (boulder) to ≈ **0.56**, on opposite sides of 1.0 (§0.1, §8.1). That is a *categorical* read, not
+a magnitude read — the eye does not have to compare two objects to judge it, which is what makes it work at
+a glance on a lone rock.
+
+⚠ **Say it in the right words, because round 3 said it in the wrong ones (N2).** On the declared width
+convention **both** classes are wider than tall — an ore node is 59 px wide × 31 px tall (§8.0). The
+inversion is in the **stand ratio**, and what the *player* reads is the **magnitude** it produces: a
+decorative slab at ≈ 5.82 : 1 apparent flatness against an ore node's ≈ 1.92 : 1, a **3.0× separation**
+against the **1.6×** the world already ships and that demonstrably fails (§8.0). Never restate this cue as
+"taller than wide"; state it as *stands proud of its footprint* vs *lies flat across it*.
 
 ⚠ **ROUND-3 CORRECTION to this section's own framing.** Round 2 opened by saying the cue rides "two of
 [FORM's] three named sub-axes at once (silhouette **and** size)." **Struck.** Silhouette-proportion and
@@ -409,6 +487,23 @@ and fails the second:
 | Does the property **differ** between a cued and a non-cued instance? | **Yes.** `r ≥ 17` vs `r ∈ [9,17]`, per instance, machine-checkable, zero overlap between outcrop *centres* and the minable annulus. |
 | Is that difference **perceptible at the framing the player actually plays at**? (`86caz5na6`: variance is a magnitude, not a boolean) | **No — and not marginally.** It renders **0 px**. Radius-from-origin is not a visual property. The build has no minimap, no compass, no coordinate readout; the shore is 120u out and the island is 292u across, so from inside the loop the centre is not locatable by eye. A player standing next to a rock has no way to know whether they are at r = 15 or r = 19. |
 
+**EVIDENCE for the no-radial-readout claim (N4) — it is a negative, so it is grepped, not asserted.** Run at
+`origin/main` **`0f14b4f`**:
+
+```
+$ git grep -ilE "minimap|mini-map|compass" 0f14b4f -- Assets/Scripts | wc -l
+0
+```
+
+Zero files across the entire runtime + editor script tree. Widening the same pattern to the **whole**
+`Assets` tree returns exactly **two** hits, and neither is a UI surface — both are prose inside code
+comments: `Assets/Shaders/GradientSkybox.shader:168` (*"the warmth follows the sun's compass bearing"*) and
+`Assets/Tests/EditMode/SeededScatterVariationTests.cs:87` (*"per-instance seeds spread across the
+compass"*). A grep for `coordinate|coords` over `Assets/Scripts` returns six files, all of them capture
+rigs, editor asset-gen, or **screen**-space UI maths (e.g. `InventoryUI.cs:458`, *"coordinates (same space
+as `PointerEvent.position`)"*) — **no world-position or radius readout is presented to the player
+anywhere.** The claim this section rests a *withdrawal* on is therefore demonstrated, not inferred.
+
 **The trap this closes, stated so the next spec does not re-open it:** a placement rule can be *perfectly
 enforced, fully tested, and completely invisible*. Enforcement is not perception. Round 2 verified the rule
 existed (correctly) and inferred that it therefore taught something (incorrectly). Round 2's own §8 caveat
@@ -432,7 +527,7 @@ materials.
 
 | Knob | Today | Proposed | Why |
 |---|---|---|---|
-| `localScale` | `Vector3.one * scale` (uniform, `:1319`) | `new Vector3(s, 0.60f * s, s)` | The aspect inversion. Max aspect becomes 0.69u wide × 0.41u tall = **1.67 : 1 wider-than-tall**. |
+| `localScale` | `Vector3.one * scale` (uniform, `:1319`) | `new Vector3(s, 0.60f * s, s)` | The stand-ratio inversion. **RESTATED on the declared width convention (N1)** — round 3 gave this as "0.69u wide × 0.41u tall", which were both *half*-extents at the `s = 1.25` cap. The squash alone makes the mesh `1 / 0.60` = **1.67× wider than tall in half-extents**, a figure `s` cancels out of; because the mesh is centred on the ground point only the vertical half shows while the **full** planar extent does, so the **visible** aspect is twice that: at nominal `s = 0.90` it is **0.99u full width ÷ 0.243u apex = 4.07 : 1 flat** (§8.0), reading **≈ 5.82 : 1 on screen**. |
 | `scale` band | `0.55 + rnd × 1.00` → 0.55–1.55 (`:1031`) | `0.55 + rnd × 0.70` → **0.55–1.25** | Caps the apex; keeps the planar footprint generous so the world does not read emptier. |
 | Tilt (Euler X/Z) | `rnd × 10f` each (`:1317-1318`) | `8f + rnd × 14f` → **8–22°** each | A tilted slab shows a **plane and an edge**; this is what kills the mound read (see the risk note). |
 | Sink | none (centred at `GroundPoint`) | **`−0.08 × s` in Y — PROPORTIONAL, pinned (N3)** | Buries the low edge so it reads *settled into the grass*, not *placed on it*. **Proportional, not fixed** — see the pin below. |
@@ -455,17 +550,19 @@ requires the impl to encapsulate `Renderer.bounds` per instance.
 **Resulting bands, CORRECTED per §2.3** (round 1 quoted `0.10–0.33u` on the false `apex ≈ radius`
 assumption). Apex = `√(b²cos²θ + a²sin²θ) − 0.08 s`, where `b = 0.55 · V · q · s`, `a = 0.55 · P · s`, and
 `θ` is the combined tilt of the local +Y axis (Euler X and Z each 8–22° → θ ≈ 11.3–31.1°). **Tilting a
-wider-than-tall shape RAISES its silhouette** — an effect round 1 omitted entirely, and it costs ~+18% at
-the ceiling:
+flat-lying shape RAISES its silhouette** — an effect round 1 omitted entirely, and it costs ~+18% at
+the ceiling. `P` per §0.1: **1.00** on the floor and nominal rows, **1.20** on the ceiling row (a tallest-slab
+worst case correctly takes `P`'s high end, because the raise arrives through the `a · sin θ` term):
 
-| | `s` | `V` | `θ` | Apex | **On screen at default framing** (§8.0, 37.6 px/u vertical) |
-|---|---|---|---|---|---|
-| Floor | 0.55 | 0.647 | 11.3° | **0.085u** | **~3 px** |
-| Nominal | 0.90 | 0.94 | 21° | **0.243u** | **~9 px** |
-| Ceiling (worst case) | 1.25 | 1.268 | 31.1° | **0.518u** | **~19 px** |
+| | `s` | `V` | `θ` | `P` | Apex | **On screen at default framing** (§8.0, 35.6 px/u vertical) |
+|---|---|---|---|---|---|---|
+| Floor | 0.55 | 0.647 | 11.3° | 1.00 | **0.085u** | **~3 px** |
+| Nominal | 0.90 | 0.94 | 21° | 1.00 | **0.243u** | **~9 px** |
+| Ceiling (worst case) | 1.25 | 1.268 | 31.1° | 1.20 | **0.518u** | **~18 px** |
 
 ⚠ **New risk surfaced by the round-3 framing arithmetic — the FLOOR of the band, not the ceiling.** At
-`s = 0.55` the slab renders **~3 px tall** and **~32 px wide** in a 1280×720 frame. Combined with §2.4's
+`s = 0.55` the slab renders **~3 px tall** and **~31 px wide** (full width `2 × 0.55 × 0.55 = 0.605u`
+× 50.9 px/u, §0.1 + §8.0) in a 1280×720 frame. Combined with §2.4's
 finding that the surrounding grass blades are 0.19–0.72u (nominal ~0.30u, i.e. **~11 px**), the smallest
 slabs are *shorter than the grass beside them* by a factor of ~3. Round 2's named risk was "did they become
 puddles"; round 3 adds a sharper one: **the smallest slabs may read as ABSENT rather than as scenery.**
@@ -483,19 +580,21 @@ separation is:
 | **Worst case** (tallest slab vs shortest of 24 ore nodes) | **1.32×** | **below the ≥2× §8 and the bar asserted** |
 
 **So the ≥2× height floor is withdrawn as a guarantee.** It is now stated as *nominal ≈ 3.5×, worst case
-≈ 1.3×, measured and reported per build*. What carries the channel instead is the **aspect inversion**,
-which §2.3 shows is categorical at every draw: `b/a = V · q / P` ≈ **0.54 → 1.86 : 1 wider-than-tall**
-nominal, and mathematically unable to invert while `q = 0.60` (it would need `V ≥ 1.60`; `V` caps at 1.268).
+≈ 1.3×, measured and reported per build*. What carries the channel instead is the **stand-ratio inversion**,
+which §2.3 shows is categorical at every draw: `b/a = V · q / P` = `0.94 × 0.60 / 1.00` = **0.56** nominal
+(§0.1's `P` pin) — i.e. the slab's top reaches barely half its own footprint radius — which is **4.07 : 1
+flat** on the declared full-width convention. It is mathematically unable to invert while `q = 0.60`: that
+would need `V ≥ 1.60`, and `V` caps at 1.268.
 
 **ROUND 3 — and the framing arithmetic settles the argument the other way round from what you'd expect.**
 The default camera pitches **55° DOWN** (§8.0), which foreshortens vertical extent by `cos 55° = 0.574` and
 leaves planar extent essentially intact. So:
 
-- the **height** ratio is the channel the camera *fights*. Worst case 0.518u vs 0.682u is **19 px vs 25 px**
+- the **height** ratio is the channel the camera *fights*. Worst case 0.518u vs 0.682u is **18 px vs 24 px**
   — a 6-pixel difference in a 720p frame, which is not a read at any glance. Round 2 withdrew the ≥2×
   *guarantee*; round 3 additionally forbids **counting** height as a channel at all, because it is the same
-  axis (silhouette geometry) as the aspect inversion — counting both would be this spec's own version of the
-  `86caz5na6` bob-plus-sway failure.
+  axis (silhouette geometry) as the stand-ratio inversion — counting both would be this spec's own version of
+  the `86caz5na6` bob-plus-sway failure.
 - the **aspect** inversion is the channel the camera *helps*. The same foreshortening multiplies apparent
   flatness by **1.43–1.74×** (§8.0). A world-space 4.07 : 1 slab reads as **≈ 5.8 : 1 on screen**, against
   an ore node's ≈ 1.9 : 1. **That is the read, and the default framing is its best case, not its worst.**
@@ -511,11 +610,15 @@ shortest).** Ordered by *what your body does*, not by height:
 pebble apex is `0.22 × V × [0.35, 0.80]` = **0.051–0.219u** (`:1164`, jitter 0.34), which **overlaps** the
 decorative slab's 0.085–0.518u across most of the pebble's range — a worse overlap than the review's
 planar-only 1.7× estimate suggested. The separation is therefore carried **entirely by posture**, and it is
-robust: the pebble is **uniformly** scaled (`b/a ≈ V/P ≈ 0.90`, i.e. near-equidimensional and proud) and
-untilted beyond its yaw, while the slab is 0.60-squashed **and** tilted 8–22° (`b/a ≈ 0.54`). 1.86 : 1
-against 1.11 : 1 is a categorical read, and it is the same channel the primary cue rides — so it cannot
-regress independently. Both classes also lie **below** the minable floor, so neither is confusable with a
-swing target. **Residual risk ACCEPTED and named:** a player may occasionally press `E` at a decorative slab
+robust: the pebble is **uniformly** scaled (stand ratio `b/a = V/P` = `0.94 / 1.00` = **0.94** — near
+equidimensional) and untilted beyond its yaw, while the slab is 0.60-squashed **and** tilted 8–22°
+(`b/a` = **0.56**). ⚠ **Restated honestly on the declared convention (N2), and it is weaker than round 3
+wrote it:** this pair is a **magnitude** separation, not the categorical inversion the minable pair gets —
+the pebble's own top does not clear its footprint radius either (0.94 < 1.0). On screen the slab reads
+**5.82 : 1** flat against the pebble's **3.04 : 1** (§8.0's rates), a **1.9× separation** — above the 1.6×
+this spec demonstrates already fails, but well below the 3.0× the primary channel buys. It is the same
+channel the primary cue rides, so it cannot regress independently. Both classes also lie **below** the
+minable floor, so neither is confusable with a swing target. **Residual risk ACCEPTED and named:** a player may occasionally press `E` at a decorative slab
 expecting a pebble. The cost is one wasted keypress with no animation commitment — categorically cheaper
 than a wasted pickaxe swing, which is the failure this ticket exists to remove. It is not worth a beat.
 
@@ -531,8 +634,10 @@ flat-shaded `FacetedRock` (unwelded, explicit per-face normals, per-facet value 
 whose facets survive a 0.60 squash intact. The tilt raise (8–22°) is the belt-and-braces: a mound has no
 visible edge plane, a tilted slab does. **Still, this is the one item that can fail the soak.**
 Lower-risk fallback if the Sponsor's verdict is "mound": squash **0.72**, tilt **8–22°**, scale cap
-**1.15** — a weaker but still categorical aspect inversion (**1.48 : 1** nominal, corrected from round 1's
-1.39 : 1 per §2.3; `a/b = P / (V·q) = 1.00 / (0.94 × 0.72)`). Do not go below squash 0.55; that crosses into
+**1.15** — a weaker but still categorical stand-ratio inversion: `b/a = V · q / P` = `0.94 × 0.72 / 1.00` =
+**0.68**, still below 1.0 with margin, giving **3.44 : 1** flat on the declared full-width convention at
+nominal `s = 0.90` (0.99u ÷ 0.288u) and **4.91 : 1** on screen, against option A's 4.07 : 1 / 5.82 : 1.
+Do not go below squash 0.55; that crosses into
 disc/pancake territory and stops reading as stone.
 
 **Bookkeeping that needs NO change (do not "fix" it):** `RockFootprintRadius = 0.55f` (`:1388`) is
@@ -677,11 +782,12 @@ float z = czp + (float)(rnd.NextDouble() - 0.5) * 2.0f;   // was 3.6f
 - Worst-case intra-cluster separation becomes `√(2.0² + 2.0²)` = **2.83u**, which is **below the 3.0u floor
   on minable-to-minable spacing.** The populations then no longer overlap on this axis at any draw:
   **every decorative rock has a peer nearer than any minable node has one.** Categorical, per instance,
-  machine-checkable — the same property class §3 chose the aspect inversion for.
+  machine-checkable — the same property class §3 chose the stand-ratio inversion for.
 - Typical separation tightens to ~0.7–1.1u, which is the board's *litter* read (`21h22_52`) rather than the
   current thin sprinkle.
-- **On screen at default framing** (§8.0, 53.6–65.5 px/u planar): peers land **~37–72 px apart** in a
-  1280×720 frame while a minable node's nearest neighbour of any stone class is **≥ 139 px** away (2.6u,
+- **On screen at default framing** (§8.0, 50.9–62.1 px/u planar): peers land **~36–68 px apart** in a
+  1280×720 frame (0.7u × 50.9 = 36 px along the view heading; 1.1u × 62.1 = 68 px across it) while a minable
+  node's nearest neighbour of any stone class is **≥ 132 px** away (2.6u × 50.9,
   D2a's floor). Both are comfortably inside one frame — the default camera's ground window is roughly
   **20u × 11u** (§8.0), so a 2.0u huddle and a 3.0u clearing are seen *together*, which is the condition a
   relative read needs.
@@ -733,8 +839,9 @@ decorative class is lying flat.
 node (the loop `:817-822`, `b.Encapsulate(_renderers[i].bounds)` at `:821`) and feeds the min XZ half-extent
 into `MovementCarveWorldRadius` (`:711`). Adding chip children
 inside the node **widens the measured footprint and therefore the NavMesh carve** — which re-opens exactly
-the round-8 defect the Sponsor already rejected once ("im blocked but already at this distance… not at the
-edge of the boulder" — the invisible-wall verdict recorded in `MineOre.cs`'s round-8 comment). Required
+the round-8 defect the Sponsor already rejected once — his soak-7 verdict, recorded verbatim at
+`MineOre.cs:686-687`: *"im blocked but already at this distance in the screenshot, not at the edge of the
+boulder"* (the invisible-wall read; quote re-verified at `0f14b4f`). Required
 resolution: either keep the chips strictly inside the body's planar silhouette so `_carveFootprint` is
 provably unchanged, **or** restrict `TryPlanarFootprint` to the body renderer (`BoulderMesh` / `OreRock`)
 and re-verify. Either way, re-run `MineBoulderPlacementObstacleTests` and `BoulderSceneTests` and quote
@@ -760,7 +867,7 @@ a next move that does not require re-opening mesh authoring.
 | **HUD marker / minimap pip / floating icon or glyph** | Bar 10 makes text/iconography the last-resort fallback. It also violates the tonal anchor: the world should teach this, not a UI layer narrating it. Deferring it costs nothing; a marker layer is very hard to remove later. |
 | **Re-siting the minable pools out of the scatter annulus** | Would move findability, which the pools' own placement comments deliberately tuned ("findable without heavy exploration and on the proven-walkable NavMesh loop"). **And round 2 makes it doubly unnecessary:** §4.2 shows the radial separation the re-siting would buy **already ships** (`r ≥ 17u` decorative vs `[9,17]` minable), so the only gap was that nothing guarded it — which D2a closes with a test, not a placement change. |
 | **Touching the mine gate / `ClickGateDiagnostic` / arbitration** | Confirmed correct by the 2026-07-21 ClickGateDiag session; ticket AC3 forbids it. Nothing in this direction changes a single gate predicate. |
-| **A second decorative rock MESH variant** (a distinct "scenery-only" shape) | Tempting and it would be the strongest possible form cue — but it is mesh authoring on 60 instances, it triples the world-scatter pass, and the transform-only route already yields a categorical aspect inversion. Held in reserve behind Tier 2. |
+| **A second decorative rock MESH variant** (a distinct "scenery-only" shape) | Tempting and it would be the strongest possible form cue — but it is mesh authoring on 60 instances, it triples the world-scatter pass, and the transform-only route already yields a categorical stand-ratio inversion. Held in reserve behind Tier 2. |
 | **Inverting the bare grass collar** (grass grows over decorative slabs; minable nodes get a cleared ring) — *added round 3* | Ruled out on **measurement**, not taste (§2.4): grass ships at ~0.005 tufts/u², so the expected number of tufts inside a 0.58u ore node is **≈0.006** — the collar the minable class lacks has, on average, no tuft in it to notice. It would cost a grass-loop RNG shift plus a capture re-baseline for ~zero pixels, and it grazes the Sponsor-rejected #130 defect the `GrassRockPad` rule exists to fix. **The collar stays exactly as it ships — §2.4 shows it is what keeps a flattened slab visible at all.** |
 | **A value / luminance separation** ("minable stone is the lighter grey") — *added round 3* | Nearest miss on the list, and the current state is genuinely **inverted** (§2 COLOUR: the minable ore node is the *dullest* stone in the world). But it is the COLOUR axis, which Bar 10 ranks **last**; a ~0.12-linear step between two warm greys is exactly what distance fog, bloom and the grading pass eat first; and it is a *relative* read needing both objects in frame. **Recommended as HYGIENE, offered to the Sponsor as §10.2 option P3, and explicitly NOT counted toward the ≥2.** |
 
@@ -789,23 +896,38 @@ every parameter fetched from source at `750f190`:
 | Reference frame | 1280 × 720 | `OrbitCamera.cs:158` |
 | Measured anchor | the 1.8u castaway renders **~55 × 95 px** at this framing (Tess-confirmed on the round-1 capture) | `OrbitCamera.cs:158-159`; agent height `MovementCameraScene.cs:4452` |
 
-**The arithmetic, and it is the single most useful thing in this revision.** At 45° vertical FOV over 720 px,
-angular resolution is 16 px/°. A span of 1u perpendicular to the view axis at 14u subtends 4.09°, so:
+**The arithmetic, and it is the single most useful thing in this revision.** ⚠ **CORRECTED in revision 3.1 —
+round 3 had this ~5% high.** Round 3 computed screen scale as `720 px ÷ 45° = 16 px/°` and multiplied by the
+angle a 1u span subtends (`2 · atan(0.5/14)` = 4.09°) to get 65.5 px/u. **That treats pixels as linear in
+angle; a pinhole camera is linear in tangent**, and `720/45` is the *average* rate across the whole 45°,
+which overstates the rate at frame centre. The correct base rate is the frame-plane one — and it is exactly
+the figure `team/quality-bars.md` Bar 10 now states as canonical:
 
-- **planar (ground) extent → 53.6–65.5 px/u** (`×sin 55°` along the view heading, unforeshortened across it);
-- **vertical extent → 37.6 px/u** (`×cos 55°`).
+```
+frame-plane height at 14u = 2 × 14 × tan(45°/2) = 2 × 14 × 0.41421 = 11.598 u
+base scale                = 720 px ÷ 11.598 u   = 62.1 px/u
+```
+
+- **planar (ground) extent → 50.9–62.1 px/u** (`62.1 × sin 55° = 50.9` along the view heading;
+  unforeshortened at 62.1 across it);
+- **vertical extent → 35.6 px/u** (`62.1 × cos 55°`).
+
+**Every RATIO in this spec is unaffected** — the correction is one scalar on a common base, so the ×1.43–1.74
+amplification (`tan 55°` and `1/cos 55°`), the 5.82 : 1 / 1.92 : 1 pair and the 1.6×-vs-3.0× calibration are
+arithmetically identical before and after. Only the absolute px figures move, each by ~5%.
 
 > **The default camera looks DOWN at 55°. It therefore SUPPRESSES height by ×0.57 and leaves footprint
 > intact — so it is the worst possible camera for a height cue and the best possible camera for a shape-of-
 > footprint cue. The apparent flatness of any object is its true flatness multiplied by 1.43–1.74×.**
 
 That one fact decides the whole channel audit, and it decides it *against* the intuitive answer ("make the
-scenery obviously shorter") and *for* the aspect inversion.
+scenery obviously shorter") and *for* the stand-ratio inversion.
 
 ⚠ **Two limits on this arithmetic, stated so nobody treats it as a gate on its own.** (1) The geometric
-figure (37.6 px/u vertical) and the measured anchor (95 px / 1.8u = 52.8 px/u) disagree, because the camera
+figure (35.6 px/u vertical) and the measured anchor (95 px / 1.8u = 52.8 px/u) disagree — and the corrected
+rate **widens** that gap, which makes the conservative posture below more honest, not less. The camera
 also applies terrain clearance, follow-lag and an occlusion pull-in (`OrbitCamera.cs:342`), and the measured
-95 px is a whole silhouette rather than a pure vertical axis. **This spec uses the CONSERVATIVE 37.6 px/u
+95 px is a whole silhouette rather than a pure vertical axis. **This spec uses the CONSERVATIVE 35.6 px/u
 throughout** — every height figure below is a lower bound. (2) These are *sizing estimates for choosing a
 direction*. **The impl must MEASURE pixel extents on the shipped-build capture and quote them** (AC5); no
 number in this section is a substitute for that.
@@ -813,24 +935,39 @@ number in this section is a substitute for that.
 **What it actually looks like at normal play distance — in plain words, which is the point of §8.0.**
 Standing in the survival loop at default framing, the ground window is roughly **20u wide × 11u deep**:
 
-- **A minable ore node** is a compact lump about **62 px wide × 32 px tall** — roughly one third of the
+**All widths below are FULL planar extent and all heights are apex above ground, per §0.1.** Arithmetic is
+shown inline because N1 was a figure that could not be recomputed.
+
+- **A minable ore node** is a compact lump about **59 px wide × 31 px tall** — width `2 × 0.58u` (`:3275`)
+  × 50.9 = 59 px; height `0.58 × (0.55 + 0.94)` = 0.864u × 35.6 = 31 px. Roughly one third of the
   castaway's height, with a distinct lit top plane, a visible side face, its own cast shadow, and three
   rust-coloured bumps on its crown. It reads as *an object standing on the ground*.
-- **A minable boulder** is a **~76 × 63 px** mass, about two-thirds of the castaway's height. Unmistakable.
-- **A decorative slab, after D1** is a **~53 px wide × 9 px tall** lozenge — no side face, no top-vs-side
+- **A minable boulder** is a **~107–137 px wide × ~59 px tall** mass — ⚠ **N1 CORRECTED.** Round 3 quoted
+  "~76 × 63 px"; the height was right in intent but the width was a *half*-width read on an unstated rate,
+  and it does not reproduce on either planar rate (half-width at the mid draw is `1.20u × 50.9` = 61 px along
+  the heading, `× 62.1` = 75 px across it — 76 px reproduces exactly nowhere). On the declared convention the
+  boulder's planar radius is **1.05–1.35u** (`:3448`), so full width is **2.10–2.70u** → `× 50.9` =
+  **107–137 px**; height at the mid draw is `1.20 × 1.39` = 1.668u × 35.6 = **59 px**. It is about
+  two-thirds of the castaway's height and roughly **twice** an ore node's width. Unmistakable — and round 3
+  *understated* it by ~40%, so no claim in this spec was inflated by the error.
+- **A decorative slab, after D1** is a **~50 px wide × 9 px tall** lozenge — width `2 × 0.55 × 0.90` = 0.99u
+  × 50.9 = 50 px; height 0.243u × 35.6 = 9 px. No side face, no top-vs-side
   distinction, a thin smear of contact shadow directly beneath it, sitting at roughly the height of the
   grass blades around it (§2.4). It reads as *a mark on the ground*, not an object on it.
-- **And they come in different numbers:** the slab has two or three identical companions within ~37–72 px
-  (D4); the node has nothing else within 139 px.
+- **And they come in different numbers:** the slab has two or three identical companions within ~36–68 px
+  (D4); the node has nothing else within 132 px.
 
 **The one-sentence version, which is the acceptance test:** *at normal play distance you are choosing
 between lumps that stand alone and lozenges that lie in litters, and you can do it without moving the
 camera.*
 
 **Calibration, so "it's a big difference" is not taken on faith.** The world already ships an apparent-
-flatness difference and it **is not enough**: decorative rocks today read at ≈3.05 : 1 apparent flatness
-against an ore node's ≈1.92 : 1 — a **1.6× separation that demonstrably fails**, since it is the state the
-Sponsor is currently dead-clicking through. D1 option A takes decorative to ≈5.82 : 1, a **3.0× separation**.
+flatness difference and it **is not enough**: a decorative rock today is uniform-scaled and centred on the
+ground point, so its full-width flatness is `2P/V` = `2.00/0.94` = 2.13 world → `× tan 55°` = **3.04 : 1**
+apparent, against an ore node's `2P/(0.55+V)` = `2.00/1.49` = 1.34 → **1.92 : 1** — a **1.6× separation
+(3.04 ÷ 1.92 = 1.58) that demonstrably fails**, since it is the state the
+Sponsor is currently dead-clicking through. D1 option A takes decorative to `4.07 × tan 55°` ≈ **5.82 : 1**,
+a **3.0× separation** (5.82 ÷ 1.92 = 3.03).
 **The target is therefore "roughly double the separation that is already known to fail," not "some
 difference exists."** That is the magnitude claim, and the soak either confirms it or corrects it.
 
@@ -841,20 +978,20 @@ domain. **The height ratio is deliberately absent — see the note after the tab
 
 | | Channel 1 | Channel 2 |
 |---|---|---|
-| **Name** | Aspect-ratio inversion (§3, D1) | Company vs solitude (§5.4, D4) |
+| **Name** | Stand-ratio inversion (§3, D1) | Company vs solitude (§5.4, D4) |
 | **Axis** | **FORM** | **POSITION (local)** |
-| **What it is on a CUED instance** (minable) | taller-than-wide; `b/a ≈ 1.34–1.44 : 1` upright | nearest stone of any class **≥ 2.6u** (D2a); nearest same-class **≥ 3.0u** |
-| **What it is on a NON-CUED instance** (decorative) | wider-than-tall; `b/a ≈ 0.54` → **1.86 : 1 flat** | a peer within **≤ 2.83u**, typically 0.7–1.1u |
-| **Bar 10 invariance check** ("what does this look like on a non-cued instance?") | *Inverted, not merely reduced* — the two classes fall on opposite sides of `b/a = 1`. **Not the same. Passes.** | *Disjoint ranges* — max decorative NN (2.83u) < min minable NN (3.0u). **Not the same. Passes.** |
-| **Magnitude at default framing** (§8.0) | **Amplified ×1.43.** 5.82 : 1 vs 1.92 : 1 apparent flatness — a 3.0× separation, against the 1.6× that is known to fail | **~37–72 px** peer spacing vs **≥139 px** isolation, both inside one ~20u × 11u ground window |
+| **What it is on a CUED instance** (minable) | apex **clears** its own footprint radius — stand ratio `b/a` (§0.1: apex ÷ planar HALF-extent, `P = 1.00`) = **1.39** boulder `(0.45+0.94)/1.00`, **1.49** ore `(0.55+0.94)/1.00` | nearest stone of any class **≥ 2.6u** (D2a); nearest same-class **≥ 3.0u** |
+| **What it is on a NON-CUED instance** (decorative) | apex reaches barely **half** its footprint radius — `b/a` = `0.94 × 0.60 / 1.00` = **0.56** | a peer within **≤ 2.83u**, typically 0.7–1.1u |
+| **Bar 10 invariance check** ("what does this look like on a non-cued instance?") | *Inverted, not merely reduced* — the two classes fall on opposite sides of `b/a = 1`. **Not the same. Passes.** ⚠ **`b/a` is a stand ratio, NOT a width ratio (N2, §0.1)** — on the declared full-width convention **both** classes are wider than tall, and the row below is where the player-visible claim lives. | *Disjoint ranges* — max decorative NN (2.83u) < min minable NN (3.0u). **Not the same. Passes.** |
+| **Magnitude at default framing** (§8.0) | **Amplified ×1.43.** 5.82 : 1 vs 1.92 : 1 apparent flatness — a 3.0× separation, against the 1.6× that is known to fail | **~36–68 px** peer spacing vs **≥132 px** isolation, both inside one ~20u × 11u ground window |
 | **Failure domain** | `BuildRock`'s `localScale` / tilt / scale-band — **transform values only.** No shader property, so it cannot silently no-op the way a `HasProperty`-guarded material set can (Bar 10's Devon-verified `_RimIntensity` mechanism) | The scatter loop's cluster-offset constant + the unconditional company pass — **inter-object placement.** A different function, a different mechanism, a different kind of edit |
 | **Survives desaturation?** | Yes — 100% geometric | Yes — 100% geometric |
 
 **Why the apex-height ratio is NOT listed as a third channel, and must not be re-added.** It varies
 (nominal 3.55×) and it is machine-checkable, so it *passes* a naive reading of the bar. But it is
-**silhouette geometry — the same axis as the aspect inversion** — so counting it would be exactly the
+**silhouette geometry — the same axis as the stand-ratio inversion** — so counting it would be exactly the
 `86caz5na6` failure (bob + sway counted as two). And §8.0 shows the camera suppresses it: worst case is
-**19 px vs 25 px**, a 6-pixel difference. **Report it; never count it.**
+**18 px vs 24 px** (0.518u and 0.682u × 35.6), a 6-pixel difference. **Report it; never count it.**
 
 ⚠ **Shared failure domain — named, because Bar 10's KNOWN-INCOMPLETE clause requires it.** The two channels
 have independent *mechanisms*, but they share **one** domain: both are baked into `Boot.unity` at bootstrap,
@@ -875,9 +1012,40 @@ instance to compare against.
 Written so Drew/Devon can pass or fail each one from a log line or a capture, with no taste judgement.
 **AC1–AC6 are machine-checkable. AC7 is the Sponsor's, and only the Sponsor's.**
 
+⚠ **AC1 SPLIT IN REVISION 3.1 (N3) — an inversion claim must gate BOTH sides.** Round 3's AC1 gated only
+the decorative class, so an implementation could satisfy it in full while leaving every minable node
+untouched: the cue would exist on paper and not on screen. Three things had to be fixed together, and the
+first is why the split was not simply "run AC1 on the ore nodes too":
+
+1. **`extents.y / max(extents.x, extents.z)` is the WRONG metric for the minable side, and it fails
+   silently.** `Renderer.bounds.extents` is measured about the bounds **centre**, so it excludes the ground
+   lift (`radius × 0.55f` ore `:3277`, `× 0.45f` boulder `:3449`). Applied literally to an ore node it
+   returns `V/P` ≈ `0.94/1.00` = **0.94 — below 1.0** — and a developer running round 3's AC1 symmetrically
+   would have concluded *there is no inversion*. The common metric is therefore **`S = bounds.max.y ÷
+   max(bounds.extents.x, bounds.extents.z)`** with the world ground plane at `y = 0` — which is exactly
+   §0.1's `b/a`, and which both pools can be measured on because both are placed at `y = 0` (`:3204`,
+   `:3385`, §5.2).
+2. **The minable side is REPORTED, not thresholded, and the arithmetic is why.** `S > 1.0` is a *nominal*
+   on that side, not a floor — §2.3's tails give a worst-case ore node `(0.55 + 0.626)/1.38` = **0.85** and a
+   worst-case boulder `(0.45 + 0.636)/1.38` = **0.79**, both under 1.0. A hard `S > 1.0` gate on the cued
+   class could therefore fail on geometry this spec **does not change** (§8.2 OOS: D1/D2/D4 touch no minable
+   mesh, lift or placement), leaving the implementer a red gate with no in-scope fix. This is §2.3's own
+   lesson applied to the class round 3 exempted from it: *a derived constant is a nominal; a measured worst
+   case is a gate.*
+3. **AC1c is the gate that actually encodes "inversion"** — measured disjointness of the two populations,
+   not a fixed threshold on either. Both pools are deterministic (60 `LP_Rock`; 24 ore seeds
+   `86300 + i × 17` `:3216`; 7 boulders `:3319`), so the full cross-product is cheap and the answer is the
+   same every build. ⚠ **And it is a genuine gate, not a formality: §2.3's tails permit an overlap.** The
+   decorative ceiling is `(1.268 × 0.60)/0.96` = **0.79** against the boulder floor of **0.79** — they meet.
+   **Named lever if AC1c measures an overlap:** lower `q` toward the §5.1 floor of 0.55, which drops the
+   decorative ceiling to `(1.268 × 0.55)/0.96` = **0.73** and restores the gap without touching a single
+   minable value. Do not reach for a minable-side change; that is out of scope by AC3 of the ticket.
+
 | # | Acceptance criterion | How it is verified | Fails when |
 |---|---|---|---|
-| **AC1** | Every `LP_Rock` in the saved `Boot.unity` is **wider than tall**: measured `Renderer.bounds` gives `extents.y / max(extents.x, extents.z) < 1.0` | EditMode test over the saved scene; prints the achieved **maximum** ratio across all instances | any single instance ≥ 1.0 |
+| **AC1a** *(non-cued side)* | Every `LP_Rock` in the saved `Boot.unity` has stand ratio **`S < 1.0`**, where **`S = bounds.max.y ÷ max(bounds.extents.x, bounds.extents.z)`** on the world ground plane `y = 0` (§0.1) | EditMode test over the saved scene; prints the achieved **maximum** `S` across all 60 instances | any single instance ≥ 1.0 |
+| **AC1b** *(cued side — NEW, N3)* | Every `OreNode` and every `Boulder` is measured on the **same** `S`, and the achieved **minimum** across all 24 + 7 is printed alongside AC1a's maximum | same test, same metric, same scene | not printed — see the note below for why this side is **reported**, not thresholded |
+| **AC1c** *(the inversion itself — NEW, N3)* | The two populations are **disjoint**: `min(S over minable) > max(S over decorative)`, and the achieved **gap** is printed | same test; prints both extremes and their difference | the ranges overlap on any pair of shipped instances |
 | **AC2** | Every `LP_Rock` has another `LP_Rock` within **2.83u** planar (the D4 box diagonal); and the achieved **maximum** nearest-neighbour distance is **< 3.0u** | same test; prints max NN + the count of singletons | max NN ≥ 3.0u, or any singleton survives the company pass |
 | **AC3** | Minimum planar distance `LP_Rock` → any minable node is **≥ 2.6u**; the `LP_Rock`, `OreNode` and `Boulder` sets are each **non-empty** | D2a (§5.2); prints min distance, sub-2.6u pair count, and all three set sizes | min < 2.6u, or **any set is empty** (the round-1 silent-no-op guard) |
 | **AC4** | The achieved **minimum apex-height ratio** (shortest minable ÷ tallest decorative) is printed | same test — **reported, not gated** (§2.3: it is a nominal, not a floor) | not printed at all |
@@ -909,12 +1077,15 @@ Written so Drew/Devon can pass or fail each one from a log line or a capture, wi
 3. A **side-profile** shot of a decorative cluster against the anchor sentence in §5.1 (Bar 4 /
    `lowpoly-quality.md` §0 — up-vs-down is invisible from player-eye and obvious side-on). **Diagnostic
    only** — it is a *favourable* camera by construction, so it may not be used as evidence for AC5/AC6.
-4. **Quote six measured numbers** (round 3 — adds AC2's and AC5's): (a) D2a's measured **minimum planar
-   distance** `LP_Rock` → minable node + the sub-2.6u pair count; (b) the three set **sizes**, proving none
-   was empty; (c) the achieved **minimum apex-height ratio** (reported); (d) the achieved **maximum
-   `b/a` aspect** across all `LP_Rock` — the figure that must hold below 1.0; (e) the achieved **maximum
-   `LP_Rock` nearest-neighbour distance** — the figure that must hold below 3.0u; (f) the **pixel** width ×
-   height of one decorative and one minable instance on the default-framing capture.
+4. **Quote SEVEN measured numbers** (revision 3.1 — adds the cued side of the inversion, N3): (a) D2a's
+   measured **minimum planar distance** `LP_Rock` → minable node + the sub-2.6u pair count; (b) the three set
+   **sizes**, proving none was empty; (c) the achieved **minimum apex-height ratio** (reported); (d) the
+   achieved **maximum stand ratio `S`** across all `LP_Rock` — the figure that must hold below 1.0 (AC1a);
+   (e) **NEW —** the achieved **minimum stand ratio `S`** across all `OreNode` + `Boulder`, on the same
+   metric, and the **gap** between it and (d) — the figure that must be positive (AC1b/AC1c); (f) the
+   achieved **maximum `LP_Rock` nearest-neighbour distance** — the figure that must hold below 3.0u; (g) the
+   **pixel** width (full planar extent) × height (apex above ground) of one decorative and one minable
+   instance on the default-framing capture, per §0.1's convention.
 
 **Soak probe targets for the Sponsor** (one-line asks, not a checklist to interpret):
 
@@ -934,21 +1105,35 @@ Written so Drew/Devon can pass or fail each one from a log line or a capture, wi
 > "the big one is fine but I'm still not sure about it" is the most likely partial verdict, and Tier 2 (§6)
 > is pre-staged for exactly that.
 >
-> **Round 3 adds a second, independently gradeable prediction — this one about the framing claim itself:**
-> on the default-framing shipped capture, the decorative instance will measure **≤ 20 px tall** and the
-> minable instance **≥ 28 px tall** (§8.0). **If that fails, §8.0's arithmetic is wrong** and every magnitude
+> **Round 3 adds a second, independently gradeable prediction — this one about the framing claim itself,
+> and revision 3.1 tightens its bounds onto the corrected rate (§8.0):** on the default-framing shipped
+> capture, the decorative instance will measure **≤ 18 px tall** (§5.1's worst-case ceiling apex 0.518u ×
+> 35.6 px/u) and the minable instance **≥ 24 px tall** (§8.0's worst-case ore apex 0.682u × 35.6 px/u).
+> Both bounds are now *derived* rather than picked, so a miss is diagnostic rather than arguable.
+> **If that fails, §8.0's arithmetic is wrong** and every magnitude
 > claim in this revision has to be re-derived from the measured capture instead — which is a *better*
 > outcome than discovering it at the soak, and is why AC5 quotes pixels rather than world units.
+>
+> ⚠ **One honest note on grading this prediction.** Round 3's version of it (`≤ 20 px` / `≥ 28 px`) was
+> stated against a px/u rate that revision 3.1 has since found to be ~5% high. A prediction graded against
+> a ruler that later moved is not a clean falsification either way — **grade only the bounds above.**
 
 **Bounded convergence claim.** This document is **spec-only**: no build, no capture, no test, no shipped
 evidence. Bars tested: **none.** The direction is unvalidated until a soak exercises it. What IS verified
 here is the *diagnosis*: every value in §2 and §8.0 was re-read from source at `origin/main` **`750f190`**
 in round 3 with the cited line numbers, including the rim inversion (§2.1) and the collar inversion (§2.4),
 both of which are present-tense defects independent of whether this direction is picked.
+**Revision 3.1 re-verified that boundary against `origin/main` `0f14b4f`:** `git diff --name-only
+750f190..origin/main` returns **no `Assets/**` path at all** (only `.claude/docs/`, `team/` and
+`tools/debug/` markdown), so every line anchor in this spec is current as of `0f14b4f`, not merely as of
+`750f190`. What DID move on `main` is `team/quality-bars.md` — see the KNOWN-INCOMPLETE note in the
+revision header.
 **Explicitly NOT verified — the honest boundary of this round:** the pixel figures in §8.0 are *arithmetic
 from verified camera constants*, not measurements from a capture (AC5 is where they become evidence); the
 1.6×-already-fails calibration is *derived from the shipped values plus the Sponsor's dead-click report*,
-not from an instrumented A/B; and no claim here has been through a build, a test run, or a soak.
+not from an instrumented A/B; **the C1–C4 checks added to Bar 10 in PR #386 have NOT been run against this
+direction (revision-header note; C1 is the open one)**; and no claim here has been through a build, a test
+run, or a soak.
 
 ---
 
@@ -960,13 +1145,22 @@ confirms or corrects it.
 
 > **Candidate Bar — interactive-vs-scenery must be readable by POSTURE, and the posture cue must be
 > measured in PIXELS at the default camera.** Two world objects that share a material family must not share
-> a *posture*. If one carries a verb and the other does not, the non-interactive one changes **aspect
-> ratio** — it crosses from taller-than-wide to **wider-than-tall**, and it stays there on **every
-> instance**; the interactive one stands up. **The class that changes is always the one with no gameplay
+> a *posture*. If one carries a verb and the other does not, the non-interactive one changes its **stand
+> ratio** — its apex stops clearing its own footprint radius, and it stays that way on **every instance**;
+> the interactive one stands up. **The class that changes is always the one with no gameplay
 > contract attached** (no verb, no yield, no carve, no timer, no capture harness) — never the hero prop.
 > **State the cue as a categorical inversion, never as a size ratio:** on a procedurally-jittered mesh a
 > height ratio is a *nominal* that collapses at the tail (`86cav8ybj` §2.3 — a claimed ≥2× floor measured
-> 1.3× worst-case), whereas an aspect inversion holds at every draw and is cheap to assert per instance.
+> 1.3× worst-case), whereas a stand-ratio inversion holds at every draw and is cheap to assert per instance.
+>
+> **And DECLARE THE MEASUREMENT CONVENTION IN THE SAME BREATH, because the inversion is invisible without
+> it** (`86cazhvdc` N1/N2). *Width* means full planar extent; *height* means apex above ground; the stand
+> ratio `b/a` is apex ÷ planar **half**-extent and is NOT a width ratio. Say which, once, at first use. A
+> spec that mixes half- and full-width silently will state a figure that misses by 40% and a plain-language
+> gloss its own table contradicts — and both will survive review, because each is individually reproducible
+> from an unstated convention. **A crossing of `b/a = 1` is NOT "taller than wide": under a down-pitched
+> camera almost every ground prop is wider than tall, and the thing the player actually reads is the
+> MAGNITUDE the crossing produces, not the crossing.**
 >
 > **And the magnitude clause, which is the half round 2 was missing (`86caz5na6`): the cue's separation is
 > stated in PIXELS at the project's default camera, and it is compared against a separation already known
@@ -1008,7 +1202,7 @@ perceptible channel; Bar 10 requires **two on different axes**. Three candidates
 
 | | Option | Axis | Magnitude at default framing | Cost | Recommendation |
 |---|---|---|---|---|---|
-| **P1** | **D4 — company vs solitude** (§5.4): tighten the decorative cluster constant so every scenery rock provably has a peer closer than any minable node has one | **POSITION** | peers ~37–72 px apart vs ≥139 px isolation, both inside one ground window | **one constant + the promoted company pass.** Possible `RockVerifyCapture` re-baseline; minable pools cannot move | ✅ **RECOMMENDED** — cheapest, board-supported (`21h12_49`, `21h22_52`), categorical by construction, and mostly already shipped |
+| **P1** | **D4 — company vs solitude** (§5.4): tighten the decorative cluster constant so every scenery rock provably has a peer closer than any minable node has one | **POSITION** | peers ~36–68 px apart vs ≥132 px isolation, both inside one ground window | **one constant + the promoted company pass.** Possible `RockVerifyCapture` re-baseline; minable pools cannot move | ✅ **RECOMMENDED** — cheapest, board-supported (`21h12_49`, `21h22_52`), categorical by construction, and mostly already shipped |
 | **P2** | Grass-collar inversion (§2.4) | POSITION | **~0 px** — grass is ~0.005 tufts/u², so the collar the minable class lacks has on average no tuft in it | grass-loop RNG shift + capture re-baseline; grazes the Sponsor-rejected #130 "grass through stone" defect | ❌ **Ruled out on measurement** (§7) — listed so the option is visibly considered, not silently dropped |
 | **P3** | Value/luminance inversion — make minable stone the *lighter* grey (it is currently the **darkest**, §2 COLOUR) | **COLOUR** | unquantified; a ~0.12-linear step between warm greys is what fog/bloom/grading eat first | two colour constants | ⚠️ **Do it as HYGIENE regardless** (the current inversion is a defect), but **do not count it** as the second channel — Bar 10 ranks colour last and the mid-green world eats hue |
 
@@ -1024,11 +1218,20 @@ Round 1 quoted these at **2.7×** and **2.1×**; §2.3 shows both figures were a
 nominal nor worst-case. Corrected, with worst-case shown **alongside** nominal, because a number you pick
 between must be the number you actually get:
 
-| Option | Squash `q` | Scale cap | Apex band | Aspect (nominal) | Height ratio **nominal** | Height ratio **worst case** | **Nominal apex on screen** (§8.0) |
+**Revision 3.1 restates the aspect column on the declared width convention (§0.1, N2).** Round 3 gave it as
+`a/b` — a planar **half**-extent reciprocal — at two different `P` nominals (1.05 for A/C, 1.00 for B), which
+is the same unstated-convention defect as N1. It is now **full planar extent ÷ apex above ground at the
+nominal draw `s = 0.90`** (the same instance across all three rows, which is what makes them comparable),
+with the on-screen figure beside it:
+
+| Option | Squash `q` | Scale cap | Apex band | Flatness, world → **on screen** | Height ratio **nominal** | Height ratio **worst case** | **Nominal apex on screen** (§8.0) |
 |---|---|---|---|---|---|---|---|
-| **A — recommended** | 0.60 | 1.25 | 0.09–0.52u | 1.86 : 1 | **3.55×** | **1.32×** | **~9 px** (floor ~3 px) |
-| **B — conservative** ("mound" risk-averse, and round 3's answer to the vanishing-floor risk) | 0.72 | 1.15 | 0.10–0.54u | 1.48 : 1 | **3.18×** | **1.27×** | **~11 px** (floor ~4 px) |
-| **C — keep the mass** (cap unchanged) | 0.60 | 1.55 | 0.09–0.64u | 1.86 : 1 | **3.04×** | **1.06×** | **~9 px** (ceiling ~24 px) |
+| **A — recommended** | 0.60 | 1.25 | 0.09–0.52u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.55×** | **1.32×** | **~9 px** (floor ~3 px) |
+| **B — conservative** ("mound" risk-averse, and round 3's answer to the vanishing-floor risk) | 0.72 | 1.15 | 0.10–0.54u | 0.99 ÷ 0.288 = **3.44 : 1** → **4.91 : 1** | **3.18×** | **1.27×** | **~10 px** (floor ~4 px) |
+| **C — keep the mass** (cap unchanged) | 0.60 | 1.55 | 0.09–0.64u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.04×** | **1.06×** | **~9 px** (ceiling ~23 px) |
+
+*(C's flatness equals A's at the nominal draw because they share `q`; C differs only in how far the band's
+ceiling reaches, which is what its worst-case column exists to show.)*
 
 **Read the worst-case column, because it is the whole reason this table was re-derived.** All three clear 2×
 comfortably at nominal. **None** clears 2× at the tail. And **option C's worst case is 1.06× — the tallest
@@ -1038,7 +1241,7 @@ worst case and the stronger read; C is the one I would now argue against on evid
 
 **Round 3's addition — the height columns are now a REPORT, not the decision.** §8.0 shows the camera
 suppresses height by ×0.57, so the difference between A's 1.32× and C's 1.06× worst case is a handful of
-pixels either way. **In all three the aspect inversion holds at every draw** (§2.3) and it is the channel
+pixels either way. **In all three the stand-ratio inversion holds at every draw on the decorative side** (§2.3) and it is the channel
 the framing amplifies. So what the Sponsor is really choosing is **how much "decoratedness" the shoreline
 keeps** — and, new in round 3, **whether the smallest slabs stay visible at all** (§5.1: at option A's floor
 they render ~3 px tall against ~11 px grass blades). If that worry dominates, **B is the safer pick**, and it
@@ -1048,8 +1251,30 @@ gave it.
 ### 10.4 Tier 2 pre-authorisation
 
 If the boulder reads ambiguous at soak, may the chip skirt (§6) go straight into a follow-up, or should it
-come back for a second direction-pick? (Unchanged from round 2. Note the §6 NavMesh-carve hazard must be
-resolved first either way.)
+come back for a second direction-pick?
+
+**The hazard, stated inline so a "yes" is actionable — revision 3.1, and it is the reason round 3's version
+of this question could not honestly be answered.** `MineableNodeState.TryPlanarFootprint`
+(`MineOre.cs:812`) encapsulates **every** renderer inside a minable node (`b.Encapsulate(_renderers[i]
+.bounds)`, `:821`) and feeds the resulting planar half-extent into `MovementCarveWorldRadius` (`:711`), so
+**any chip child that pokes outside the boulder's own planar silhouette widens the NavMesh carve** — which
+re-opens the round-8 defect the Sponsor already rejected once, verbatim in the source: *"im blocked but
+already at this distance in the screenshot, not at the edge of the boulder"* (`MineOre.cs:686-687`), the
+invisible-wall verdict.
+
+**So what a "yes" here actually pre-authorises, and what it does not:**
+
+- ✅ **Yes authorises the CARVE-NEUTRAL form only** — chips kept strictly inside the body's planar
+  silhouette, with `_carveFootprint` quoted before/after in the PR and `MineBoulderPlacementObstacleTests` +
+  `BoulderSceneTests` green. That variant cannot move a carve by construction, so it is a pure look change
+  and needs no second pick.
+- ❌ **Yes does NOT authorise the other resolution §6 names** — restricting `TryPlanarFootprint` to the body
+  renderer. That changes shipped blocking behaviour on **every** minable node, ore included, on a code path
+  the Sponsor has already soak-rejected once. **It comes back for its own decision** regardless of the
+  answer here.
+
+**Cost of a "no":** one extra direction-pick round after the soak, on a beat that is already fully specified
+— i.e. latency, not rework.
 
 ---
 
@@ -1061,7 +1286,11 @@ resolved first either way.)
   · `86cadj4g7` (grass-in-stone footprint rule).
 - **Bars:** `team/quality-bars.md` Bar 10 (single-channel collapse — **and specifically its 2026-07-31
   "a channel must VARY between cued and non-cued instances" amendment plus the `86caz5na6` KNOWN-INCOMPLETE
-  note, which are what round 3 re-audits against**), Bar 3 (material-honest, pattern via geometry), Bar 4
+  note, which are what round 3 re-audits against**) and its **§ "Bar 10 — the four checks"** section, which
+  landed on `main` in PR #386 *after* round 3 was written: revision 3.1 takes **one** thing from it — its
+  canonical default-gameplay-framing figure, `720 / (2 × 14 × tan 22.5°) ≈ 62 px per world metre`, which is
+  what exposed §8.0's px-per-unit error — and **defers the C1–C4 re-audit to round 4** (revision-header
+  KNOWN-INCOMPLETE note). Also Bar 3 (material-honest, pattern via geometry), Bar 4
   (real-world anchor + side profile), Bar 6 (the board is a guide, not a contract). Bar 1 (organic, never
   geometric) also constrains D4 — a tightened cluster must still read as litter, not as a formation.
 - **Docs:** `.claude/docs/art-direction.md` (board; the rock language in `21h10_44`, `21h12_49`,
@@ -1071,12 +1300,16 @@ resolved first either way.)
   (amplitude ceiling — why MOTION is not on the axis menu) · `.claude/docs/unity6-mastery.md` §2
   (shared-material batching — D1/D4 add **zero** new materials and zero draw calls; D2a adds no runtime work
   at all — it is an editor/test-time measurement, and its normal outcome is zero scene change).
-  **NOTE on citation style (round 3):** `.claude/docs` and `team/quality-bars.md` are cited by **§ anchor,
-  never by line number** — Bar 10's own third-instance note records three cites shifting inside one PR. The
+  **NOTE on citation style (round 3, reaffirmed in revision 3.1):** `.claude/docs` and
+  `team/quality-bars.md` are cited by **§ anchor, never by line number** — Bar 10's own third-instance note
+  records three cites shifting inside one PR, and PR #386 has since added ~366 lines to that same file
+  without invalidating a single § anchor here. The
   `Assets/**` cites in this doc are line-anchored because the claims are arithmetic on specific literals; all
-  of them carry the ref they were verified at (`750f190`), and **round 3 found that every
+  of them carry the ref they were verified at, and **round 3 found that every
   `MovementCameraScene.cs` cite from round 2's `840a1c6` had drifted** — re-verify before quoting them
-  onward.
+  onward. **Revision 3.1 re-verified them at `0f14b4f`:** `git diff --name-only 750f190..origin/main`
+  returns no `Assets/**` path, so every `Assets/**` anchor in this spec is current at `0f14b4f` — the ref to
+  quote onward is now **`0f14b4f`**, not `750f190`.
 - **Memory:** `[[unity-procedural-committed-assets-go-stale]]` (the shared failure domain both channels sit
   in — §8.1) · `[[physical-features-anchor-realworld-not-metric]]` (Bar 4's mechanism; §5.1's anchor
   sentence) · `[[verify-grounding-soaks-by-gameplay-cam-visual]]` (why §8.0 exists and why the side-profile
