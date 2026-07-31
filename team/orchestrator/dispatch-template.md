@@ -516,7 +516,7 @@ Short notes per role. The mandatory + situational blocks above are the contract 
 ### Priya (Project Leader / coordination)
 
 - **Priya does NOT spawn peers** — she authors process docs, retros, backlogs, M3 design seeds. The orchestrator dispatches workers based on her recommendations.
-- **`team/DECISIONS.md` is Priya-only** (weekly batch-PR cadence, Mondays). Other roles' final reports include `Decision draft:` lines; Priya batches them via `decisions-batch-pr-template.md`. Per the project CLAUDE.md "Doc conventions" section.
+- **`team/DECISIONS.md` is Priya-only** (weekly batch-PR cadence, Mondays). Other roles' final reports include `Decision draft:` lines; Priya batches them per `team/GIT_PROTOCOL.md` § **Decisions log — no direct edits** and `team/DECISIONS.md`'s own header. Per `.claude/agents/priya.md` § **Doc conventions**.
 - **Reviewer:** Devon OR Drew per `auto-execute-classes-without-sponsor-ack` § peer-reviewer-selection-by-surface (engine-adjacent docs → Devon; game-side / content docs → Drew). Priya orch-docs PRs WITH peer-reviewer attached + CI green are in the auto-merge class per rule 6 — orchestrator merges without Sponsor sign-off.
 
 ## Worktree cleanup (orchestrator-side, post-merge)
