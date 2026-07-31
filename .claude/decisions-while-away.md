@@ -690,3 +690,18 @@ Append-only audit log of orchestrator autonomous decisions made during away-mode
 - **Two corrections that went the OTHER way tonight, worth recording for balance:** Priya's N1 fix corrected a scope error **Tess** had made ("latter two shift" — all three shifted, because #379's +28 lines sit above the §2 row); and Tess confirmed the orchestrator's suggested `## How to use` line with a justification the orchestrator had not supplied (it is a How-to-use line and not a bar because its surface is a document and its source a review chain; row 11 would dilute the Sponsor/soak `Source` column; and #363's citation is apt because bar #10's own Invariance check is the same move one level down).
 - **Reversibility:** revert in 1 PR; single row + one header bullet.
 - **Status:** pending review
+
+## 2026-07-31 0038 UTC — Away tick: filled all SIX persona slots off the follow-up backlog
+
+- **Decided:** dispatched all six personas. Board scanned direct in-turn (46 open tickets); runner verified **online and idle**; every persona was free, so a fully-idle tick would have been the bug.
+  - **Drew → `86cabkhjg`** (build-slot cache-isolation spike) — holds the SINGLE Unity build slot. Sponsor-cleared earlier tonight; Erik's Q4 says not hard-dependent on the CI split. Told to reproduce the EPERM first and quote both states, per `86caz5nr2`.
+  - **Devon → `86caz5nr2`** (write "a gate is not a gate until demonstrated RED" into `TESTING_BAR.md`) — he is one of its three convergent instances and supplied the causal link (#351's clean-merge near-miss is *why* he mutation-tested #369).
+  - **Tess → `86caz5na6`** (close the three bar-#10 evasions she found) — scoped to ACs 1–3, DESIGN AC4 only, because AC4's capture harness is build-lane and would collide with Drew.
+  - **Priya → hygiene + the owed `DECISIONS.md` batch** (12+ drafts parked in #376 §15). Also asked to resolve the absorbed-trio question I declined to decide, and to audit tonight's 14 new tickets **as a set** for overlap.
+  - **Uma → `86caz5m75`** (Rec 5 material-slot contradiction) — she produced the evidence that made it live (Rec 5 names the axe, which is in the weapon pack), so the intent call is hers.
+  - **Erik → AC4 feasibility** of the two-sided capture, paired with Tess so his constraints can bound her spec rather than duplicating her.
+- **Deliberate anti-collision:** ONE ticket in the Unity build lane (Drew); the other five are non-build. Tess and Priya both work under `team/` so Priya is explicitly told not to touch `quality-bars.md`. Erik and Tess are paired on `86caz5na6` with a stated division (his = what a capture CAN provide, hers = the bar text).
+- **Erik's brief carries two warnings from tonight's failures:** his worktree is pinned to `363c1a0` so any file he reads is stale (he reported a merged CI split as missing from exactly this), and his notes ORPHAN unless harvested (two were in zero commits, one since 2026-06-28).
+- **Explicitly told Erik an honest "this cannot be automated, it is a soak aid" is a valuable answer** — the failure mode on a feasibility question is manufacturing an automatable design to satisfy the ask.
+- **Not merged, not staged this tick:** #351 / #369 / #370 all read `mergeable=UNKNOWN`, which is the transient post-merge recomputation (main moved to `90d024b` with #380), not the #364-class desync — their `headRefOid`s agree with `ls-remote`. All three are already staged in the away-queue with gate evidence; nothing new to add.
+- **Status:** pending review
