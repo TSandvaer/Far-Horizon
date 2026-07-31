@@ -62,12 +62,30 @@ namespace FarHorizon.EditTests
     ///     skips exactly those bones: both move together and the guard passes. The edited set is now derived by
     ///     DIFF and asserted against a LITERAL bone/property list held here, not by asking the generator.
     ///
-    /// EVERY SHARPENED GUARD CARRIES A NEGATIVE CONTROL (4 tests / 5 cases, the Guard2_/Guard4_/Guard6_ methods
-    /// below) that runs the guard's OWN assertion body — not a re-implementation of it — against a clip with the
-    /// defect INJECTED, and requires it to throw. Each one ALSO requires the RETIRED form to PASS on that same
-    /// clip, in the same test. A guard whose red has never been demonstrated is not a guard; and the retired-form
-    /// precondition is what proves the sharpening changed the OUTCOME rather than merely the code — without it,
-    /// a negative control cannot tell "the guard caught the defect" from "the guard was always going to throw".
+    /// EVERY SHARPENED GUARD CARRIES A NEGATIVE CONTROL (6 tests / 8 cases, the Guard2_/Guard4_/Guard4c_/Guard6_
+    /// methods below) that runs the guard's OWN assertion body — not a re-implementation of it — against a clip
+    /// with the defect INJECTED, and requires it to throw. Each one ALSO requires the RETIRED form to PASS on that
+    /// same clip, in the same test. A guard whose red has never been demonstrated is not a guard; and the
+    /// retired-form precondition is what proves the sharpening changed the OUTCOME rather than merely the code —
+    /// without it, a negative control cannot tell "the guard caught the defect" from "the guard was always going
+    /// to throw".
+    ///
+    /// ===== 86cazm8fk — ASSERT (c) BROUGHT UP TO THAT SAME BAR (Tess's #392 review NITs N1/N2/N3) =====
+    /// (c) — the per-UNEDITED-bone equality assert added above — shipped as the one NEW assert in this file with
+    /// no negative control and no anti-vacuity floor. That is the same shape as the defect the 86caxgyc4 work
+    /// exists to close, one level down: an assert whose red was never demonstrated, and a loop over a SET that
+    /// reports a pass when the set is empty. Both are now closed, and both are DEMONSTRATED rather than argued:
+    ///   • N1 — <see cref="Guard4c_RedsOnAnUneditedBoneLeak_ThatTheRetiredWholeSkeletonCeilingWouldHaveHidden"/>
+    ///     injects an 8deg one-frame pop on mixamorig:Spine, requires the RETIRED whole-skeleton-max form to PASS
+    ///     it (it does — 8deg sits under raw's 21.10deg @mixamorig:RightHand), and requires (c) to RED naming the
+    ///     bone. Same form as the four controls above it.
+    ///   • N2 — (c) now counts what it compared and carries the floor guard (6) already had
+    ///     (<see cref="MinUneditedBonesCompared"/>). <see cref="Guard4c_RedsWhenTheUneditedBoneSweepGoesVacuous"/>
+    ///     collapses <c>_bones</c> two ways and requires a throw for each; for the shrink that would previously
+    ///     have gone GREEN it first runs the floor-LESS form and requires it to PASS, so the floor is shown to
+    ///     change the outcome.
+    ///   • N3 — <see cref="FootMetrics"/> now calls the shared <see cref="FrameCount"/> helper instead of holding
+    ///     a second inline copy of it (behaviour-identical on every clip longer than 2 frames).
     /// </summary>
     public class PickaxeMineClipUprightTests
     {
@@ -86,6 +104,16 @@ namespace FarHorizon.EditTests
         /// this is deliberately ~20x tighter than <see cref="StepSlackDeg"/> so a leak into an unedited bone reds
         /// long before it could hide under the whole-skeleton ceiling.</summary>
         private const float UneditedStepSlackDeg = 0.05f;
+
+        /// <summary>ANTI-VACUITY FLOOR for assert (c)'s unedited-bone sweep — the sibling of guard (6)'s
+        /// <c>Assert.Greater(compared, 50)</c>. (c) iterates the rig's bone set minus the 3 edited bones; a set
+        /// that has collapsed iterates nothing and PASSES, which is pass-inferred-from-absence. MEASURED on
+        /// castaway v4: <c>_bones.Count = 41</c>, so 38 unedited bones are compared. The floor is set at half the
+        /// skeleton rather than just above zero because every OTHER calibration in this file is measured against
+        /// this same rig — a sweep that has lost half its bones has invalidated those numbers too, so redding
+        /// there is correct rather than flapping. Demonstrated red by
+        /// <see cref="Guard4c_RedsWhenTheUneditedBoneSweepGoesVacuous"/>.</summary>
+        private const int MinUneditedBonesCompared = 20;
 
         /// <summary>Slack on a COMPENSATED upper leg's WORLD orientation vs the raw clip. The compensation
         /// (<c>upLeg' = Inverse(H') * H * upLeg</c>, resampled onto the authored frame grid) preserves each leg's
@@ -131,6 +159,19 @@ namespace FarHorizon.EditTests
         private const float InjectedHipsJerkDeg = 15f;   // must land BELOW raw's whole-skeleton worst (~20.8deg)
         private const float InjectedTiltSpikeDeg = 60f;  // must push one frame's torso tilt PAST the 46deg ceiling
         private const float InjectedSpineKeyDelta = 0.01f;
+        /// <summary>Amplitude of the one-frame pop injected on an UNEDITED bone for assert (c)'s negative control.
+        /// Sized against BOTH measured bounds so the control demonstrates the hole rather than merely throwing:
+        /// it must exceed <see cref="UneditedControlBone"/>'s own raw worst step (MEASURED 3.71deg on
+        /// mixamorig:Spine) by more than <see cref="UneditedStepSlackDeg"/> so (c) reds, AND stay below raw's
+        /// whole-skeleton worst (MEASURED 21.10deg @mixamorig:RightHand) so the RETIRED whole-skeleton-max form
+        /// still PASSES the same clip. 8deg sits mid-band; both bounds are asserted as preconditions in the
+        /// control, so a clip change surfaces as a named precondition failure, not as a silent weakening.</summary>
+        private const float InjectedUneditedBoneJerkDeg = 8f;
+
+        /// <summary>The UNEDITED bone assert (c)'s negative control pops. mixamorig:Spine on purpose: it is the
+        /// bone (c)'s own comment names as the leak that the whole-skeleton max swallows, it carries a complete
+        /// local-rotation quad, and its exact-last-segment name does not collide with Spine1/Spine2.</summary>
+        private const string UneditedControlBone = BonePrefix + "Spine";
 
         private GameObject _root;
         private Transform _hips, _head, _lFoot, _rFoot;
@@ -258,8 +299,9 @@ namespace FarHorizon.EditTests
         /// (a) the BLENDED bone's local step vs its OWN raw step — the N2 fix; (b) the whole-skeleton max, KEPT
         /// because it is the coarse net for a repair that leaks into a bone the generator never names;
         /// (c) per-UNEDITED-bone equality, which catches a leak the whole-skeleton max swallows whenever the leak
-        /// lands below raw's worst bone; (d) the two COMPENSATED legs' WORLD orientation, which is where a visible
-        /// jerk on those two bones actually lives.</summary>
+        /// lands below raw's worst bone, plus (c-floor) the anti-vacuity count that stops that loop reporting a
+        /// pass when its bone set has collapsed (86cazm8fk / N2); (d) the two COMPENSATED legs' WORLD orientation,
+        /// which is where a visible jerk on those two bones actually lives.</summary>
         private void AssertNoNewPerFrameStep(AnimationClip raw, AnimationClip repaired, string label)
         {
             var rawSteps = PerBoneWorstStep(raw);
@@ -294,8 +336,9 @@ namespace FarHorizon.EditTests
                 "tangents must not trade the contorted pose for a visible jerk (the #197 defect class).");
 
             // (c) EVERY UNEDITED BONE — byte-copied curves must render the identical per-frame step. This is the
-            //     half of (b)'s old job that the max could never do: a 5deg leak onto Spine sits far under raw's
-            //     20.8deg worst bone and passes (b) silently.
+            //     half of (b)'s old job that the max could never do: an 8deg leak onto Spine (the amplitude the
+            //     negative control injects) sits far under raw's 21.1deg worst bone and passes (b) silently.
+            int uneditedCompared = 0;
             foreach (var kv in fixSteps)
             {
                 if (EditedBones.Contains(kv.Key)) continue;
@@ -304,7 +347,24 @@ namespace FarHorizon.EditTests
                     $"the {label} clip's per-frame step on the UNEDITED bone {kv.Key} moved " +
                     $"({rawSteps[kv.Key]:F3}deg raw -> {kv.Value:F3}deg) — the repair is scoped to the pelvis hinge " +
                     "plus its upper-leg compensation ONLY, so every other bone must render byte-identically.");
+                uneditedCompared++;
             }
+
+            // (c-floor) ANTI-VACUITY. (c) is a loop over a SET; a set that has shrunk to nothing iterates nothing
+            //     and SUCCEEDS — pass inferred from absence, the exact shape this whole PR exists to close, one
+            //     level down. Guard (6) already carries this floor (Assert.Greater(compared, 50)); (c) did not.
+            //     Demonstrated by Guard4c_RedsWhenTheUneditedBoneSweepGoesVacuous.
+            Debug.Log($"[pickaxe-guard] unedited({label}) compared={uneditedCompared} of {fixSteps.Count} swept " +
+                      $"bones (floor {MinUneditedBonesCompared})");
+            Assert.Greater(uneditedCompared, MinUneditedBonesCompared,
+                $"the UNEDITED-BONE sweep compared only {uneditedCompared} bone(s) — this guard is VACUOUS. (c) is a " +
+                $"loop over the rig's bone set minus the {EditedBones.Length} edited bones; if that set collapses " +
+                "(the mixamorig: name filter in SetUp stops matching, the rig is swapped, the bone list is built " +
+                $"empty) the loop iterates nothing and PASSES. Floor {MinUneditedBonesCompared} against the " +
+                "measured 38 unedited bones on castaway v4. Do NOT lower this to make a rig change green: every " +
+                "calibration in this file (raw's 21.10deg whole-skeleton worst @mixamorig:RightHand, the 0.05deg " +
+                "unedited slack) is measured against THIS skeleton, so a sweep that has lost half of it has " +
+                "invalidated those numbers too — re-measure with AttackClipPoseDiag instead.");
 
             // (d) THE TWO COMPENSATED UPPER LEGS — guarded on WORLD orientation, not on a local step, and this is a
             //     MEASURED decision rather than a stylistic one. Authoring (a) over all three bones red on the
@@ -531,6 +591,134 @@ namespace FarHorizon.EditTests
             StringAssert.Contains(bone, ex.Message);
         }
 
+        /// <summary>NEGATIVE CONTROL for guard (4) assert (c) — the one new assert that shipped without one
+        /// (86cazm8fk / N1). A one-frame pop on an UNEDITED bone (mixamorig:Spine), sized to sit BELOW raw's
+        /// whole-skeleton worst step so the RETIRED whole-skeleton-max form demonstrably PASSES the same clip —
+        /// that is precisely the hole (c) exists to close, since the max is set by mixamorig:RightHand and hands
+        /// every other bone ~21deg of free headroom. The sharpened form must RED and must name the bone.</summary>
+        [Test]
+        public void Guard4c_RedsOnAnUneditedBoneLeak_ThatTheRetiredWholeSkeletonCeilingWouldHaveHidden()
+        {
+            var raw = FindFbxClip(CharacterAssetGen.AttackPickaxeFbxPath, CharacterAssetGen.PickaxeSwingClip);
+            var repaired = AssetDatabase.LoadAssetAtPath<AnimationClip>(PickaxeMineCurveFix.RepairedClipPath);
+            Assert.IsNotNull(raw, "raw clip missing");
+            Assert.IsNotNull(repaired, "repaired clip missing");
+            CollectionAssert.DoesNotContain(EditedBones, UneditedControlBone,
+                $"this control only demonstrates (c) if {UneditedControlBone} is OUTSIDE the edited set — (c) skips " +
+                "every edited bone, so an edited control bone would be silently excused by the loop it is meant to " +
+                "red. If the repair ever starts editing this bone, pick another unedited one.");
+
+            var mutant = CloneClip(repaired, PickaxeMineCurveFix.RepairedClipName + "__uneditedLeakMutant");
+            int spikeFrame = FrameCount(mutant) / 2;
+            var jerk = Quaternion.AngleAxis(InjectedUneditedBoneJerkDeg, Vector3.right);
+            ReKeyBoneRotationOnFrameGrid(mutant, UneditedControlBone, (f, q) => f == spikeFrame ? jerk * q : q);
+
+            var rawSteps = PerBoneWorstStep(raw);
+            var mutSteps = PerBoneWorstStep(mutant);
+            float rawWorst = WorstOf(rawSteps, out string rawBone);
+            float mutWorst = WorstOf(mutSteps, out string mutBone);
+            Debug.Log($"[pickaxe-guard] NEGCTRL(4c) injected {InjectedUneditedBoneJerkDeg}deg pop on " +
+                      $"{UneditedControlBone} @frame {spikeFrame}: that bone raw={rawSteps[UneditedControlBone]:F4} " +
+                      $"-> mutant={mutSteps[UneditedControlBone]:F4}deg (slack {UneditedStepSlackDeg:F2}); " +
+                      $"whole-skeleton raw={rawWorst:F2}@{rawBone} -> mutant={mutWorst:F2}@{mutBone}");
+
+            Assert.Greater(mutSteps[UneditedControlBone], rawSteps[UneditedControlBone] + UneditedStepSlackDeg,
+                $"PRECONDITION of this negative control: the injected {InjectedUneditedBoneJerkDeg}deg pop must move " +
+                $"{UneditedControlBone}'s worst per-frame step clear of its own raw value " +
+                $"({rawSteps[UneditedControlBone]:F4}deg) by more than the {UneditedStepSlackDeg:F2}deg slack, or " +
+                "(c) would be redding on float noise rather than on the injected defect. Raise " +
+                "InjectedUneditedBoneJerkDeg rather than lowering the slack.");
+
+            // The RETIRED form — the whole-skeleton max, which is ALL guard (4) had before 86caxgyc4. It must PASS.
+            Assert.LessOrEqual(mutWorst, rawWorst + StepSlackDeg,
+                $"PRECONDITION of this negative control: the injected {InjectedUneditedBoneJerkDeg}deg pop on " +
+                $"{UneditedControlBone} must stay UNDER the retired whole-skeleton ceiling (raw worst " +
+                $"{rawWorst:F2}deg @{rawBone}), so the retired form demonstrably PASSES a clip the per-unedited-bone " +
+                $"form reds — that IS the hole. Measured mutant whole-skeleton worst {mutWorst:F2}deg @{mutBone}; " +
+                "shrink InjectedUneditedBoneJerkDeg rather than deleting this assert.");
+
+            var ex = Assert.Throws<AssertionException>(
+                () => AssertNoNewPerFrameStep(raw, mutant, "unedited-leak mutant"),
+                $"guard (4) must RED on a {InjectedUneditedBoneJerkDeg}deg single-frame pop on the UNEDITED bone " +
+                $"{UneditedControlBone}. If it passes, assert (c) is not wired and a leak into any bone below raw's " +
+                "21deg RightHand worst is invisible to this suite.");
+            Debug.Log($"[pickaxe-guard] NEGCTRL(4c) caught -> {ex.Message.Split('\n')[0].Trim()}");
+            // The bone must be named EXACTLY: a bare Contains(UneditedControlBone) would also be satisfied by a red
+            // on mixamorig:Spine1/Spine2, so it could not tell "(c) caught the injected pop" from "(c) reddened on
+            // some other spine bone" — the same can't-distinguish shape this whole file exists to close.
+            StringAssert.Contains("UNEDITED bone " + UneditedControlBone + " moved", ex.Message);
+        }
+
+        /// <summary>NEGATIVE CONTROL for guard (4) assert (c)'s ANTI-VACUITY FLOOR (86cazm8fk / N2). (c) is a loop
+        /// over a SET, and a loop over an empty set succeeds without testing anything — so the floor's own red has
+        /// to be demonstrated, not asserted. Two shrinks of <c>_bones</c>, each requiring a throw:
+        /// <list type="bullet">
+        /// <item><c>emptied</c> — the whole bone list cleared. Caught EARLIER than the floor, by the edited-bone
+        /// presence assert at the top of <see cref="AssertNoNewPerFrameStep"/> ("the rig must carry ..."), which is
+        /// stated here rather than glossed: an emptied list cannot reach (c) at all.</item>
+        /// <item><c>edited-bones-plus-the-raw-worst-bone</c> — the shrink the floor actually exists for, and the
+        /// one that would have gone GREEN. Every earlier assert still passes IDENTICALLY (Hips is present for (a);
+        /// mixamorig:RightHand is present so (b) compares the same 21.10deg on both clips), the (c) loop then runs
+        /// over ONE bone and succeeds — so before this floor, a bone sweep that had collapsed by 95% reported a
+        /// pass. The floor-less form is run first here and REQUIRED to pass, which is what proves the floor changed
+        /// the outcome rather than the code.</item>
+        /// </list>
+        /// Both shrinks run against the SHIPPED repaired clip with no injected defect: the property under test is
+        /// "an empty sweep cannot report a pass", not "a defect is caught".</summary>
+        [TestCase("emptied")]
+        [TestCase("edited-bones-plus-the-raw-worst-bone")]
+        public void Guard4c_RedsWhenTheUneditedBoneSweepGoesVacuous(string shrink)
+        {
+            var raw = FindFbxClip(CharacterAssetGen.AttackPickaxeFbxPath, CharacterAssetGen.PickaxeSwingClip);
+            var repaired = AssetDatabase.LoadAssetAtPath<AnimationClip>(PickaxeMineCurveFix.RepairedClipPath);
+            Assert.IsNotNull(raw, "raw clip missing");
+            Assert.IsNotNull(repaired, "repaired clip missing");
+
+            WorstOf(PerBoneWorstStep(raw), out string rawWorstBone);
+            var full = _bones;
+            var shrunk = shrink == "emptied"
+                ? new List<Transform>()
+                : full.Where(t => EditedBones.Contains(t.name) || t.name == rawWorstBone).ToList();
+
+            _bones = shrunk;
+            try
+            {
+                Debug.Log($"[pickaxe-guard] NEGCTRL(4c-vacuity) _bones {full.Count} -> {_bones.Count} ({shrink}; " +
+                          $"raw worst bone {rawWorstBone}; floor {MinUneditedBonesCompared})");
+
+                if (shrink != "emptied")
+                {
+                    // The RETIRED form: assert (c) exactly as it shipped in PR #392 — the same loop, no floor.
+                    bool retiredPassed = RetiredFloorlessUneditedStepSweepPasses(
+                        PerBoneWorstStep(raw), PerBoneWorstStep(repaired), out int retiredCompared, out string why);
+                    Debug.Log($"[pickaxe-guard] NEGCTRL(4c-vacuity) retired floor-less (c): passed={retiredPassed} " +
+                              $"compared={retiredCompared} why={why}");
+                    Assert.IsTrue(retiredPassed,
+                        "PRECONDITION of this negative control: with the bone sweep collapsed, the floor-LESS form " +
+                        "of (c) must PASS — that is the hole N2 named. Got: " + why);
+                    Assert.LessOrEqual(retiredCompared, MinUneditedBonesCompared,
+                        $"PRECONDITION: the shrunken sweep must sit at or below the floor ({retiredCompared} vs " +
+                        $"{MinUneditedBonesCompared}), else this case is not demonstrating vacuity at all.");
+                }
+
+                var ex = Assert.Throws<AssertionException>(
+                    () => AssertNoNewPerFrameStep(raw, repaired, shrink + " bone set"),
+                    $"guard (4) must REFUSE to report a pass when its bone sweep has collapsed ({shrink}). A green " +
+                    "here is pass-inferred-from-absence: the assertion iterated nothing and succeeded.");
+                Debug.Log($"[pickaxe-guard] NEGCTRL(4c-vacuity) {shrink}: caught -> " +
+                          ex.Message.Split('\n')[0].Trim());
+
+                if (shrink == "emptied")
+                    StringAssert.Contains("the rig must carry", ex.Message);
+                else
+                    StringAssert.Contains("this guard is VACUOUS", ex.Message);
+            }
+            finally
+            {
+                _bones = full;
+            }
+        }
+
         /// <summary>NEGATIVE CONTROL for guard (2) / Devon N3. A one-frame torso-tilt spike placed at the frame
         /// FURTHEST from every retired 41-sample point (measured, not assumed) so the retired sweep steps straight
         /// over it. The retired sweep must read the clip as inside the band; the frame-grid sweep must RED.</summary>
@@ -739,6 +927,37 @@ namespace FarHorizon.EditTests
             return worst;
         }
 
+        /// <summary>The RETIRED, FLOOR-LESS form of assert (c) — the unedited-bone sweep exactly as it shipped in
+        /// PR #392, reported rather than thrown. Present ONLY so
+        /// <see cref="Guard4c_RedsWhenTheUneditedBoneSweepGoesVacuous"/> can show it PASSING a collapsed bone sweep
+        /// that the floored form reds; never call it as a real check. Deliberately a re-statement of (c) rather
+        /// than a call into it — a foil has to be able to pass where the live guard fails, so it cannot BE the
+        /// live guard (the other foils in this file, <see cref="PeakTorsoTiltRetiredCoarse"/> and
+        /// <see cref="RetiredProductionFilterFormPasses"/>, are re-statements for the same reason).</summary>
+        private static bool RetiredFloorlessUneditedStepSweepPasses(Dictionary<string, float> rawSteps,
+                                                                    Dictionary<string, float> fixSteps,
+                                                                    out int compared, out string why)
+        {
+            compared = 0;
+            why = "retired floor-less form passed";
+            foreach (var kv in fixSteps)
+            {
+                if (EditedBones.Contains(kv.Key)) continue;
+                if (!rawSteps.ContainsKey(kv.Key))
+                {
+                    why = $"retired form REDDED: bone {kv.Key} is absent from the raw sweep";
+                    return false;
+                }
+                if (Mathf.Abs(rawSteps[kv.Key] - kv.Value) > UneditedStepSlackDeg)
+                {
+                    why = $"retired form REDDED on {kv.Key} ({rawSteps[kv.Key]:F3} -> {kv.Value:F3}deg)";
+                    return false;
+                }
+                compared++;
+            }
+            return true;
+        }
+
         /// <summary>Worst-of-the-two-feet horizontal travel and dip-below-own-start, in metres. Sampled on the
         /// clip's own authored FRAME grid — a coarse sweep can step straight over a brief one-frame dip.</summary>
         private void FootMetrics(AnimationClip clip, out float worstTravel, out float worstDip)
@@ -747,7 +966,7 @@ namespace FarHorizon.EditTests
             Vector3 lFirst = Vector3.zero, rFirst = Vector3.zero;
             float lTravel = 0f, rTravel = 0f, lY0 = 0f, rY0 = 0f;
             float fps = ClipFps(clip);
-            int frames = Mathf.Max(1, Mathf.RoundToInt(clip.length * fps));
+            int frames = FrameCount(clip);   // 86cazm8fk/N3: the shared helper, not a second inline copy of it.
             for (int f = 0; f <= frames; f++)
             {
                 clip.SampleAnimation(Model, Mathf.Min(clip.length, f / fps));
