@@ -47,6 +47,34 @@ Every new asset must:
 
 **Why:** SRP Batcher batches by shader variant, not by material count. One URP/Unlit shader across 20 weapons = effectively 1 draw call. A unique baked texture per weapon = a draw-call break per weapon — kills batching. (Unity 6 Manual, "SRPBatcher in URP," official doc.)
 
+### A rim / Fresnel highlight is NOT reachable on the weapon material — and setting one FAILS SILENTLY (from the #351 `86cah7y5b` find-in-world hand-off, 2026-07-31)
+
+The flip side of the **Why** above. The whole weapon set shares ONE material on **URP/Unlit**, and URP/Unlit has **no rim / Fresnel property at all**. Re-measured on `origin/main` @ `e054aa7`:
+
+- `Assets/Scripts/Editor/WeaponPackAssetGen.cs:273` — `Shader unlit = Shader.Find("Universal Render Pipeline/Unlit");` — assigned onto the shared material at `:282` (`new Material(unlit)`) / `:287` (`mat.shader = unlit`), i.e. `Assets/Art/Props/WeaponPack/Mat_WeaponPalette.mat`.
+- `Assets/Art/Props/WeaponPack/Mat_WeaponPalette.mat` — `grep -ciE "rim|fresnel"` returns **0**. Its serialized property set is URP/Unlit's own and nothing else (`_BaseMap`, `_MainTex`, `_BaseColor`, `_Color`, `_Surface`, `_Blend`, `_Cull`, `_Cutoff`, `_SrcBlend`/`_DstBlend`, `_ZWrite`, …).
+- That directory holds **1** `.mat` against **15** `.fbx` — the one-material invariant, measured rather than assumed.
+
+**The dangerous part is the failure MODE, not the absence.** Setting a rim here is not a compile error and not an exception: `mat.SetFloat("_RimIntensity", 1f)` — or a hand-added `_RimIntensity:` line in the `.mat` — runs fine, saves fine, and renders **identically**, because no shader binding exists for that name. A green build, a green capture gate and green tests can all sit on top of a cue that was never drawn. Nothing in the toolchain says a word.
+
+⚠ **The specific trap: a working rim DOES exist in this repo — on a DIFFERENT shader.** `Assets/Shaders/LowPolyVertexColor.shader` ships the Fresnel term (`_RimColor`/`_RimPower`/`_RimIntensity` at `:77-79`, in-cbuffer at `:160-162`, `finalCol += _RimColor.rgb * rim * _RimIntensity` at `:322-323`) — that is `lowpoly-quality.md` §2 Rec 4, live for **world** geometry (terrain / canopy / water / procedural props). It is unreachable from a weapon because a weapon is not on that shader. Do **not** read "we have a rim" as "the axe can have a rim" — and note the sibling enumeration in `unity-conventions.md` §Build stripping & shaders lists those three properties as present, which is true and about the same world shader.
+
+**Reaching a rim on a weapon therefore means FORKING the shared material** — a second material, or moving the set onto `LowPolyVertexColor` — which is precisely the one-material / ~1-draw-call invariant this section exists to hold (SRP Batcher batches by shader VARIANT, so a second shader is a batch break per weapon, not a free addition). **"Add a rim to the axe" is a DESIGN TRADE — escalated and decided — never a dev tweak folded into a feature ticket.** If it is genuinely wanted, price the batching cost and say so out loud.
+
+**So attract / affordance cues live OUTSIDE the shader channel — but transform alone is NOT enough.** A cue that must draw the eye to a weapon (ground pickup, craftable, highlighted tool) reaches for bob (translate), sway/tilt (rotate about an axis), slow yaw spin, or a scale pulse — none of which touch the material, so the invariant holds and no fork is needed. **But bob, sway, spin and scale-pulse are all the SAME channel: MOTION.** `team/quality-bars.md` **bar #10** requires every attract / affordance cue to be identifiable on **≥2 channels, at least one independent of hue**, ranked **FORM** → **POSITION** → **MOTION** → colour last, and says outright that *"Colour-only is the most common way it fails, but motion-only fails identically"* — with this exact #351 cue as its **second motivating instance**. A bob-plus-sway cue is therefore still single-channel and FAILS the bar however well the rates beat against each other.
+
+**Fork-free second channels that actually vary per instance:**
+
+- **FORM (rank 1)** — a small separate marker mesh present ONLY on cued instances (faceted ground disc, stake, pedestal shard), UV'd to the shared `weapon_palette.png` → same one material, zero fork. Its presence/absence IS the read, and it survives both desaturation and a still frame.
+- **POSITION (rank 2)** — a reserved presentation scenery never uses: a consistent hover height over a ground anchor, or upright-in-the-ground vs scenery lying flat. Zero material touch. (Related: `quality-bars.md`'s *Open / unconfirmed* **posture / aspect-inversion** candidate — the interactive one stands up, the scenery one goes wider-than-tall. **Candidate, not ratified**, and its claimed ≥2× height floor was re-derived to **1.3× worst-case** once per-instance jitter is modelled — `86cav8ybj` §2.3. Treat as a lead, not a rule.)
+- **COLOUR is reachable fork-free** by re-placing the UV onto a brighter palette block — but bar #10 ranks colour **LAST, never first**. It can be the 2nd or 3rd channel; it can never be the hue-independent one.
+
+⚠ **§3's white edge-highlight plane is NOT available as the second channel — it is the style BASELINE.** It is genuinely fork-free (inset strip UV'd to the `EdgeWhite` block on the shared palette, §3) and it IS the right answer to *"I reached for a rim because I wanted a crisp static silhouette highlight"* — that is precisely what it is for. But §11's sign-off checklist mandates it on **every blade** and the palette table scopes it to **all weapons**, so it is invariant across the whole set: it cannot answer *"which of these three axes is the pickable one?"* An always-on-everything feature adds no discrimination, so leaning on it leaves the cue collapsed on MOTION — the same defect as the rim, reached by a different route. **A cue channel must VARY with the cued state.**
+
+**MOTION stays a legitimate 2nd/3rd channel — keep the craft.** Give each moving channel a **NON-MATCHING rate:** channels sharing one period (or exact multiples of it) fuse visually into a single pulse and read as one mechanical throb instead of as something alive — so pick rates that beat against each other, plus a per-instance phase offset (the same discipline as `game-juice.md` §1 item 5's "seed a per-instance phase offset so they don't pulse in sync"; the shipped collectible float-bob there is ±0.05u @ 0.8Hz). Amplitude stays inside the calm-tone caps of `game-juice.md` §0.
+
+**Before shipping any such cue, run bar #10's own check:** name the ≥2 channels out loud, confirm each is actually LIVE on the shipped material/shader (this whole subsection is what a dead one looks like), then **desaturate the shipped-build capture — if the cue is gone, it failed.**
+
 **Palette starter (12 slots for the weapon set):**
 
 | Slot | Hex | Usage |
@@ -417,6 +445,7 @@ For a per-PR VISUAL judge, use a dedicated frontal weapon-display capture (the `
 | If you're tempted to... | Do this instead |
 |---|---|
 | Create a per-weapon texture / bake normals | Use the shared `weapon_palette.png` + palette UV placement |
+| Give a weapon a rim/Fresnel highlight by setting a property on `Mat_WeaponPalette` | It has none — URP/Unlit carries no rim property, so the set is a **silent no-op** (no error, identical pixels). A rim needs a FORKED material = a design trade on the one-material invariant. Build the cue on **≥2 non-shader channels** per `quality-bars.md` bar #10 — a per-instance marker mesh (FORM) or a reserved placement (POSITION), plus motion. bob/sway/spin together are all ONE channel and fail the bar; §3's edge-highlight plane is on every blade, so it adds no discrimination — §2 |
 | Use Edge Split modifier for hard edges | Mark Sharp in Edit Mode (Blender 4.1+ workflow) |
 | Start with a high-sided cylinder for an axe head | Start with a Plane + Mirror Modifier |
 | Add loops for surface detail | Add loops only to push the silhouette shape |
