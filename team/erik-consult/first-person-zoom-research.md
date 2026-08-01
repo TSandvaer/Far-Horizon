@@ -73,7 +73,7 @@ maxDistance`) are about to redefine the same quantity in opposite directions if 
   whether the shadow should persist, and neither answer is free — full hide (`renderer.enabled =
   false`) is the cheaper default and matches most survival-FPS games' first-person model; keeping
   the shadow is a small extra step (`ShadowsOnly`) that needs its own visual check in this project's
-  gamma-locked, bloom/grading pipeline before trusting it looks right (`unity6-mastery.md` §3's
+  gamma-locked, bloom/grading pipeline before trusting it looks right (`unity6-mastery.md` §1's
   gamma-is-a-deliberate-look-lock note is exactly the kind of thing that can make a normally-simple
   shadow-only render read wrong here).
 - **Near-plane clipping through the head/torso is a real, currently-unaddressed gap — closer to
@@ -97,6 +97,16 @@ maxDistance`) are about to redefine the same quantity in opposite directions if 
 
 - **`OrbitCamera.minDistance = 6f` today** (`OrbitCamera.cs:49`), and scroll-zoom clamps distance
   to `[minDistance, maxDistance]` every frame (`OrbitCamera.cs:217-221`). **Strong (measured).**
+  ⚠ **Corrected at peer review — `minDistance` is NOT a hard floor on `main` today, so the
+  `[min,max]` framing above is stale.** `ZoomFloor()` (`OrbitCamera.cs:466`) reads
+  `_frontSnap ? Mathf.Min(frontSnapDistance, minDistance) : minDistance`, and
+  `frontSnapDistance = 2.6f` (`:173`) — so the live floor already drops below `minDistance`
+  whenever front-snap engages. Any downstream AC that treats `[minDistance, maxDistance]` as
+  *the* reachable window is already imprecise, before first person changes anything.
+  ⚠ **And a first-person camera would be actively ejected by collision handling as it stands:**
+  `:342` pulls to `Mathf.Max(minCollisionDistance, hit.distance - collisionPadding)` with
+  `minCollisionDistance = 2.5f`. That is a fourth system with no hook, not counted in the three
+  named in the verdict — reviewer's finding, verified.
 - **The locked design answers the mode-vs-shrink question directly, and the code shape agrees with
   it.** The ticket's design is explicit: "ONE continuous dial, NO mode key" — i.e., NOT a distinct
   mode switched by a keypress. But "no mode key" is a UX/input statement, not an implementation
@@ -159,6 +169,18 @@ files present in this tree** (`Assets/Scripts/Runtime/*VerifyCapture*.cs`, file 
 grep pattern would miss a gate that frames its subject via, e.g., a raw `cam.transform.position =`
 without touching the words "distance"/"pitch"/"fieldOfView"/"OrbitCamera", and I did not open every
 one of the ~40 files line-by-line — only the 24 keyword hits, plus targeted reads of a handful.
+
+> ⚠ **Tightened at peer review — the bound held, and the real figure is 31 of 38.** The reviewer
+> opened the remainder and reports **31 of 38** capture gates make a framing assumption. So the
+> `≥24` above was an honest floor, not an under-count dressed as one — but **use 31/38 downstream,
+> not 24**, and do not re-quote the floor as if it were the measurement.
+>
+> ⚠ **One unreconciled detail, recorded rather than smoothed:** the reviewer characterised the
+> non-framing gates as the **verb-action** ones and named **five** (Campfire / Chop / Forge / Mine
+> / Placement), but `38 − 31 = 7`. **Two members of that set are unaccounted for in the report.**
+> Either the count or the enumeration is off by two, and I have not resolved which — do not
+> assume the missing two are also verb-action gates. Enumerate the set before relying on its shape.
+
 Within those 24, three distinct risk shapes, each confirmed by reading the actual matching lines:
 
 **Group A — hard-codes the current gameplay pitch/distance/FOV as its evidence baseline (6 files,
