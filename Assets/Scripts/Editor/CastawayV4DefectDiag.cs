@@ -863,7 +863,7 @@ namespace FarHorizon.EditorTools
             sb.AppendLine("[blockhands]   thumbDisp = motion of the RIGHT THUMB verts | blockDisp = collateral motion of the rest of the hand");
             sb.AppendLine("[blockhands]   standoffAfter = the judged number WITH the rotation applied (baseline " + sR0.max.ToString("F2") + "mm)");
             float bestRightStandoff = sR0.max; string bestRightWhat = "none (baseline)";
-            float ceilingThumb = 0f;
+            float ceilingThumb = 0f, bestRightBlockMax = 0f, bestRightBlockMean = 0f;
             foreach (var boneTok in new[] { "righthandindex1", "righthandindex2", "righthandindex3" })
             {
                 var bone = FindBone(go.transform, boneTok);
@@ -878,73 +878,95 @@ namespace FarHorizon.EditorTools
                         var st = Standoff(smr, sets.rThumb, sets.rBlock);
                         bone.localRotation = saved;
                         if (t.max > ceilingThumb) ceilingThumb = t.max;
-                        if (st.max < bestRightStandoff) { bestRightStandoff = st.max; bestRightWhat = $"{boneTok} +{deg}deg local-{ax}"; }
+                        if (st.max < bestRightStandoff)
+                        { bestRightStandoff = st.max; bestRightWhat = $"{boneTok} +{deg}deg local-{ax}"; bestRightBlockMax = b.max; bestRightBlockMean = b.mean; }
                         sb.AppendLine($"[blockhands]   {boneTok} +{deg,4}deg local-{ax}: thumbDisp mean={t.mean,7:F2}mm max={t.max,7:F2}mm | " +
                                       $"blockDisp mean={b.mean,7:F2}mm max={b.max,7:F2}mm | standoffAfter max={st.max,6:F2}mm mean={st.mean,6:F2}mm");
                     }
             }
             sb.AppendLine($"[blockhands]   RIGHT SWEEP RESULT: best achievable standoff = {bestRightStandoff:F2}mm via [{bestRightWhat}] " +
                           $"(baseline {sR0.max:F2}mm); largest thumb-vert travel anywhere in the sweep = {ceilingThumb:F2}mm");
-            sb.AppendLine("[blockhands]   RIGIDITY READ: thumbDisp ~= blockDisp at every entry means the index bone carries the thumb");
-            sb.AppendLine("[blockhands]   geometry and the finger block as ONE rigid body — no relative tuck is available by dialling it.");
+            sb.AppendLine($"[blockhands]   COST OF THAT BEST: blockDisp mean={bestRightBlockMean:F2}mm max={bestRightBlockMax:F2}mm — this is the second");
+            sb.AppendLine("[blockhands]   open question ('does it deform the finger block on the way'), answered as a number. Read it against");
+            sb.AppendLine("[blockhands]   the hand's own size: the whole right hand region spans " + HandSpanMm(smr, sets.rBlock).ToString("F1") + "mm.");
+            sb.AppendLine("[blockhands]   WHAT THE SWEEP ACTUALLY SHOWS (the data, not the prior guess): the standoff only falls once the");
+            sb.AppendLine("[blockhands]   rotation is large (>=90deg), and it falls because the WHOLE index subtree — finger AND the welded");
+            sb.AppendLine("[blockhands]   thumb geometry — swings toward the palm about the knuckle. It is not a tuck of the thumb relative");
+            sb.AppendLine("[blockhands]   to the finger block (that relationship is rigid); it is the finger being driven into the palm, which");
+            sb.AppendLine("[blockhands]   lowers the number by burying the lump. Judge it by eye before believing it (see the soak capture).");
 
-            // ---------- (C) LEFT — dial the left thumb until the left hand reads as a plain block ----------
-            // The left thumb DOES articulate (mean thumb-chain weight 0.919 vs the right's 0.000), so it is the one
-            // side where posing can change the read. Objective = drive the LEFT standoff down to (and no further
-            // than) the RIGHT's, i.e. make the two hands present the same thumb-lump profile. Optimising the left's
-            // own protrusion alone would let the search win on a number while the two hands still differ.
-            sb.AppendLine("[blockhands] (C) LEFT — search leftThumbEuler (additive on the shipped dial-7 left thumb)");
-            sb.AppendLine("[blockhands]   objective = match the RIGHT hand's standoff profile AND flatten the left's own lump");
+            // ---------- (C) LEFT — the only side posing can actually move ----------
+            // The left thumb articulates (mean thumb-chain weight 0.919 vs the right's 0.000), so it is the one
+            // side where a dial changes the read at all.
+            //
+            // ⚠ THE OBJECTIVE IS THE WHOLE BALLGAME, AND THE OBVIOUS ONE IS WRONG. The Sponsor's requirement is
+            // "fix that one hand is not the same as the other"; "both a square with no thumb" is a PERMISSION he
+            // granted, not the requirement. So MATCHING is the thing to minimise. A combined score
+            // (asymmetry + the left's own lump) pulls in two directions whenever the right's lump is the BIGGER
+            // one — flattening the left then makes the pair MORE different, and the search converges to a
+            // compromise that satisfies neither. Three objectives are therefore reported side by side, so the
+            // trade is visible in the log rather than decided silently inside a scoring function:
+            //   C0  RELEASE  — absolute leftThumbEuler = 0, i.e. undo the Sponsor's dial entirely. If the mesh is
+            //                  symmetric and the right thumb geometry is frozen to its hand, this is the candidate
+            //                  that should mirror the right by construction. Measured, not assumed.
+            //   C1  MATCH    — minimise asymmetry alone.
+            //   C2  BOTH     — minimise asymmetry + the left's own lump (the "both plain blocks" reading).
+            sb.AppendLine("[blockhands] (C) LEFT — three objectives, reported side by side (additive on the shipped dial-7 left thumb)");
             var lThumbBone = FindBone(go.transform, "lefthandthumb1");
             Vector3 bestE = Vector3.zero; bool haveLeft = false;
             if (lThumbBone == null) sb.AppendLine("[blockhands]   lefthandthumb1 NOT FOUND");
             else
             {
                 Quaternion saved = lThumbBone.localRotation;
-                float bestScore = float.MaxValue;
                 // The RIGHT profile is invariant under a LEFT thumb rotation, so cache it once instead of
                 // re-baking it for each of the ~1200 candidates.
                 float[] rightProfile = StandoffProfile(smr, sets.rThumb, sets.rBlock);
-                float Score()
+
+                void ReportCandidate(string tag, Vector3 e)
                 {
-                    float[] lp = StandoffProfile(smr, sets.lThumb, sets.lBlock); // sorted ascending
-                    float lmax = lp.Length > 0 ? lp[lp.Length - 1] : 0f;
-                    float asym = CompareProfiles(lp, rightProfile);
-                    // Both terms are millimetres. asym = "the two hands read the same"; lmax = "the left's own
-                    // lump is gone". Summing them means a candidate has to satisfy both, not trade one for the other.
-                    return asym + lmax;
+                    lThumbBone.localRotation = saved * Quaternion.Euler(e);
+                    var sC = Standoff(smr, sets.lThumb, sets.lBlock);
+                    float aC = CompareProfiles(StandoffProfile(smr, sets.lThumb, sets.lBlock), rightProfile);
+                    var pC = Protrusion(smr, lHand, sets.lThumb, sets.lBlock);
+                    lThumbBone.localRotation = saved;
+                    Vector3 abs = (Quaternion.Euler(MovementCameraScene.CastawayV4LeftThumbEuler)
+                                   * Quaternion.Euler(e)).eulerAngles;
+                    sb.AppendLine($"[blockhands]   [{tag}] additive=({e.x:F0},{e.y:F0},{e.z:F0}) -> " +
+                                  $"LEFT standoff max={sC.max:F2}mm mean={sC.mean:F2}mm | AABB prot={pC.max:F2}mm | " +
+                                  $"ASYMMETRY={aC:F2}mm | bake CastawayV4LeftThumbEuler=({N(abs.x):F1}f,{N(abs.y):F1}f,{N(abs.z):F1}f)");
                 }
-                for (float x = 0; x < 360f; x += 45f)
-                    for (float y = 0; y < 360f; y += 45f)
-                        for (float z = 0; z < 360f; z += 45f)
-                        {
-                            lThumbBone.localRotation = saved * Quaternion.Euler(x, y, z);
-                            float s = Score();
-                            if (s < bestScore) { bestScore = s; bestE = new Vector3(x, y, z); }
-                        }
-                Vector3 c0 = bestE;
-                for (float x = c0.x - 40f; x <= c0.x + 40f; x += 10f)
-                    for (float y = c0.y - 40f; y <= c0.y + 40f; y += 10f)
-                        for (float z = c0.z - 40f; z <= c0.z + 40f; z += 10f)
-                        {
-                            lThumbBone.localRotation = saved * Quaternion.Euler(x, y, z);
-                            float s = Score();
-                            if (s < bestScore) { bestScore = s; bestE = new Vector3(x, y, z); }
-                        }
-                lThumbBone.localRotation = saved * Quaternion.Euler(bestE);
-                var sBest = Standoff(smr, sets.lThumb, sets.lBlock);
-                float aBest = ProfileAsymmetry(smr, sets);
-                var pBest = Protrusion(smr, lHand, sets.lThumb, sets.lBlock);
-                lThumbBone.localRotation = saved;
-                haveLeft = true;
-                sb.AppendLine($"[blockhands]   BEST additive leftThumbEuler = ({bestE.x:F0},{bestE.y:F0},{bestE.z:F0})");
-                sb.AppendLine($"[blockhands]     LEFT standoff        {sL0.max:F2}mm -> {sBest.max:F2}mm (mean {sL0.mean:F2} -> {sBest.mean:F2})");
-                sb.AppendLine($"[blockhands]     LEFT AABB protrusion {pL0.max:F2}mm -> {pBest.max:F2}mm (outside {pL0.frac:P0} -> {pBest.frac:P0})");
-                sb.AppendLine($"[blockhands]     L-vs-R asymmetry     {asym0:F2}mm -> {aBest:F2}mm  <- the number that must approach 0");
-                sb.AppendLine($"[blockhands]     RIGHT standoff (untouched reference) = {sR0.max:F2}mm");
-                Vector3 abs = (Quaternion.Euler(MovementCameraScene.CastawayV4LeftThumbEuler)
-                               * Quaternion.Euler(bestE)).eulerAngles;
-                sb.AppendLine($"[blockhands]   ABSOLUTE CastawayV4LeftThumbEuler to bake = ({abs.x:F1}f, {abs.y:F1}f, {abs.z:F1}f)");
+
+                Vector3 Search(System.Func<float[], float> score)
+                {
+                    Vector3 best = Vector3.zero; float bestScore = float.MaxValue;
+                    void Try(float x, float y, float z)
+                    {
+                        lThumbBone.localRotation = saved * Quaternion.Euler(x, y, z);
+                        float s = score(StandoffProfile(smr, sets.lThumb, sets.lBlock));
+                        if (s < bestScore) { bestScore = s; best = new Vector3(x, y, z); }
+                    }
+                    for (float x = 0; x < 360f; x += 45f)
+                        for (float y = 0; y < 360f; y += 45f)
+                            for (float z = 0; z < 360f; z += 45f) Try(x, y, z);
+                    Vector3 c0 = best;
+                    for (float x = c0.x - 40f; x <= c0.x + 40f; x += 10f)
+                        for (float y = c0.y - 40f; y <= c0.y + 40f; y += 10f)
+                            for (float z = c0.z - 40f; z <= c0.z + 40f; z += 10f) Try(x, y, z);
+                    lThumbBone.localRotation = saved;
+                    return best;
+                }
+
+                sb.AppendLine($"[blockhands]   reference: LEFT baseline standoff max={sL0.max:F2}mm | RIGHT (untouchable) max={sR0.max:F2}mm | baseline asymmetry={asym0:F2}mm");
+                // C0 — the additive that cancels the shipped dial exactly, i.e. absolute (0,0,0).
+                Vector3 release = Quaternion.Inverse(Quaternion.Euler(MovementCameraScene.CastawayV4LeftThumbEuler)).eulerAngles;
+                ReportCandidate("C0 RELEASE (absolute 0 — undo the Sponsor dial)", release);
+                Vector3 match = Search(lp => CompareProfiles(lp, rightProfile));
+                ReportCandidate("C1 MATCH (minimise asymmetry alone)", match);
+                Vector3 both = Search(lp => CompareProfiles(lp, rightProfile) + (lp.Length > 0 ? lp[lp.Length - 1] : 0f));
+                ReportCandidate("C2 BOTH (asymmetry + flatten the left)", both);
+                bestE = match; haveLeft = true;
+                sb.AppendLine("[blockhands]   CHOSEN for the (D) gripping re-verify: C1 MATCH — the requirement is that the two");
+                sb.AppendLine("[blockhands]   hands read the SAME; 'both plain blocks' was a permission, not the bar.");
             }
             Object.DestroyImmediate(go);
 
@@ -1192,6 +1214,24 @@ namespace FarHorizon.EditorTools
             float max = 0f, sum = 0f;
             foreach (float d in prof) { sum += d; if (d > max) max = d; }
             return (max, sum / prof.Length);
+        }
+
+        // World-mm diagonal of a vert set's bounding box — the scale bar every other millimetre figure in this
+        // round should be read against. A standoff of "59mm" means nothing until you know the hand is ~Xmm across.
+        // NOTE this is a VERTEX-cloud metric like Standoff itself: on a mesh this coarse (57 distinct positions per
+        // hand) a vertex-to-vertex distance OVERSTATES the surface-to-surface gap, so the absolute millimetres are
+        // a comparative scale, not a caliper reading. L-vs-R and before-vs-after comparisons are valid because both
+        // sides carry the identical vertex density (mirror residual 0.15mm).
+        private static float HandSpanMm(SkinnedMeshRenderer smr, List<int> idx)
+        {
+            if (idx.Count == 0) return 0f;
+            var baked = new Mesh(); smr.BakeMesh(baked, true);
+            var bv = baked.vertices;
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            Vector3 mn = Vector3.positiveInfinity, mx = Vector3.negativeInfinity;
+            foreach (int v in idx) { Vector3 p = l2w.MultiplyPoint3x4(bv[v]); mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p); }
+            Object.DestroyImmediate(baked);
+            return (mx - mn).magnitude * 1000f;
         }
 
         // The per-vert standoff distances, SORTED ascending — the shape of the thumb lump as a distribution.
