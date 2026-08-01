@@ -158,6 +158,20 @@ could never land on the capture-pinned runner). The team shipped the simpler opt
   cross-runner interaction as a live risk even with clean label separation.
 
 **What still blocks raising the cap to 2, concretely:**
+
+> ⚠ **CORRECTED 2026-07-31 (`86cazhtn1`) — this list is INCOMPLETE and item 1 is out of date. Do not use it
+> as the cap→2 checklist.** It omits the thing that actually holds the cap: `.github/workflows/ci.yml:226-228`
+> puts every `build` job in an **ABSOLUTE** `concurrency: group: unity-build` (no ref suffix,
+> `cancel-in-progress: false`), so all `build` jobs queue repo-wide into ONE lane **regardless of runner
+> count or labels** — and `gh api repos/TSandvaer/Far-Horizon/actions/runners` → `total_count: 1`
+> (measured 2026-07-31 on `origin/main` @ `721701d`). **BOTH must change; a 2nd runner alone buys nothing.**
+> Item 1 is stale — the spike has since run (write-up in PR **#387**), and it found EPERM **absent** in its
+> two resolving legs, so the EPERM axis cannot move the cap either. Item 2's "that discrepancy should be
+> resolved" **is now resolved**: CLAUDE.md's prose was stale in its stated *mechanism*, and the cap is
+> nonetheless still correctly 1 — see the ✅ RESOLVED action item below. Erik's numbered assessment is kept
+> verbatim as his 2026-07 reading. ⛔ The cap NUMBER is Sponsor-gated; authoritative statement is `CLAUDE.md`
+> § Autonomous orchestration → the **Unity-build cap = 1** bullet.
+
 1. `86cabkhjg` itself hasn't run yet (status: to do) — the local-worktree EPERM question is untested.
 2. No canary evidence I can verify shows `build`-on-runner-2 concurrent with `capture`-on-runner-1
    surviving cleanly under load, more than once, over time. The memory's "canary-green 2026-07-02" claim
@@ -234,13 +248,17 @@ than the Option B I'd have recommended:
 - **The provenance discrepancy from the earlier draft is resolved — no further action needed there.**
   PR #203 merged 2026-07-01; the split is real and live on `main`. Do not re-open that question.
 - **`86cabkhjg` is unblocked today; dispatch it independent of the split's status.**
-- **Reconcile CLAUDE.md's capacity line against the split's actual landing date.** CLAUDE.md still reads
-  `"≤1 Unity-build ticket in flight... cap→2 needs a CI-split... first"` as if the split were still
-  pending — but it landed four weeks ago. Either the cap genuinely hasn't been raised yet pending
-  canary confidence (in which case the prose is accurate and just needs a "split landed, cap-raise still
-  pending on X" clarification), or the cap should have already moved to 2 and CLAUDE.md is simply stale.
-  This is a Priya/orchestrator hygiene item, not something I can resolve without Bash/`gh` access to the
-  live run history.
+- **✅ RESOLVED 2026-07-31 (`86cazhtn1`) — Reconcile CLAUDE.md's capacity line against the split's actual
+  landing date.** ⚠ **The dichotomy this item posed was FALSE — do not act on it.** It offered "either the
+  prose is accurate and needs a clarification, or the cap should have already moved to 2"; the real answer
+  is neither. The split DID land (`86cafz9tg`), so CLAUDE.md's stated prerequisite was discharged and its
+  prose was wrong — **but the cap is still correctly 1**, because what actually holds it was never the split:
+  `.github/workflows/ci.yml:226-228`'s ABSOLUTE `unity-build` concurrency group (`cancel-in-progress: false`,
+  no ref suffix → all `build` jobs queue repo-wide, independent of runner count) plus exactly ONE registered
+  runner (`gh api repos/TSandvaer/Far-Horizon/actions/runners` → `total_count: 1`, `far-horizon-local`;
+  measured 2026-07-31 on `origin/main` @ `721701d`). CLAUDE.md's mechanism text was corrected accordingly;
+  **the number did not move and is Sponsor-gated.** Authoritative statement: `CLAUDE.md` § Autonomous
+  orchestration → the **Unity-build cap** bullet. Do not re-open this as a cap→2 question.
 - **Q5's rule is already close to what shipped; consider hardening to Option B** only if/when cap→2
   canary testing surfaces cross-runner flakes traceable to `build` landing on the capture-pinned runner.
   Don't pre-emptively re-architect the label scheme without that evidence.
