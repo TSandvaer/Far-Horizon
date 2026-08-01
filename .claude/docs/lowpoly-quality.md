@@ -77,9 +77,42 @@ Sample `SampleSceneDepth` → `LinearEyeDepth`, subtract the fragment's own eye 
 
 ⚠ **The edge-highlight plane is the style BASELINE — it is NOT a discriminating cue.** It is the right answer to *"I wanted a crisp static silhouette highlight"*. It is the WRONG answer to *"which of these three axes is the pickable one?"* — the palette table scopes it to **all weapons** and the §11 checklist mandates it on **every blade**, so it is invariant across the set and adds zero discrimination. An attract/affordance cue needs ≥2 channels that **VARY with the cued state** (`team/quality-bars.md` bar #10; `blender-asset-pipeline.md` §2). Never let "we have an edge highlight" stand in for a cue.
 
-### Rec 6 — Vertex-color AO alpha baking for rocks/props
-Bake Blender geometric AO into vertex-color ALPHA before FBX export; add `_AOStrength (Float) = 0` + `finalCol *= lerp(1.0, IN.color.a, _AOStrength)` (one frag line). Zero runtime cost (baked constant). Default OFF → no regression on terrain/canopy/water (they carry no AO in alpha). Rock/stump instances set `_AOStrength ~0.5` for contact-shadow depth at crevices. Additive to the existing per-facet value step (which is a light proxy, not AO).
-- ⚠ **BOTH halves of this Rec are dead on the weapon/tool set — measured, not assumed.** The wording ("bake in Blender … before FBX export") reads as addressed to the weapon pipeline, but it is not: (1) `Mat_WeaponPalette.mat` binds no `_AOStrength` (same grep as Rec 2 → **0**), and (2) **URP/Unlit does not consume vertex colour at all** — `UnlitForwardPass.hlsl`'s `Attributes` struct (URP package `Library/PackageCache/com.unity.render-pipelines.universal@d3aed158d698`) declares only `positionOS : POSITION` and `uv : TEXCOORD0`, with normal/tangent behind `DEBUG_DISPLAY`; there is **no `COLOR` semantic**. Baking AO into vertex alpha on a weapon FBX therefore writes data nothing reads. Weapon-side shading depth comes from modelled facets plus the palette's `ShadowFace` / `WoodDark` blocks (`blender-asset-pipeline.md` §2), never from vertex AO. Rocks/stumps on `LowPolyVertexColor` are the real audience for this Rec.
+### Rec 6 — Vertex-color AO alpha baking — `FarHorizon/LowPolyVertexColor` ONLY, and only where alpha is FREE
+
+Bake a geometric AO proxy into vertex-color ALPHA; `finalCol *= lerp(1.0, IN.color.a, _AOStrength)` (one frag line, no keyword). Zero runtime cost (a baked constant). Default `_AOStrength = 0` → the term is exactly `lerp(1, a, 0) = 1`, byte-identical on **every** material regardless of what it carries in alpha. Additive to the existing per-facet value step (a light proxy in RGB, NOT AO).
+
+**Two questions decide whether this Rec applies to the asset in front of you. BOTH must pass.**
+
+**1 — Is the material on `FarHorizon/LowPolyVertexColor`?** `_AOStrength` is declared in exactly **one** shader file in the project: `Assets/Shaders/LowPolyVertexColor.shader` (property block, `CBUFFER_START(UnityPerMaterial)`, and the frag multiply). On any other material the property **does not exist**. Ask *"which shader is this material on?"* — **never** *"is this Lit or Unlit?"* (see the ⚠ below; the lighting model is the wrong axis and believing otherwise is what this Rec was corrected for).
+
+**2 — Is that mesh's vertex ALPHA free?** Alpha on this shader is a **three-way overloaded channel**, and the three meanings are mutually exclusive per mesh. Being on the right shader is necessary, not sufficient:
+
+| Alpha means | Gated by | Baked by |
+|---|---|---|
+| **canopy sway mask** (0 = trunk planted, 1 = canopy full sway) | `_SwayAmp > 0` (vertex stage) | `LowPolyMeshes.BlobCanopy` (a=1) / `TaperedCylinder` (a=0) |
+| **signed meadow patch mask** (`a*2-1`; >0.5 sunlit, <0.5 shadow) | `_MeadowPatchAmp > 0` (frag; live Sponsor A/B via `WorldLookTunables`) | `LowPolyZoneGen` terrain vertex colour (`c.a = patch*0.5f + 0.5f`) |
+| **baked geometric AO** (floor 0.55 .. 1) | `_AOStrength > 0` (frag) | `LowPolyMeshes.FacetedRock` (`new Color(val, val, val, ao)`) |
+
+Raising `_AOStrength` on a mesh whose alpha is one of the *other* two does not fail — it silently multiplies the lit colour by a mask that means something else. **The identity `lerp(1, a, 0) = 1` is the only reason the current build is safe; it is not a guarantee for the next material that opts in.**
+
+**Where Rec 6 actually applies today — enumerated against each material's ACTUAL shader** (the committed 13-`.mat` set is not the population; most world materials are generated at bootstrap by `LowPolyZoneGen` / `WorldBootstrap` / `MovementCameraScene`):
+
+| Asset / material | Shader | Alpha carries | Rec 6? |
+|---|---|---|---|
+| **procedural rocks** — `LowPolyZoneGen` rock material, `FacetedRock` mesh | `FarHorizon/LowPolyVertexColor` | **baked AO** (floor 0.55) | ✅ **YES — this is the live audience.** Already opted in at `_AOStrength = 0.5`. |
+| terrain — `LowPolyTerrainMat` / `PocTerrainMat` | `FarHorizon/LowPolyVertexColor` | **meadow patch mask** | ❌ right shader, **alpha taken**. They bind `_AOStrength` (it is on their shader) but hold it at **0**. Raising it reads the patch mask as occlusion. |
+| canopy — `LPBlobCanopyMat`, `BlobCanopy` mesh | `FarHorizon/LowPolyVertexColor` | **sway mask** (`_SwayAmp = 0.10`) | ❌ right shader, **alpha taken**. |
+| tree trunks — `MakeFlatColorMat` | URP/**Lit** | sway mask (a=0) | ❌ no `_AOStrength`, no `COLOR` semantic. |
+| **stumps** — `CraftStumpMat` (+ `CraftingTableMat`, `TestGroundMat`) | URP/**Lit** | — | ❌ **the "stumps" audience this Rec used to claim does not exist.** |
+| weapons/tools — `Mat_WeaponPalette` (15 FBXs, one material) | URP/**Unlit** | — | ❌ see the ⚠ below. |
+| castaway, click marker, crafting ghost | URP/**Unlit** | — | ❌ |
+| grass — `GrassWaveMat`, `GrassClump` mesh | `FarHorizon/LowPolyVertexColor` | **no vertex-colour stream at all** (`FinishWithNormals` sets none → `IN.color` = white, a=1) | ❌ nothing to bake into. |
+| water — `LowPolyWaterMat` / `PocWaterMat` / `PondWaterMat` | `FarHorizon/LowPolyWater` | — | ❌ that shader declares no `_AOStrength` (it reads `IN.color.rgb` only). |
+| blob shadows — `BlobShadowVertexColor` | `FarHorizon/BlobShadowVertexColor` | **opacity** (`IN.color.a * _Tint.a`) | ❌ declares no `_AOStrength`. |
+
+So: **procedural rocks are the whole of Rec 6's live audience.** A new opt-in must both sit on `FarHorizon/LowPolyVertexColor` *and* bake real AO into an alpha channel nothing else is using.
+
+- ⚠ **BOTH halves of this Rec are dead on the weapon/tool set — measured, not assumed.** The wording ("bake in Blender … before FBX export") reads as addressed to the weapon pipeline, but it is not: (1) `Mat_WeaponPalette.mat` binds no `_AOStrength` (same grep as Rec 2 → **0**), and (2) **neither URP/Unlit NOR URP/Lit declares a `COLOR` vertex semantic** — `UnlitForwardPass.hlsl`'s `Attributes` struct declares only `positionOS : POSITION` and `uv : TEXCOORD0` (normal/tangent behind `DEBUG_DISPLAY`), and `LitForwardPass.hlsl`'s declares position/normal/tangent/texcoord/lightmap UVs — **no `COLOR` in either**, nor in `LitGBufferPass.hlsl` / `LitInput.hlsl` / `UnlitInput.hlsl`. So the vertex-colour half is **structurally unreachable on both lighting models** — not a timing accident, and **"move it to Lit" is not an escape hatch.** Baking AO into vertex alpha on a weapon FBX writes data nothing reads. Weapon-side shading depth comes from modelled facets plus the palette's `ShadowFace` / `WoodDark` blocks (`blender-asset-pipeline.md` §2), never from vertex AO — and §3 there carries the reverse pointer back to this Rec.
 
 ### Rec 7 — Seeded rotation + lean/height variation on scatter
 The seed-per-instance pattern is the right approach (already in `LowPolyMeshes.cs`). Extend it in `LowPolyZoneGen.cs` scatter loops: a seeded Y-rotation (`go.transform.Rotate(0, rnd.Next(360), 0)`) so rocks never align identically, plus a seeded ±20% height scale + small apex lean on pine trunks. Costs nothing; raises scene diversity.
@@ -94,6 +127,8 @@ The seed-per-instance pattern is the right approach (already in `LowPolyMeshes.c
 | **Screen-space outlines** (Sobel depth/normals Renderer Feature) | Expensive at desktop res on a large island; the board's "edge highlight" is a per-face chamfer, not a full-silhouette outline. Reserve for an explicit future decision. |
 | A **distinct material slot** for the edge-highlight face on a weapon-pack asset (this doc's original Rec 5) | It forks the shared `Mat_WeaponPalette` — the one-material / ~1-draw-call invariant (`blender-asset-pipeline.md` §2). The fork-free route to the identical feature is a separate **mesh island** UV'd to `EdgeWhite` (§3). See Rec 5. |
 | Setting a **`LowPolyVertexColor` property** (`_FlatShading`, `_AOStrength`, `_RimIntensity`) on a weapon | URP/Unlit binds none of them — a **silent no-op**: no error, identical pixels, green gates. See the ⚠ on Recs 2 / 4 / 6. |
+| Reaching for **URP/Lit as the escape hatch** for a vertex-colour effect | URP/**Lit** declares no `COLOR` vertex semantic either (`LitForwardPass` / `LitGBufferPass` / `LitInput` — measured 0). The axis is *which shader*, never *Lit vs Unlit*. See Rec 6 question 1. |
+| Raising **`_AOStrength`** on a `LowPolyVertexColor` material without checking its mesh's alpha | Alpha is three-way overloaded there (sway mask / meadow patch mask / AO). Wrong-channel reads are silent — the colour just shifts. See Rec 6 question 2. |
 | **Flat-shade the welded terrain** (unwelded) | The smooth-normal roll IS the Zone-D dune look; flat-shading reads as a spike polyhedron. Props/rocks only. |
 | **Transparent water without porting `_FogCap`** | Reopens the sea↔sky teal-at-horizon problem the opaque path was built to solve. |
 
@@ -107,6 +142,6 @@ The seed-per-instance pattern is the right approach (already in `LowPolyMeshes.c
 | `86caamnjb` | Rec 2 | `_FlatShading` ddx/ddy toggle on `LowPolyVertexColor.shader` |
 | `86caamnmb` | Rec 3 | Transparent depth-fade `LowPolyWater.shader` (fog-cap migration + `-seaDiag`) |
 | `86caamnnj` | Rec 4 | Fresnel/rim additive term on `LowPolyVertexColor.shader` |
-| `86caamnra` | Recs 5-7 | Quality-polish backlog: ~~chamfer highlight~~, vertex-AO bake, seeded rotation. **Rec 5's chamfer scope is SUPERSEDED** (ticket `86caz5m75`) — the weapon-set edge highlight already shipped fork-free via `blender-asset-pipeline.md` §3; nothing remains to do under Rec 5. Rec 6's vertex-AO scope is **rocks/stumps only**, never weapons (see its ⚠). |
+| `86caamnra` | Recs 5-7 | Quality-polish backlog: ~~chamfer highlight~~, ~~vertex-AO bake~~, seeded rotation. **Rec 5's chamfer scope is SUPERSEDED** (ticket `86caz5m75`) — the weapon-set edge highlight already shipped fork-free via `blender-asset-pipeline.md` §3; nothing remains to do under Rec 5. **Rec 6's vertex-AO scope is `FarHorizon/LowPolyVertexColor` materials whose vertex alpha is FREE — in practice the procedural rocks, which already shipped it** (`_AOStrength = 0.5` on the `LowPolyZoneGen` rock material). Never weapons *and never stumps* — `CraftStumpMat` is URP/Lit (ticket `86caz5pc3`; the old "rocks/stumps" wording was wrong on both the axis and the audience). See Rec 6's two-question test. |
 
 (See Erik's note for the per-file implementation sketches each ticket references. The Unity build slot is single — these are sequenced, not parallel: run them roughly in the order above, lowest-effort first.)
