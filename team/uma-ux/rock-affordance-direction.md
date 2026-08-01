@@ -80,14 +80,20 @@ gate does not use. What changed:
   now define the distinction in the same breath · §8.0's "20u × 11u ground window" corrected to
   **~20.6u × ~14u** (11.6u was a *frame*-plane height, not a ground depth — the same plane-mixing class the
   ruler fix closed, and conservative, so nothing built on it moves).
-- **Cite drift repaired:** **PR #395 renamed the `quality-bars.md` heading revision 3.1 cited.** Repointed to
-  the sub-§ that actually carries the figure (§11), and 3.1's "#386 invalidated no § anchor" note qualified.
+- **Cite drift repaired, and RE-RESOLVED against the `main` that exists today (`2059ce5`).** **PR #395
+  (`aeeafa0`) renamed the `quality-bars.md` heading revision 3.1 cited.** Repointed to the sub-§ that
+  actually carries the figure (§11 — re-verified byte-identical at `2059ce5`, with both the old and new
+  parent headings now quoted verbatim from the rename diff), and 3.1's "#386 invalidated no § anchor" note
+  qualified. **§8's boundary claim re-resolved with it:** `750f190..2059ce5` is no longer `Assets`-clean —
+  one unrelated EditMode test moved — so the absolute is restated rather than left to age (§8).
 - **Not settled, deliberately:** §10.2, §10.3 and §10.4 all remain open Sponsor picks. Making B's arithmetic
   honest is not the same as choosing among the options.
 
 ⚠ **KNOWN INCOMPLETE, declared rather than discovered later.** `team/quality-bars.md` gained a
 **Bar 10 — the four checks** section (`86caz5na6`, merged in PR #386) *after* this spec's round-3 audit was
-written. C1 (amplitude stated as the **delta** between cued and non-cued, in px at a stated framing), C2
+written — **PR #395 has since renamed that heading to `## Bar 10 — the standard in full, and the four
+checks`, which is where a reader should look for it on `main` today** (§11 carries the full cite).
+C1 (amplitude stated as the **delta** between cued and non-cued, in px at a stated framing), C2
 (failure independence), C3 (the comparison set) and C4 (the two-sided artifact) are **not** re-audited here —
 revision 3.1 is scoped to the four NITs. Two are already substantially satisfied by construction (§8.1's
 failure-domain row ≈ C2; §8.2's populous-both-classes note ≈ C3), and this revision's AC1 change moves the
@@ -1285,10 +1291,20 @@ here is the *diagnosis*: every value in §2 and §8.0 was re-read from source at
 in round 3 with the cited line numbers, including the rim inversion (§2.1) and the collar inversion (§2.4),
 both of which are present-tense defects independent of whether this direction is picked.
 **Revision 3.1 re-verified that boundary against `origin/main` `0f14b4f`:** `git diff --name-only
-750f190..origin/main` returns **no `Assets/**` path at all** (only `.claude/docs/`, `team/` and
+750f190..0f14b4f` returns **no `Assets/**` path at all** (only `.claude/docs/`, `team/` and
 `tools/debug/` markdown), so every line anchor in this spec is current as of `0f14b4f`, not merely as of
 `750f190`. What DID move on `main` is `team/quality-bars.md` — see the KNOWN-INCOMPLETE note in the
 revision header.
+⚠ **Revision 3.2 re-resolves that boundary against `origin/main` `2059ce5`, and it has MOVED — the
+"no `Assets/**` path at all" sentence above is true only up to `0f14b4f`.** `git diff --name-only
+750f190..2059ce5 -- 'Assets/*'` now returns **exactly one** path:
+**`Assets/Tests/EditMode/PickaxeMineClipUprightTests.cs`** (`2059ce5`, `86caxgyc4` — pickaxe-clip
+guards). It is an EditMode test
+file and it is **not cited anywhere in this spec**; the files this document line-anchors
+(`LowPolyZoneGen.cs`, `OrbitCamera.cs`, `MovementCameraScene.cs`, `IronDifficulty.cs`,
+`SeededScatterVariationTests.cs`) are **all untouched across `750f190..2059ce5`**. So every line anchor
+here remains current at `2059ce5` — but the claim is now "one unrelated test file moved", not "nothing
+moved", and it is restated rather than left to age into a false absolute.
 **Explicitly NOT verified — the honest boundary of this round:** the pixel figures in §8.0 are *arithmetic
 from verified camera constants*, not measurements from a capture (AC5 is where they become evidence); the
 1.6×-already-fails calibration is *derived from the shipped values plus the Sponsor's dead-click report*,
@@ -1427,6 +1443,15 @@ decorative ceiling reaches `S = 0.813` against a minable floor of `0.787` — th
 a testable 0.05 gap needs **`q ≈ 0.639`**. Both are *below* B and *toward* A, so "lower `q` a little to fix
 it" is not a repair — it is a partial revert to A.
 
+⚠ **And B fails on revision 3.1's OWN metric too, which is the part that makes the retraction unavoidable
+rather than a consequence of changing the ruler.** A reader could reasonably ask whether B only "became"
+a failure because §8.2 switched from `V·q/P` to `S`. It did not. B's three readings are **`V·q/P` = 0.951**
+(sink-free, tilt-free — the quantity 3.1 recommended B on), **`S` = 0.813** (the gate's metric) and
+**0.823** (the tilted-AABB bound). The 0.787 floor is below **all three**. The metric correction *rescued*
+option A — it turned A's apparent zero margin into a real `+0.086` — but it **changed nothing** about B,
+which was already failing by `0.164` on the number 3.1 was looking at when it recommended it. The
+recommendation was wrong in its own terms; the new column only made it visible.
+
 **Every other lever, enumerated, because "no lever exists" is a claim that has to be tested rather than
 asserted:**
 
@@ -1498,14 +1523,20 @@ invisible-wall verdict.
 - **Bars:** `team/quality-bars.md` Bar 10 (single-channel collapse — **and specifically its 2026-07-31
   "a channel must VARY between cued and non-cued instances" amendment plus the `86caz5na6` KNOWN-INCOMPLETE
   note, which are what round 3 re-audits against**). ⚠ **CITE REPOINTED in revision 3.2 — the anchor moved
-  under this spec while PR #391 was open.** Revision 3.1 cited **§ "Bar 10 — the four checks"**; **PR #395
-  renamed that heading to `## Bar 10 — the standard in full, and the four checks`** (verified on `main`
-  `2d0658b`), so the 3.1 anchor is stale. The durable anchor is the **sub-§ that actually carries the
+  under this spec while PR #391 was open, and the repoint is RE-RESOLVED against `main` `2059ce5`.**
+  Revision 3.1 cited **§ ``## Bar 10 — the four checks (`86caz5na6`, 2026-07-31)``**; **PR #395 (`aeeafa0`)
+  renamed that heading to ``## Bar 10 — the standard in full, and the four checks (`86caz5na6` + `86cazhjw4`, 2026-07-31)``**
+  — both quoted verbatim from the rename diff, parenthetical included, because a
+  cite that drops half the heading is the same defect one level down. The 3.1 anchor is stale. The durable
+  anchor is the **sub-§ that actually carries the
   figure** — **`§ "The default gameplay framing — the one framing a magnitude claim may be stated against"`**
   — not the parent Bar-10 heading, which has now been reworded twice. Revision 3.1 takes **one** thing from
   it: its canonical figure `720 / (2 × 14 × tan 22.5°) = 720 / 11.60 ≈ 62 px per world metre` (quoted
-  verbatim from that sub-§ on `2d0658b`), which is what exposed §8.0's px-per-unit error — and **defers the
-  C1–C4 re-audit to round 4** (revision-header KNOWN-INCOMPLETE note). Also Bar 3 (material-honest, pattern via geometry), Bar 4
+  verbatim from that sub-§) — which is what exposed §8.0's px-per-unit error — and **defers the
+  C1–C4 re-audit to round 4** (revision-header KNOWN-INCOMPLETE note). ✅ **Re-verified at `2059ce5`: the
+  sub-§ heading is byte-identical and still carries the figure verbatim; `aeeafa0` (#395) is still the tip
+  commit on `team/quality-bars.md`, so nothing has moved under the repoint since it was made.**
+  Also Bar 3 (material-honest, pattern via geometry), Bar 4
   (real-world anchor + side profile), Bar 6 (the board is a guide, not a contract). Bar 1 (organic, never
   geometric) also constrains D4 — a tightened cluster must still read as litter, not as a formation.
 - **Docs:** `.claude/docs/art-direction.md` (board; the rock language in `21h10_44`, `21h12_49`,
@@ -1527,9 +1558,15 @@ invisible-wall verdict.
   `Assets/**` cites in this doc are line-anchored because the claims are arithmetic on specific literals; all
   of them carry the ref they were verified at, and **round 3 found that every
   `MovementCameraScene.cs` cite from round 2's `840a1c6` had drifted** — re-verify before quoting them
-  onward. **Revision 3.1 re-verified them at `0f14b4f`:** `git diff --name-only 750f190..origin/main`
-  returns no `Assets/**` path, so every `Assets/**` anchor in this spec is current at `0f14b4f` — the ref to
-  quote onward is now **`0f14b4f`**, not `750f190`.
+  onward. **Revision 3.1 re-verified them at `0f14b4f`:** `git diff --name-only 750f190..0f14b4f`
+  returns no `Assets/**` path, so every `Assets/**` anchor in this spec was current at `0f14b4f`.
+  ⚠ **Revision 3.2 re-verified at `2059ce5`, and pins the SHA rather than `origin/main` — a range written
+  against a moving ref falsifies itself the next time `main` advances, which is exactly what happened to
+  3.1's sentence.** `git diff --name-only 750f190..2059ce5 -- 'Assets/*'` returns **one** path,
+  `Assets/Tests/EditMode/PickaxeMineClipUprightTests.cs`, cited nowhere here (§8). Every `Assets/**` anchor
+  in this spec is current at **`2059ce5`** — that is the ref to quote onward, and §4.3's N4 grep
+  (`minimap|mini-map|compass` over `Assets/Scripts`) **re-run at `2059ce5` still returns 0**, so §10.4's
+  no-radial-readout premise holds on today's `main`.
 - **Memory:** `[[unity-procedural-committed-assets-go-stale]]` (the shared failure domain both channels sit
   in — §8.1) · `[[physical-features-anchor-realworld-not-metric]]` (Bar 4's mechanism; §5.1's anchor
   sentence) · `[[verify-grounding-soaks-by-gameplay-cam-visual]]` (why §8.0 exists and why the side-profile
