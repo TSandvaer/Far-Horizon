@@ -1042,28 +1042,8 @@ namespace FarHorizon.EditorTools
             float mirrorEps = 0.50f / 1000f / unitToM;   // 0.50 mm — mirror-match tolerance
             Log($"[blockhands] scale: 1 mesh unit = {unitToM * 1000f:F3}mm world; twinEps={twinEps:E3}u mirrorEps={mirrorEps:E3}u");
 
-            // Spatial hash over every mesh vert, cell size = twinEps, with a 3x3x3 neighbour probe so a position
-            // straddling a cell boundary still finds its twins.
-            var cells = new Dictionary<Vector3Int, List<int>>();
-            for (int v = 0; v < verts.Length; v++)
-            {
-                var k = Cell(verts[v], twinEps);
-                if (!cells.TryGetValue(k, out var l)) { l = new List<int>(); cells[k] = l; }
-                l.Add(v);
-            }
-            List<int> Within(Vector3 p, float eps)
-            {
-                var res = new List<int>();
-                int span = Mathf.Max(1, Mathf.CeilToInt(eps / twinEps));
-                var k = Cell(p, twinEps);
-                float e2 = eps * eps;
-                for (int dx = -span; dx <= span; dx++)
-                    for (int dy = -span; dy <= span; dy++)
-                        for (int dz = -span; dz <= span; dz++)
-                            if (cells.TryGetValue(new Vector3Int(k.x + dx, k.y + dy, k.z + dz), out var l))
-                                foreach (int v in l) if ((verts[v] - p).sqrMagnitude <= e2) res.Add(v);
-                return res;
-            }
+            var cells = BuildCells(verts, twinEps);
+            List<int> Within(Vector3 p, float eps) => WithinCells(cells, verts, p, twinEps, eps);
 
             var lSub = new HashSet<int>(SubtreeVertIdx(smr, lHand));
             var rSub = new HashSet<int>(SubtreeVertIdx(smr, rHand));
@@ -1143,6 +1123,68 @@ namespace FarHorizon.EditorTools
 
         private static Vector3Int Cell(Vector3 p, float eps) => new Vector3Int(
             Mathf.FloorToInt(p.x / eps), Mathf.FloorToInt(p.y / eps), Mathf.FloorToInt(p.z / eps));
+
+        // Spatial hash over every vert, cell size = cellEps, with a neighbour probe so a position straddling a
+        // cell boundary still finds its twins.
+        private static Dictionary<Vector3Int, List<int>> BuildCells(Vector3[] verts, float cellEps)
+        {
+            var cells = new Dictionary<Vector3Int, List<int>>();
+            for (int v = 0; v < verts.Length; v++)
+            {
+                var k = Cell(verts[v], cellEps);
+                if (!cells.TryGetValue(k, out var l)) { l = new List<int>(); cells[k] = l; }
+                l.Add(v);
+            }
+            return cells;
+        }
+
+        private static List<int> WithinCells(Dictionary<Vector3Int, List<int>> cells, Vector3[] verts,
+                                             Vector3 p, float cellEps, float eps)
+        {
+            var res = new List<int>();
+            int span = Mathf.Max(1, Mathf.CeilToInt(eps / cellEps));
+            var k = Cell(p, cellEps);
+            float e2 = eps * eps;
+            for (int dx = -span; dx <= span; dx++)
+                for (int dy = -span; dy <= span; dy++)
+                    for (int dz = -span; dz <= span; dz++)
+                        if (cells.TryGetValue(new Vector3Int(k.x + dx, k.y + dy, k.z + dz), out var l))
+                            foreach (int v in l) if ((verts[v] - p).sqrMagnitude <= e2) res.Add(v);
+            return res;
+        }
+
+        /// <summary>
+        /// Close a vertex-index set over COINCIDENT DUPLICATES: if one vert at a position is in the set, every vert
+        /// at that position joins it. THE BUG THIS EXISTS TO PREVENT (86cau4za2 round-10): low-poly faceted meshes
+        /// duplicate vertices at every hard-edge split (this rig carries exactly x4 per hand position), so a set
+        /// built by picking ONE vert per position leaves its twins in the COMPLEMENTARY set — and then any
+        /// set-vs-set distance metric reads 0 by construction, because each member's own twin sits in the other set
+        /// at distance zero. That produced a 0.00mm standoff which corroborated two other equally-blind numbers.
+        /// Exposed public so the invariant can be regression-tested without importing an FBX.
+        /// </summary>
+        public static HashSet<int> ClusterComplete(Vector3[] verts, IEnumerable<int> seed, float eps)
+        {
+            var cells = BuildCells(verts, eps);
+            var res = new HashSet<int>();
+            foreach (int s in seed)
+                foreach (int t in WithinCells(cells, verts, verts[s], eps, eps)) res.Add(t);
+            return res;
+        }
+
+        /// <summary>
+        /// True when no vert of <paramref name="a"/> shares a position with any vert of <paramref name="b"/>.
+        /// This is the property that makes a set-vs-set distance metric meaningful; when it is false the metric
+        /// can only ever return 0. Regression-tested directly.
+        /// </summary>
+        public static bool CoincidenceDisjoint(Vector3[] verts, IEnumerable<int> a, IEnumerable<int> b, float eps)
+        {
+            var cells = BuildCells(verts, eps);
+            var bSet = new HashSet<int>(b);
+            foreach (int i in a)
+                foreach (int t in WithinCells(cells, verts, verts[i], eps, eps))
+                    if (bSet.Contains(t)) return false;
+            return true;
+        }
 
         private static int DistinctPositions(Vector3[] verts, HashSet<int> idx, float eps)
         {

@@ -661,8 +661,15 @@ namespace FarHorizon.EditTests
                 "v4 right-wrist must ship the Sponsor's dial-7 right wrist (-22,250,-30)");
             Assert.AreEqual(new Vector3(-21.8f, 282.6f, 3.7f), MovementCameraScene.CastawayV4LeftWristEuler,
                 "v4 left-wrist must ship the Sponsor-ACCEPTED dial-7 left wrist (-21.8,282.6,3.7)");
-            Assert.AreEqual(new Vector3(-502.0f, -890.0f, -6.0f), MovementCameraScene.CastawayV4LeftThumbEuler,
-                "v4 left-thumb must ship the Sponsor-ACCEPTED dial-7 left thumb (-502,-890,-6)");
+            // 86cau4za2 ROUND-10 — the dial-7 left thumb (-502,-890,-6) was RELEASED by the Sponsor's re-scope
+            // ("fix that one hand is not the same as the other"), and re-baked to the MEASURED value that makes the
+            // two hands present the same thumb lump: standoff-profile asymmetry 17.46mm -> 1.18mm empty-handed,
+            // 14.13 -> 3.68mm gripping (CastawayV4DefectDiag.RunBlockHands, ci-out/blockhands-r10c.log). It is
+            // near-zero rather than zero because the idle clip poses the LEFT thumb bone and the right's frozen
+            // geometry ignores its own; absolute (0,0,0) only reaches 8.06mm.
+            Assert.AreEqual(new Vector3(-2.7f, 10.6f, -22.8f), MovementCameraScene.CastawayV4LeftThumbEuler,
+                "v4 left-thumb must ship the round-10 MATCH bake (-2.7,10.6,-22.8) that mirrors the right hand's " +
+                "frozen thumb geometry — NOT the released dial-7 (-502,-890,-6)");
             Assert.AreEqual(Vector3.zero, MovementCameraScene.CastawayV4RightThumbEuler,
                 "v4 right-thumb must stay 0 — round-9 measured its geometry skinned to the INDEX chain " +
                 "(thumb-chain weight 0.000), so an euler here is inert; the fix is a source-side re-weight");
