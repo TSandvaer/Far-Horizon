@@ -10,20 +10,38 @@ I read the merged artifact, reproduced what I could, and measured five things it
 **Status:** proposal reshaped, still a proposal. Nothing here is adopted; no guard is built (the ticket's
 own OOS, and the audit's § 6 sequencing blocker on PR #370, both still hold).
 
+**Revision 3** (peer review, PR #412 comment `5150715894`). Three figures corrected — **T1 1 → 3 sites**
+(§ 3), **S1 10% → 15%** (§ 4), **"expected" → "measured" value** (§ 5) — all conclusion-preserving, two of
+them undercounts that argue the conclusion *harder*. One thing added that was missing and should not have
+been: **§ 8b, the guard's scope, grammar, and day-one red count** — the measurement § 5 demanded of the
+alternative and § 8 never produced for its own recommendation. **It kills the repo-wide form of that
+recommendation.** Corrections are marked ⚠ CORRECTED in place; nothing is silently patched.
+
 ---
 
 ## 0. Verdict
 
 **Do NOT adopt the convention as written.** Its measured reach is **1 of ≥44** drifted anchors (2%), its
-`team/**` half governs **1 citation site in the entire repo** and that site is not broken, its `Assets/**`
-half would introduce a syntax with **0 in-repo occurrences**, and its remedy — the § anchor — has a
-**measured 10% failure rate** on the population that already uses it.
+`team/**` half governs **3 citation sites in the entire repo** across **1 citing file** — two hold and one
+was **never resolvable at any point in the repo's history** (§ 3) — its `Assets/**` half would introduce a
+syntax with **0 in-repo occurrences**, and its remedy — the § anchor — has a **measured 15% failure rate**
+on the population that already uses it (**6 of 40**, § 4).
 
 **Adopt instead the rule the ticket already wrote down as its own AC3 edge case:** *every citation to a
 location in this repo carries a checkable payload — an exact string greppable in the target — beside
 whatever address form it uses.* That rule is form-agnostic, it is already the practiced house form in
 three places in this repo, and it is the only candidate that moves the audit's § 6 Tier-3 number
 (*"catches 0 of ≥44"*) off zero.
+
+> ### ⛔ …but NOT at repo-wide guard scope. I killed my own recommendation on my own standard.
+> Revision 2 of this document rejected candidate 2 on a **day-one red count** and then recommended
+> candidate 3 **without producing one**. That asymmetry was the correct thing to be caught on. The count
+> now exists (§ 8b, rule PA, stated grammar + stated window): **repo-wide = 137 day-one reds on 606 form-A
+> anchors.** A gate cannot be switched on already-red, and § 8 step 1 says *forward-only*, which repo-wide
+> scope contradicts outright. **Candidate 3 is therefore NOT adoptable repo-wide.** It survives at exactly
+> two scopes, and only because they were measured: the **audited doc set (0 day-one reds on 93 anchors)**
+> and **changed-lines-only (0 by construction, ~21% ongoing per-PR red rate)**. The recommendation below is
+> scoped to those two and to nothing else.
 
 **This is not a rejection of the author's thinking.** The ticket's AC3 — *"what to do when a doc section
 has no heading to anchor to (add one, or quote a distinctive phrase)"* — **is** the payload rule. The
@@ -80,18 +98,50 @@ The proposal has two halves. I measured the population of each.
 > **Rule T1:** an anchor targets `team/**` if a backticked span in any tracked `*.md` at `fb2ac24` matches
 > `` `[^ `]*team/[^ `]*\.md:[0-9]+` ``.
 
-**Result: 1 site in the entire repository.**
+**Result: 3 sites / 2 distinct targets / 1 citing file.**
 
-`team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md` cites
-`` `origin/main:team/uma-ux/combat-cluster-design-brief.md:248` @ `fee2604` `` — in the spaced sha form
-that the merged audit § 4 reports as **holding** (both instances of that form were opened and hold).
+> ⚠ **CORRECTED (revision 3).** Revisions 1–2 published **1 site**. Re-running T1 verbatim at `fb2ac24`
+> returns **3**. The undercount was mine; the peer review caught it. All three live in
+> `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md`:
 
-> **The `team/**` half of this convention is a rule for one citation, and that citation is not broken.
-> Its measured prevention count is 0.**
+| Citing site | Anchor as written | Verdict |
+|---|---|---|
+| `:296` | `` `team/uma-ux/combat-cluster-design-brief.md:248` @ `fee2604` `` | **HOLDS** — opened, this pass |
+| `:327` | `` `origin/main:team/uma-ux/combat-cluster-design-brief.md:248` @ `fee2604` `` | **HOLDS** — same target |
+| `:191` | `` `team/STATE.md:682` `` | **DEAD — and it was born dead (below)** |
+
+**The two live ones: I opened them rather than inheriting a verdict.** Revisions 1–2 supported "that site is
+not broken" with *"the spaced sha form that the merged audit § 4 reports as holding."* That was
+**form-transfer**: the audit's two spaced-sha instances are `AttackClipPoseDiag.cs:184`–`:190` and
+`SwingVerifyCapture.cs:187`, **neither of which is this citation**, and the audit's § 8e states `team/**`
+was never swept as a citing surface — so no audit verdict over this cite exists to inherit. Right answer,
+wrong warrant. The check I actually ran: `git show fee2604:team/uma-ux/combat-cluster-design-brief.md`
+(409 lines) line 248 = *"animal analog of the castaway hit-react states"*, matching the phrase the citing
+prose quotes. Superseded at tip, and the citing prose self-discloses that.
+
+**`team/STATE.md:682` is dead, and resolving it produced the sharpest single fact in this section.** The
+file is **323 lines** at `fb2ac24`. I did not re-anchor it by guess; I resolved it: across **all 116
+commits that touch `team/STATE.md` on every ref**, its **maximum length ever** is **481 lines**.
+
+> **`team/STATE.md:682` never resolved at any point in this repository's history. It is not drift — it is
+> a born-dead anchor**, wrong at the instant it was typed, and nothing caught it. *(Mitigation, stated: the
+> citing prose narrates it historically — "two cites … had NOT been re-checked and were both wrong" — so it
+> is a quoted-dead anchor, not a live claim. It still counts under T1 as written, and revisions 1–2
+> disclosed no such exclusion, so counting it is the honest call.)*
+
+**And the corrected data argues the recommendation better than the wrong figure did.** The two survivors
+hold **because each carries a quoted phrase pinned to a sha** — i.e. they hold under the **payload** rule
+(§ 8), not under the § rule. The one that died is a bare line anchor into a run log with **no payload at
+all** — where a `§` anchor would have died exactly as silently. The `team/**` sample is n=3, but every
+member of it points the same way.
+
+> **The `team/**` half of this convention governs 3 citations, 2 of which are not broken and 1 of which no
+> anchoring convention could have saved (it never existed to be anchored). Its measured prevention count
+> is 0.**
 
 The `.claude/docs/**` half prevents **1** — the merged § 5 figure, which reproduces.
 
-**Combined: 1 of ≥44 = 2.3%.**
+**Combined: 1 of ≥44 = 2.3%.** The corrected site count does not move it: 3 of ≥44 is still ~0%.
 
 ### 3b. And the audit saw ~17% of the surface
 
@@ -124,24 +174,69 @@ The ticket's stated basis is that `team/**` and `.claude/docs/**` are *"prose wi
 
 | Class | Sites | Instances |
 |---|---|---|
-| OUT-OF-SCOPE (target is a PR body / PR comment / memory-entry name) | 3 | PR #362 body; PR comment `5129792893`; auto-memory `html5-visual-gated-author-self-soak` |
-| **FAILS-PATH** | **3** | `.claude/agents/drew.md` and `.claude/agents/uma.md` → `combat-architecture.md` § "Harness coverage gap"; `.claude/agents/devon.md` → same file § "Every loot-table item must be in STARTER_ITEM_PATHS." — **`combat-architecture.md` has 0 tracked files here**, it is a Godot-era doc |
-| **FAILS-SECTION** | **4** | `.claude/agents/tess.md` **and** `team/orchestrator/dispatch-template.md` → `team/TESTING_BAR.md` § "Milestone-gate journey probe" (2 sites); `team/orchestrator/dispatch-template.md` → `team/TESTING_BAR.md` § "Visual primitives — observable delta required"; `team/devon-dev/snowcap-facet-plan.md` → `unity-conventions.md` §"procedural committed assets go stale" |
-| RESOLVES | 33 | |
-| **In-scope population** | **40** | **FAILS-SECTION = 4 = 10%** |
+| OUT-OF-SCOPE (named target is not a repo file) | 3 | `team/DECISIONS.md:174` and `:178` → **PR #362 body**; `team/DECISIONS.md:182` → **PR comment `5129792893`** |
+| **FAILS-PATH** | **3** | `.claude/agents/drew.md:67` and `.claude/agents/uma.md:10` → `combat-architecture.md` § "Harness coverage gap"; `.claude/agents/devon.md:76` → same file § "Every loot-table item must be in STARTER_ITEM_PATHS." — **`combat-architecture.md` has 0 tracked files here**, it is a Godot-era doc |
+| **FAILS-SECTION** | **6** | see the table below |
+| RESOLVES | 31 | |
+| **In-scope population** | **40** | **FAILS-SECTION = 6 = 15%** |
 
-One of those four is in **my own persona file**. I am not exempt from the class I am auditing.
+> ⚠ **CORRECTED (revision 3).** Revisions 1–2 published **4 of 40 = 10%**. The peer review re-derived **6 of
+> 40 = 15%** and I reproduce it: every one of the six below returns **0** under `grep -cF` against the file
+> its own citing line names, at `fb2ac24`. **Direction: my figure was an undercount — the § remedy fails
+> *worse* than I reported, which strengthens this section rather than softening it.**
 
-> ### ⚠ Rule-sensitivity, disclosed
-> A heading-shape variant of S1 — require the string to sit on a `#` heading line — flags **17**, a **4×
-> spread** on the same population, same pin, same files. The reason: **most "§" in this repo names a bold
-> bullet, not a markdown heading.** This is the merged § 8d finding (`128` vs `101` on one sentence of path
-> rule) reproducing in a new place. **Consequence for whoever builds a guard: check the payload as a
-> STRING, never as a heading.**
+| # | Citing site | Named target | § string | Hits |
+|---|---|---|---|---|
+| 1 | `team/orchestrator/dispatch-template.md:255` | `team/TESTING_BAR.md` | `Milestone-gate journey probe` | **0** |
+| 2 | `team/orchestrator/dispatch-template.md:134` | `team/TESTING_BAR.md` | `Visual primitives — observable delta required` | **0** |
+| 3 | `team/devon-dev/snowcap-facet-plan.md:69` | `unity-conventions.md` | `procedural committed assets go stale` | **0** |
+| 4 | `team/orchestrator/dispatch-template.md:393` | `team/GIT_PROTOCOL.md` | `Orchestrator merge-gate verification (HTML5-visual-gated PRs)` | **0** |
+| 5 | `team/orchestrator/dispatch-template.md:402` | `team/TESTING_BAR.md` | ``Auto-memory: `html5-visual-gated-author-self-soak` `` | **0** |
+| 6 | `.claude/docs/blender-asset-pipeline.md:419` | `unity-conventions.md` | `DEFAULT gameplay capture does NOT frame a HELD weapon` | **0** |
+
+**Two corrections inside the correction, and both are self-indicting:**
+
+- **`.claude/agents/tess.md` is DROPPED.** Revisions 1–2 counted it as a FAILS-SECTION. It **is not in the
+  S1 population my own rule defines**: at `fb2ac24`, `tess.md:51` reads ``Per testing-bar `Milestone-gate
+  journey probe (mandatory at RC boundary)`:`` — backticks, no `§`, no double quotes. The only
+  `§ "Milestone-gate journey probe"` in the repo is `dispatch-template.md:255`. **Citing an instance the
+  stated rule does not reach is the exact class this document indicts**, committed in this document, about
+  my own persona file. It is removed from the count and left here as the record.
+- **#5 was a misclassification, not a miss.** Revisions 1–2 filed it OUT-OF-SCOPE as *"auto-memory name,
+  not a repo file."* But the citing line names `` `team/TESTING_BAR.md` `` as the target and the
+  memory-entry name sits **inside the section title**. Under my own rule (target = the file named on the
+  same line) it is in scope, and it fails.
+
+> ### ⚠ Rule-sensitivity, disclosed — TWO independent axes on this one measurement
+> **Axis 1 — heading shape.** Require the string to sit on a `#` heading line and S1 flags **17**, a **4×
+> spread** on the same population, same pin, same files. Most "§" in this repo names a **bold bullet**, not
+> a markdown heading.
+> **Axis 2 — string normalisation (NEW in revision 3, and it bit me while re-running the correction).**
+> The 6 above are under a normalising match (fold quote glyphs `' " ' "`, strip a trailing `…`/`...`, strip
+> a trailing `.`, case-fold). Under a **strict** `grep -F` with no normalisation the same population gives
+> **11 of 40 = 28%** — five more failures, every one a punctuation or case artefact rather than a real
+> staleness: `developer-accuracy-performance-research.md:31` ×3 (the cite writes `'…'` where the target
+> heading has `"…"`, and one cite ends in `...`), `dispatch-template.md:174` (cite adds a sentence-final
+> `.` the heading does not carry), `rock-affordance-direction.md:512` (cites `hard don'ts`; heading reads
+> `Hard don'ts`).
+>
+> **So S1 is 15% or 28% depending on a normalisation rule nobody had stated.** That is the merged § 8d
+> finding (`128` vs `101`) reproducing for the **third** time in this area — and this time inside the
+> correction to my own figure. **Consequence for whoever builds a guard: check the payload as a STRING,
+> never as a heading, and ship the normalisation rule *with* the number — quote-glyph folding, trailing
+> ellipsis, trailing period, case. Without it the guard's own output is unreadable.**
+
+> ### A figure carries its population, or it is not a figure
+> Every number in this area has now moved by 1.8×–5× purely on an unstated rule: S1 heading-shape (4×),
+> S1 normalisation (1.9×), form-A payload compliance (5×, § 8b). This is the same defect class as a
+> pixel measurement quoted without the population it was computed over — **the number is not wrong, it is
+> unattached**, and an unattached number is indistinguishable from a wrong one to every later reader.
+> **Every percentage in this document is written as `N of M under rule X at pin Y`.** Where I failed that,
+> the failure is marked ⚠ CORRECTED rather than silently patched.
 
 ### The asymmetry that actually decides this ticket
 
-All four FAILS-SECTION were found by **one exact-string grep**. Per the merged § 6 Tier 3, **0 of ≥44**
+All six FAILS-SECTION were found by **one exact-string grep**. Per the merged § 6 Tier 3, **0 of ≥44**
 line-anchor drifts are findable that way — every one passes exists-and-long-enough.
 
 > **A § cite that goes stale goes RED. A line anchor that goes stale goes GREEN.**
@@ -202,7 +297,10 @@ are the same fact: the one citation the convention rescues is also the one a for
 sweep, a detection change may be worth more than a citation-style change" — tested, and it does not
 survive on the available evidence. Form B is the largest *citation population* (82/165) but carries **1 of
 13** confirmed drifts, and widening a guard to reach it costs a measured **23 false reds on day one**
-(merged § 6: 23/82 = 28% attribution failure). **Negative expected value as a first move.**
+(merged § 6: 23/82 = 28% attribution failure). **Negative *measured* value on the available evidence, as a
+first move.** *(⚠ CORRECTED in revision 3 from "negative expected value" — an expected value needs the
+per-form drift distribution that § 5's own ⚠ box says I do not have. The stronger phrase was reaching past
+the data by exactly the margin this document indicts elsewhere.)*
 
 ---
 
@@ -229,16 +327,22 @@ repository. I counted it on **one line only** and did not sweep for it (§ 9).
 
 ## 7. Candidate remedies, with what each would and would not have prevented
 
-| Candidate | **Prevents** (of ≥44) | **Detects** (of ≥44) | In-repo track record | Verdict |
-|---|---|---|---|---|
-| **1. This ticket as written** — § for `team/**` + `.claude/docs/**`; `file:line @ sha` for `Assets/**` | **1** (2%). `team/**` half: **0** — it governs 1 site (§ 3) and that site holds | **0** | § half: exists, but **10% measured failure** (§ 4) and **87% of its dominant form carries no payload** (§ 4b). `Assets/**` half: `path:NNN@sha` has **0 occurrences** — new practice, no track record | **Do not adopt as written** |
-| **2. Detection change — widen the guard to form B** | **0** | ≥1 of the 13 named, at a cost of **23 false reds on day one** (28%) | — | **Do not do first.** Not convergent either — form G (§ 6). Revisit only after the ~31 unclassified drifts are classified by form |
-| **3. Checkable payload beside every address** (the ticket's own AC3, generalised) | **0 — it does not stop drift, and I will not claim it does** | **≥12 of the 13 named**, and in principle all ≥44 — the only candidate that moves § 6 Tier 3 off zero | **Yes, three places:** the two 100%-holding blocks in `unity-conventions.md` (18/18 and 10/10, merged § 4); Uma's `§N (payload)` habit at 54 sites (§ 4b); and `team/TESTING_BAR.md` § "Doc-staleness greps" already sanctions the form *for that file only* | **Adopt** |
-| **4. Do nothing** | 0 | 0 | — | ≥50 findings live on `main` today (merged § 8e) |
+| Candidate | **Prevents** (of ≥44) | **Detects** (of ≥44) | **Day-one reds** | In-repo track record | Verdict |
+|---|---|---|---|---|---|
+| **1. This ticket as written** — § for `team/**` + `.claude/docs/**`; `file:line @ sha` for `Assets/**` | **1** (2%). `team/**` half: **0** — it governs 3 sites (§ 3), 2 hold and 1 was born dead | **0** | n/a — no guard proposed | § half: **15% measured failure** (§ 4, and 28% under a strict match) and **87% of its dominant form carries no payload** (§ 4b). `Assets/**` half: `path:NNN@sha` has **0 occurrences** — new practice, no track record | **Do not adopt as written** |
+| **2. Detection change — widen the guard to form B** | **0** | ≥1 of the 13 named | **23 FALSE reds** (28% of 82) | — | **Do not do first.** Not convergent either — form G (§ 6). Revisit only after the ~31 unclassified drifts are classified by form |
+| **3a. Payload rule, guard at REPO scope** | **0** | ≥12 of the 13 named | **137 TRUE reds** on 606 anchors (§ 8b, rule PA) | as 3b | **NOT ADOPTABLE — killed on § 5's own standard.** A gate cannot be switched on already-red; forward-only and repo-wide are contradictory |
+| **3b. Payload rule, guard at CHANGED-LINES scope + advisory doc-set** (the ticket's own AC3, generalised) | **0 — it does not stop drift, and I will not claim it does** | **≥12 of the 13 named**, and in principle all ≥44 — the only candidate that moves § 6 Tier 3 off zero | **0** by construction; **0** on the audited doc set (93 anchors, 100% compliant today); **~21% ongoing** per-PR rate (86/416) | **Yes, three places:** the two 100%-holding blocks in `unity-conventions.md` (18/18 and 10/10, merged § 4); Uma's `§N (payload)` habit at 54 sites (§ 4b); and `team/TESTING_BAR.md` § "Doc-staleness greps" already sanctions the form *for that file only* | **Adopt — this scope only** |
+| **4. Do nothing** | 0 | 0 | 0 | — | ≥50 findings live on `main` today (merged § 8e) |
 
 **Candidate 3 prevents nothing.** It is a detection remedy and must be sold as one. The reason to prefer it
 is not that it stops an author mistyping a number — nothing does — but that it is the only option under
 which a stale citation *announces itself*.
+
+**And candidate 3 splits in two once the missing count exists.** Revisions 1–2 wrote one row where there
+are two, and the row that got recommended was the one never measured. **3a is dead**; 3b is what survives.
+The lesson is exactly the one this document was written to make: *the remedy that has not been counted is
+not a remedy, it is a preference* — and I applied that to the alternative before I applied it to my own.
 
 ### The ticket's own five anecdotes, scored against its own rule
 
@@ -273,7 +377,12 @@ four of them were never counted against each other.
   the naive reading of this ticket would have landed 368 sites.
 - **Code / config target** (`Assets/**`, `.github/**`): the payload is the symbol name or a short snippet,
   written **beside** the number — `` `AxeNudgeTool.ComposeLocalRot` (`AxeNudgeTool.cs:1008`) ``. This is
-  what the two 100%-holding blocks already do.
+  what the two 100%-holding blocks already do. **"Beside" is defined, not left to the reader: it means
+  *anywhere on the same citing line*, and the payload token must not itself be an address** — full grammar,
+  window, and its ±120/±60 sensitivity band in **§ 8b, rule PA**. Writing this bullet without that
+  definition is what let the compliance rate range 18%–97% in an independent reader's hands, and the
+  written-order variant (`` `Foo.cs:12` — see `Foo.Bar` ``) is compliant under rule PA precisely so the two
+  existing 100%-holding blocks, which name their symbols in the *other* order, are not false-redded.
 - **The sha is optional and orthogonal.** Merged § 4 proves it is not the discriminating variable — it
   labels the repo's best-holding block and its worst-drifting block alike. It makes a cite *recoverable*,
   not *verifiable*. Do not spend the convention's mandate on it.
@@ -301,12 +410,97 @@ argument for a convention — but for one aimed at making staleness *visible*, n
 types may carry a number.
 
 **Sequencing, if adopted:**
-1. Land the rule as one bullet in `team/TESTING_BAR.md`, worded form-agnostically. Forward-only.
-2. Guard **after PR #370 merges** (merged § 6 sequencing blocker): **form A only**, payload-within-±N-lines,
-   with forms B / C / E / F / **G** on a **documented residual list** so a green never implies they were
-   checked.
+1. Land the rule as one bullet in `team/TESTING_BAR.md`, worded form-agnostically. **Forward-only**, and
+   § 8b's scope sentence is part of the bullet — not a separate decision left to whoever builds the guard.
+2. Guard **after PR #370 merges** (merged § 6 sequencing blocker): **form A only**, **rule PA below**,
+   **changed-lines scope**, with forms B / C / E / F / **G** on a **documented residual list** so a
+   green never implies they were checked.
 3. **Do not widen to form B** until the ~31 unclassified drifted anchors are classified by form (§ 5).
    That measurement decides it. Nothing else does.
+4. **Do not widen to repo scope at all** without the 137-line remediation in § 8b priced first.
+
+---
+
+## 8b. The guard: its scope, its grammar, and its day-one red count
+
+> ⚠ **This section did not exist in revisions 1–2, and its absence was the correct blocker.** § 5 killed
+> candidate 2 on a **day-one red count** and § 8 then recommended candidate 3 **with no equivalent figure**.
+> Worse, § 8's own prescription (*"the symbol name or a short snippet, written **beside** the number"*) has
+> **no window and no token grammar** — so "beside" is unstated, and an independent reader trying to produce
+> the missing number got **18% compliance under an adjacency reading and 97% under a line reading: a 5×
+> spread on a rule this artifact never wrote down.** That is § 4's own rule-sensitivity finding reproducing
+> *inside my recommendation*. The fix is not to pick the flattering number. It is to state the rule.
+
+### Rule PA — stated in full, so the 5× spread collapses to one number per scope
+
+> **Anchor** — a backticked span `` `<path>.<ext>:NNN` `` or `` `<path>.<ext>:NNN-MMM` ``, where `<ext>` is
+> in an explicit known-extension set (`cs md yml yaml sh shader json txt png asset meta prefab unity hlsl
+> cginc py ps1 log fbx mat xml cmd bat uxml uss …`). This is form A of the merged audit's § 1 taxonomy.
+>
+> **Payload token** — on the citing line, a backticked span **or** a double-quoted span of ≥3 characters,
+> which is **not itself an address token**. Address tokens (excluded): a path with a known extension, a
+> bare `:NNN` / `:NNN-MMM`, a bare number, a 7–40-char hex sha, a bare `§N`.
+>
+> **Window** — **the whole citing line** (primary rule). Reported alongside: ±120 chars and ±60 chars, so
+> the window's contribution to the number is visible instead of assumed.
+>
+> **Compliant** = at least one payload token inside the window. **Red** = none.
+
+> #### ⚠ The grammar false-redded on the rule's own canonical example. Fourth reproduction, ten minutes in.
+> My first implementation excluded any `word.word` token as "address-shaped". It therefore flagged
+> § 8's own worked example — `` `AxeNudgeTool.ComposeLocalRot` (`AxeNudgeTool.cs:1008`) `` — as **RED**,
+> because `.ComposeLocalRot` parses as a file extension. **The prescribed form failed the guard written to
+> enforce it.** Fixed by whitelisting extensions; the sanity assertion (that exact line ⇒ 1 anchor, 0 reds)
+> is now the first thing rule PA runs. Stated here rather than quietly corrected, because it is the cheapest
+> possible demonstration of why "beside the number" is not a specification.
+
+### Day-one red counts — measured at `fb2ac24`, rule PA, three scopes
+
+| Guard scope | form-A anchors | **day-one RED** (line window) | compliance | ±120 / ±60 band |
+|---|---|---|---|---|
+| **Repo-wide** — every tracked `*.md` | 606 | **137** | 77% | 158 / 190 |
+| **Audited doc set** — `.claude/docs/*.md` + `CLAUDE.md` | 93 | **0** | **100%** | 4 / 11 |
+| **Changed-lines only** — added `*.md` lines, last 60 commits on `main` | 416 | **0 by construction** | 79% ongoing | 95 red ongoing |
+
+### The verdict, held to § 5's own standard
+
+**Repo-wide: candidate 3 does NOT survive. I am killing my own recommendation at that scope.**
+**137** pre-existing anchors go red the moment the guard is switched on. A gate cannot be switched on
+already-red — every subsequent PR is blocked by lines it did not touch — so repo-wide adoption is not one
+sentence in `TESTING_BAR.md`; it is a **137-line remediation PR or a 137-entry grandfather list**, either of
+which is a larger change than the convention it enforces. § 8 step 1 says *forward-only*; repo scope
+contradicts that outright. **Not adoptable.**
+
+> **One distinction I will not blur in my own favour.** § 5 killed candidate 2 on **23 *false* reds** —
+> misattributions, where the guard is wrong. Rule PA's 137 are **true** reds — those citations genuinely
+> carry no payload. 137 > 23 is therefore **not** a like-for-like defeat, and I am not claiming it is.
+> The kill stands on the *other* half of the same standard: **a day-one red count is what decides whether a
+> guard can be switched on, and 137 says no** regardless of whether each red is deserved.
+
+**Audited doc set: 0 day-one reds on 93 anchors — 100% compliant, today.** The surface the audit actually
+swept already satisfies the rule. Adoption there costs **nothing** and turns the existing habit into a
+checked one. This is the strongest result in the document and it is the narrowest.
+
+**Changed-lines-only: 0 day-one reds by construction, and a ~21% ongoing rate.** 86 of 416 form-A anchors
+added to `*.md` in the last 60 commits on `main` carry no payload — **roughly one in five newly-written
+anchors would go red.** That is the real, non-zero price of forward-only adoption, and no reader should
+take "0 day-one reds" as "free." It is a fair price *because each red is true and is fixable by the author
+who wrote the line, in the PR that wrote it* — the property candidate 2's false reds do not have.
+
+**Adoptable scope, stated as one sentence — the sentence whose absence blocked this PR:**
+
+> **The guard runs on CHANGED LINES ONLY** (added or modified `*.md` lines in the PR under test), **plus a
+> repo-wide advisory-only report** over the audited doc set, which is at **0** today and can therefore be
+> made blocking for that path set immediately. **It never runs blocking repo-wide** until the 137 are
+> remediated or grandfathered, and that remediation is **out of scope for this ticket** (AC4: this document
+> rewrites no citation).
+
+**Still no guard is built here** — the ticket's OOS and the merged § 6 sequencing blocker on PR #370 both
+hold unchanged. Rule PA is stated to the level where the builder invents **nothing**: anchor grammar,
+payload-token grammar with its exclusion set, window, and a sanity assertion that must pass before any
+count is believed. That was the gap Item 4 of the review named, and it is closed by specification, not by
+code. If a future builder finds a rule PA clause they had to invent, that clause is a defect in this
+section and should be filed against it.
 
 ---
 
@@ -315,9 +509,15 @@ types may carry a number.
 **Bars tested here:**
 - The A–D population at `0f14b4f` — fourth-observer reproduction, exact, class boundaries stated (§ 2).
 - Glued `path:NNN@sha` occurrences — **0**, reproduces (§ 2).
-- The population the `team/**` half governs — **1 site**, rule T1 (§ 3).
+- The population the `team/**` half governs — **3 sites / 2 distinct targets / 1 citing file**, rule T1
+  (§ 3), with both live targets **opened this pass** rather than inherited, and the dead one **resolved**
+  against all 116 commits that touch `team/STATE.md` (max length ever = 481 lines ⇒ born dead).
 - Audited-vs-unswept citing surface — **1 : 4.8**, one counter on both sides, rule U1 (§ 3b).
-- Quoted-§ resolution — **4 of 40 fail**, rule S1, plus its 4× rule-sensitivity (§ 4).
+- Quoted-§ resolution — **6 of 40 fail (15%)**, rule S1, plus **two** disclosed rule-sensitivity axes:
+  heading-shape **4×** and string-normalisation **1.9×** (15% vs 28%) (§ 4).
+- **Form-A payload compliance and the guard's day-one red count — rule PA, three scopes** (§ 8b):
+  repo-wide **137 red / 606**, audited doc set **0 / 93**, changed-lines ongoing **86 / 416**; ±120/±60
+  window band reported for each.
 - Ordinal-§ payload presence — **368 of 422 carry none**, rule O1 (§ 4b).
 - Form classification of the 13 named drifts — **12 A / 1 B**, rule F1 (§ 5).
 
@@ -331,15 +531,36 @@ types may carry a number.
 - **The `§N` ordinal population is measured for payload presence, not for correctness.** I did not open
   368 targets to see how many ordinals currently point at the wrong section. That is the natural successor
   measurement and it would size the § half of this problem properly for the first time.
-- **`.claude/agents/*.md` and `team/**` were not swept as citing files for line anchors** — only the § cites
-  in them (§ 4). The merged § 8e names the same gap.
+- **`.claude/agents/*.md` and `team/**` were never swept for hold-vs-drift.** Rule PA (§ 8b) sweeps them for
+  **payload presence** repo-wide, which is a different question: it says whether a citation is *checkable*,
+  never whether it is *correct*. The merged § 8e gap is unclosed.
+- **Rule PA measures compliance, not correctness.** A payload token can be present and wrong. The 137 / 0 /
+  86 counts are the guard's **red** counts, not a drift count — no anchor's target was opened for them.
+- **Rule PA's anchor regex is sweeper-dependent** in exactly the way merged § 8d warns: it finds **93** form-A
+  anchors in the doc set at `fb2ac24` where the audit's § 1 taxonomy finds **71** at `0f14b4f` (different
+  pin, looser path grammar). The **ratios and the red counts** are internally rule-consistent; the
+  **absolutes are not comparable across the two sweepers**, and I do not compare them.
+- **The changed-lines figure is a 60-commit sample of `main`, not a per-PR distribution.** 86/416 is the
+  pooled rate; I did not compute variance across PRs, so "~1 in 5" is a pooled average and a single
+  citation-heavy PR could sit far off it.
+- **I did not build the guard, so its false-red rate on real PRs is unmeasured.** The one false-red I *do*
+  have is the grammar's own (§ 8b) — found by asserting against the rule's canonical example, which is the
+  minimum bar, not evidence of a clean grammar.
 - **The 945-vs-195 absolutes are sweeper-dependent.** Only the ratio is rule-consistent. Per merged § 8d, a
   path/anchor denominator is a property of the sweeper, not of the repo.
 - **Nothing here is mechanically enforced.** No guard was built; PR #370 still holds the file it must live in.
 
-**Falsifiable prediction, for grading against whatever is adopted.** If the convention is adopted **as
-written** and a re-audit is run at a later pin, I predict the drifted-anchor count will **not** fall by more
-than ~5%, because 97% of measured drift is in `Assets/**` and `.github/**` where the rule keeps line
-numbers unchanged — and I predict at least one **new** § failure will appear, because § cites already fail
-at 10% and the rule adds cites without adding a check. If a re-audit shows a materially larger drop than
-that, this analysis is wrong and the file-type split was doing work I could not see.
+**Falsifiable prediction 1 — the convention as written.** If the convention is adopted **as written** and a
+re-audit is run at a later pin, I predict the drifted-anchor count will **not** fall by more than ~5%,
+because 97% of measured drift is in `Assets/**` and `.github/**` where the rule keeps line numbers
+unchanged — and I predict at least one **new** § failure will appear, because § cites already fail at
+**15%** (§ 4) and the rule adds cites without adding a check. If a re-audit shows a materially larger drop
+than that, this analysis is wrong and the file-type split was doing work I could not see.
+
+**Falsifiable prediction 2 — the guard, and this one grades ME.** If rule PA is built at **changed-lines
+scope** and run over the next 20 merged PRs, I predict its red rate lands in **10–30%** of new form-A
+anchors (pooled 21% here) and that **the audited doc set stays at 0** blocking reds. If the observed rate
+lands materially **above 30%**, the forward-only scoping is not the cheap adoption I have claimed and § 8b's
+verdict should be re-opened, not re-argued. If it lands materially **below 10%**, my 86/416 sample was
+unrepresentative and the case for the rule is *weaker* than stated, not stronger — a rule that almost never
+fires is not earning its sentence in `TESTING_BAR.md`.
