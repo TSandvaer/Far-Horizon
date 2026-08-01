@@ -66,7 +66,8 @@ gate does not use. What changed:
   a decorative ceiling of `0.79` meeting a boulder floor of `0.79` — zero margin, which is not a testable
   gate. **Those two were on different metrics:** `V·q/P` is sink-free *and* tilt-free; the gate's
   `S = bounds.max.y ÷ max(extents.x, extents.z)` carries both. Correctly measured, option A's ceiling is
-  **0.701**, giving a **real +0.086 margin** (+0.048 on the tilted-AABB bound). **The alarm was over-stated
+  **0.700**, giving a **real +0.087 margin** (+0.050 on the tilted-AABB bound — both figures as re-derived at
+  revision 3.3's corrected `θ`; 3.2 stated them as 0.701 / +0.086 / +0.048). **The alarm was over-stated
   and the gate needs no rescue** — it needed to be measured on the right quantity.
 - **§8.2's named lever gains a NUMERIC SELF-TERMINATING TRIGGER** (Priya's PL call): an explicit
   gap-threshold ladder with one lever pull (`q → 0.55`), a PASS-with-defect branch, and a hard STOP that
@@ -88,6 +89,39 @@ gate does not use. What changed:
   one unrelated EditMode test moved — so the absolute is restated rather than left to age (§8).
 - **Not settled, deliberately:** §10.2, §10.3 and §10.4 all remain open Sponsor picks. Making B's arithmetic
   honest is not the same as choosing among the options.
+
+**Revision 3.3 (`86cazhvdc`) — the two round-5 NITs on PR #391. Both non-blocking; neither moves a verdict,
+the option set, the option-B retraction, or any of the three open §10 flags.** What changed:
+
+- **⚠ `θ` CORRECTED, `31.1° → 30.7°`, and `θ` is now DECLARED in §0.1 (NIT 1).** Unity composes
+  `Quaternion.Euler(x, y, z)` as **Z → X → Y**, so the local up-axis tilt is `acos(cos x · cos z)` — not the
+  quadrature-in-degrees `√(x² + z²)` revisions 3.1/3.2 used. At `x = z = 22°` that is **30.72°**, not 31.11°.
+  Every affected figure re-derived: ceiling apex `0.518u → 0.516u` (still ~18 px) · option A/C `S`
+  `0.7013 → 0.6999`, margin `+0.086 → +0.087` · tilted-AABB bound `0.5011 s → 0.5017 s`, A's pessimistic
+  reading `0.739 → 0.737`, margin `+0.048 → +0.050` · the `q → 0.55` lever buys `≈ +0.045` (was 0.044) ·
+  tilt-to-0° gain `0.060 → 0.059` · testable-gap `q ≈ 0.639 → 0.640` · C's worst-case height ratio
+  `1.06× → 1.07×`. **Option B's gate figures are unchanged at the quoted precision** (`S` = 0.813 / 0.823,
+  margin −0.026 … −0.036): **the retraction is untouched.** All movement is third-decimal.
+- **⚠ One consequence that is more than cosmetic, stated rather than absorbed.** A's *pessimistic*
+  (tilted-AABB) derived margin crosses the `0.05` trigger from **below** (+0.048 ⇒ "the lever fires once")
+  to **above** (+0.050 ⇒ "PASS"). **No gate moves** — AC1c branches on the **measured** gap, never on a
+  derived expectation — but the expectation a reader plans against does. §8.2 carries the note.
+- **§10.3's *"the number 3.1 was looking at"* corrected to 3.1's ***quantity*** (NIT 2), with the record of
+  what 3.1 actually printed** (`b/a` = 0.68 at the *nominal* draw against the retired `1.0` — `438bc20`
+  §5.1) **and why the metric-held-fixed comparison is the one that defeats the "you changed the ruler"
+  objection.** The false side is not deleted silently; the surviving statement is made load-bearing.
+- **§0.1 gains the DISCRIMINATOR between the two defect classes that both present as "a figure that does not
+  reproduce."** *Stated ÷ correct* **constant** across draws ⇒ a missing **frame** conversion (a plane mix:
+  N1's `×2`, §8.0's ground window, and **PR #413**'s `sec 55°` = 1.7434×); **varying with magnitude** ⇒ a
+  **linearisation** used outside its domain (this `θ`; and 3.1's `720 px ÷ 45°` ruler). ⚠ **`θ` is NOT the
+  #413 mechanism** — it was checked against it explicitly and belongs to the other class.
+- **§10.3 now declares WHICH DRAW each column is at** — found while re-deriving. Flatness and
+  nominal-apex-on-screen are at the common `s = 0.90`; the nominal height-ratio column is at each option's
+  **own band mid** (0.90 / 0.85 / **1.05**), which is why C reads 3.04× despite sharing A's `q`. Every figure
+  was already correct on its own column's draw; the table simply never said it used two — N1's shape one
+  level down. **No figure changed on this account.** One rounding repair alongside it: option B's apex band
+  `0.10–0.54u → 0.11–0.54u` (its floor apex is 0.106u — the same 3.8 px §10.3's own lever table already
+  quotes), which moves **in B's favour**, not the retraction's.
 
 ⚠ **KNOWN INCOMPLETE, declared rather than discovered later.** `team/quality-bars.md` gained a
 **Bar 10 — the four checks** section (`86caz5na6`, merged in PR #386) *after* this spec's round-3 audit was
@@ -118,9 +152,10 @@ conventions below are now fixed;
 | **Height** | **Apex above ground**, NOT full vertical extent. | `LP_Rock` meshes are centred on the ground point (§5.1), so half the mesh is buried and never renders; minable meshes are *lifted*, so more than half does. Full vertical extent would count buried geometry as a cue. |
 | **Radius** | A half-extent by definition, always labelled *radius*, and never quoted as a width. | §2's table and every `FacetedRock(r, …)` argument. |
 | **`b/a` — the STAND RATIO** | `b` = apex above ground; `a` = planar **HALF**-extent (the footprint radius). Threshold **1.0**. **It is NOT a width ratio.** | It answers *"does this stone's top clear its own footprint radius?"*, and it is the **gate** metric because `Renderer.bounds.extents` is natively a half-extent (AC1). |
-| ⛔ **`S` (MEASURED) vs `V·q/P` (DERIVED) — revision 3.2, and this is the root of the defect Priya's `REQUEST_CHANGES` found** | **`S` = `bounds.max.y ÷ max(extents.x, extents.z)`** — the stand ratio as AC1 actually reads it, carrying tilt **and** sink. **`V·q/P`** is the ratio of the *nominal semi-axes*, carrying **neither**. **They are the same number ONLY for a class with no tilt and no sink.** Quote `S` for anything gate-related; quote `V·q/P` only for the categorical `< 1.0` argument. | The minable classes take no tilt and no sink, so for them `S = (lift + V)/P` exactly and the two forms coincide. **The decorative class takes both**, so they diverge — at option A's ceiling, `V·q/P` = 0.7925 but `S` = **0.701**. Revision 3.1 compared a decorative `V·q/P` against a minable `S` and reported a zero margin that does not exist; the real margin is **+0.086** (§8.2). A margin is only a margin when both sides are the same quantity. |
+| ⛔ **`S` (MEASURED) vs `V·q/P` (DERIVED) — revision 3.2, and this is the root of the defect Priya's `REQUEST_CHANGES` found** | **`S` = `bounds.max.y ÷ max(extents.x, extents.z)`** — the stand ratio as AC1 actually reads it, carrying tilt **and** sink. **`V·q/P`** is the ratio of the *nominal semi-axes*, carrying **neither**. **They are the same number ONLY for a class with no tilt and no sink.** Quote `S` for anything gate-related; quote `V·q/P` only for the categorical `< 1.0` argument. | The minable classes take no tilt and no sink, so for them `S = (lift + V)/P` exactly and the two forms coincide. **The decorative class takes both**, so they diverge — at option A's ceiling, `V·q/P` = 0.7925 but `S` = **0.700**. Revision 3.1 compared a decorative `V·q/P` against a minable `S` and reported a zero margin that does not exist; the real margin is **+0.087** (§8.2). A margin is only a margin when both sides are the same quantity. |
 | **Conversion** | Full-width flatness = `2 ÷ (b/a)`, before sink and tilt. | So the two never have to be guessed at from each other. |
 | **`P` (planar half-extent factor, §2.3)** | **Nominal and floor rows: `P = 1.00`. Worst case: `P = 1.20` on an APEX row, `P = 0.96` on a STAND-RATIO row.** Stated at every use. | All three sit inside §2.3's measured `P` range (0.96–1.38). ⚠ **The two worst cases pull in opposite directions and revision 3.1 did not say so** (revision 3.2): a *tallest-slab* apex worst case takes `P` HIGH, because tilting a wide shape raises its apex through the `a·sin θ` term; a *stand-ratio* worst case takes `P` LOW, because `P` is the **denominator** of `b/a`. Verified rather than asserted — at the option-A ceiling draw, `S` is **0.70** at `P = 0.96` and **0.63** at `P = 1.20`, so 0.96 is the worst case for the gate. Every apex figure in §5.1/§10.3 reproduces on the 1.20 pin; every stand-ratio ceiling in §2.3/§8.2/§10.3 reproduces on the 0.96 pin. |
+| **`θ` (the combined tilt of the local `+Y` axis)** | **`θ = acos(cos x · cos z)`**, where `x` and `z` are the per-axis Euler tilts (`:1317-1318`). At **8–22° each** that is **`θ` = 11.3–30.7°**. Ceiling / worst-case rows take the true band end **30.7°**; nominal rows **PIN `θ = 21°`** (the exact mid draw `acos(cos²15°)` = 21.09°, pinned exactly as `P = 1.00` is, so the row reproduces at the quoted precision — the 0.09° adds +0.0003u). ⚠ **NOT `√(x² + z²)` in degrees.** | Unity composes `Quaternion.Euler(x, y, z)` as **Z → X → Y**, and the final `Y` spin cannot tilt the up-axis, so the world-`Y` component of local up is exactly `cos x · cos z` — **the two tilts compose on the sphere, not in a plane.** ⚠ **Revision 3.3 (round-5 NIT 1):** revisions 3.1/3.2 used the quadrature-in-degrees shortcut `√2 × 22° = 31.11°`, exact only in the small-angle limit — it agrees at the 8° floor (11.31° vs 11.29°) and drifts **+0.4°** by 22°, which is why it survived review at the floor and failed at the ceiling. Every affected figure is re-derived at 30.7° in §5.1 / §8.2 / §10.3; **all move in the third decimal and no verdict moves.** |
 
 ⚠ **The rule this replaces N2's gloss with, and it must not be re-inverted.** On the declared width
 convention, **every stone class in this world is wider than tall** — an ore node is 59 px wide × 31 px tall
@@ -128,6 +163,25 @@ convention, **every stone class in this world is wider than tall** — an ore no
 between the classes is the **stand ratio** — whether the top clears the footprint radius — and what the
 *player* sees is not an inversion at all but a **magnitude**: a 3.0× separation in apparent flatness against
 a shipped 1.6× that already demonstrably fails (§8.0). The channel is unchanged; only the words are.
+
+⚠ **TWO different defects both present as "a figure that does not reproduce", and one division tells them
+apart.** Recompute the figure at two draws and take *stated ÷ correct*:
+
+- **Constant across draws → a missing conversion between two FRAMES** — a plane mix. In this spec: N1's
+  boulder width (`×2`, planar half- vs full-extent) and §8.0's *"20u × 11u"* ground window (a **frame**-plane
+  height quoted as a **ground** depth). The instance outside this spec is **PR #413**'s enemy hit-feedback
+  audit, where two scale rows differed by exactly one hidden `sec 55°` = **1.7434×** — which is precisely why
+  a px ÷ px ratio there read as valid while being wrong.
+- **Varies with the magnitude → a LINEARISATION used outside its domain.** In this spec: `θ`'s
+  quadrature-in-degrees shortcut (*stated ÷ correct* = 1.0018× at the 8° floor, **1.0127×** at the 22°
+  ceiling — revision 3.3) and revision 3.1's `720 px ÷ 45°` ruler (linear in *angle*, where a pinhole camera
+  is linear in *tangent*).
+
+**Both classes survive a careful review the same way — each figure is individually reproducible from *some*
+convention — so re-checking the arithmetic catches neither. Only recomputing from the DECLARED convention
+does, which is what this section exists for.** The division above is the cheap discriminator: a constant
+ratio sends you looking for a missing frame conversion, a drifting one for an approximation outside its
+domain. **Do not assume a new non-reproducing figure is the same mechanism as the last one.**
 
 ---
 
@@ -316,7 +370,7 @@ maximum of twelve.** That single fact decides which of this spec's two FORM guar
   ⛔ **DO NOT read those two `0.79`s as a margin — revision 3.2.** They are on **different metrics**: the
   decorative one is `V·q/P`, which is sink-free *and* tilt-free, while the boulder one is `(lift + V)/P`,
   which is what `bounds.max.y` actually returns for a class that takes neither. Restated on AC1c's own
-  metric the decorative ceiling is **0.701**, not 0.79, and the real margin is **+0.086** — see §8.2. The
+  metric the decorative ceiling is **0.700**, not 0.79, and the real margin is **+0.087** — see §8.2. The
   figures above are correct for the *categorical* `< 1.0` claim they are making here; they are **not** the
   gate's numbers, and §8.2 is the only place the gate's margin may be quoted from.
 - **The ≥2× apex-height separation DOES NOT survive.** Corrected numbers in §5.1. It holds ~3× nominal and
@@ -615,7 +669,9 @@ requires the impl to encapsulate `Renderer.bounds` per instance.
 
 **Resulting bands, CORRECTED per §2.3** (round 1 quoted `0.10–0.33u` on the false `apex ≈ radius`
 assumption). Apex = `√(b²cos²θ + a²sin²θ) − 0.08 s`, where `b = 0.55 · V · q · s`, `a = 0.55 · P · s`, and
-`θ` is the combined tilt of the local +Y axis (Euler X and Z each 8–22° → θ ≈ 11.3–31.1°). **Tilting a
+`θ` is the combined tilt of the local +Y axis — **`θ = acos(cos x · cos z)` per §0.1**, so Euler X and Z each
+8–22° → **θ = 11.3–30.7°** (⚠ **CORRECTED in revision 3.3**, round-5 NIT 1: 3.1/3.2 quoted 31.1°, the
+quadrature-in-degrees shortcut, which is exact only near zero). **Tilting a
 flat-lying shape RAISES its silhouette** — an effect round 1 omitted entirely, and it costs ~+18% at
 the ceiling. `P` per §0.1: **1.00** on the floor and nominal rows, **1.20** on the ceiling row (a tallest-slab
 worst case correctly takes `P`'s high end, because the raise arrives through the `a · sin θ` term):
@@ -623,8 +679,8 @@ worst case correctly takes `P`'s high end, because the raise arrives through the
 | | `s` | `V` | `θ` | `P` | Apex | **On screen at default framing** (§8.0, 35.6 px/u vertical) |
 |---|---|---|---|---|---|---|
 | Floor | 0.55 | 0.647 | 11.3° | 1.00 | **0.085u** | **~3 px** |
-| Nominal | 0.90 | 0.94 | 21° | 1.00 | **0.243u** | **~9 px** |
-| Ceiling (worst case) | 1.25 | 1.268 | 31.1° | 1.20 | **0.518u** | **~18 px** |
+| Nominal | 0.90 | 0.94 | 21° *(pinned, §0.1)* | 1.00 | **0.243u** | **~9 px** |
+| Ceiling (worst case) | 1.25 | 1.268 | **30.7°** | 1.20 | **0.516u** | **~18 px** |
 
 ⚠ **New risk surfaced by the round-3 framing arithmetic — the FLOOR of the band, not the ceiling.** At
 `s = 0.55` the slab renders **~3 px tall** and **~31 px wide** (full width `2 × 0.55 × 0.55 = 0.605u`
@@ -656,7 +712,7 @@ would need `V ≥ 1.60`, and `V` caps at 1.268.
 The default camera pitches **55° DOWN** (§8.0), which foreshortens vertical extent by `cos 55° = 0.574` and
 leaves planar extent essentially intact. So:
 
-- the **height** ratio is the channel the camera *fights*. Worst case 0.518u vs 0.682u is **18 px vs 24 px**
+- the **height** ratio is the channel the camera *fights*. Worst case 0.516u vs 0.682u is **18 px vs 24 px**
   — a 6-pixel difference in a 720p frame, which is not a read at any glance. Round 2 withdrew the ≥2×
   *guarantee*; round 3 additionally forbids **counting** height as a channel at all, because it is the same
   axis (silhouette geometry) as the stand-ratio inversion — counting both would be this spec's own version of
@@ -674,7 +730,7 @@ shortest).** Ordered by *what your body does*, not by height:
 
 **PEBBLE PAIR (N4) — the honest answer: posture separates them, height does NOT.** Corrected per §2.3, the
 pebble apex is `0.22 × V × [0.35, 0.80]` = **0.051–0.219u** (`:1164`, jitter 0.34), which **overlaps** the
-decorative slab's 0.085–0.518u across most of the pebble's range — a worse overlap than the review's
+decorative slab's 0.085–0.516u across most of the pebble's range — a worse overlap than the review's
 planar-only 1.7× estimate suggested. The separation is therefore carried **entirely by posture**, and it is
 robust: the pebble is **uniformly** scaled (stand ratio `b/a = V/P` = `0.94 / 1.00` = **0.94** — near
 equidimensional) and untilted beyond its yaw, while the slab is 0.60-squashed **and** tilted 8–22°
@@ -712,10 +768,10 @@ validated this fallback with *"still below 1.0 with margin"*. **1.0 is not the g
 **measured disjointness** of the two populations, and the number the fallback has to clear is the **minable
 floor `S = 0.787`** (worst-case boulder), not 1.0. `0.68` is also the *nominal* draw; the gate is decided at
 the decorative **ceiling**. On AC1c's own metric (`bounds.max.y`, tilt **and** sink included, `V = 1.268`,
-`P = 0.96`, `θ = 31.1°`) the `q = 0.72` ceiling is **`S = 0.813`** — **above** the 0.787 floor, so the two
+`P = 0.96`, `θ = 30.7°` per §0.1) the `q = 0.72` ceiling is **`S = 0.813`** — **above** the 0.787 floor, so the two
 populations **overlap and AC1c fails**. Full derivation, all three options, and the enumeration of every
 lever that could and could not rescue it: **§10.3**. The `q = 0.60` of the main spec clears it at
-`S = 0.701` (margin **+0.086**). **Do not adopt this fallback on a "mound" soak verdict without reading
+`S = 0.700` (margin **+0.087**). **Do not adopt this fallback on a "mound" soak verdict without reading
 §10.3 first** — it trades a soak risk for a red CI gate.
 
 **Bookkeeping that needs NO change (do not "fix" it):** `RockFootprintRadius = 0.55f` (`:1388`) is
@@ -1080,7 +1136,7 @@ domain. **The height ratio is deliberately absent — see the note after the tab
 (nominal 3.55×) and it is machine-checkable, so it *passes* a naive reading of the bar. But it is
 **silhouette geometry — the same axis as the stand-ratio inversion** — so counting it would be exactly the
 `86caz5na6` failure (bob + sway counted as two). And §8.0 shows the camera suppresses it: worst case is
-**18 px vs 24 px** (0.518u and 0.682u × 35.6), a 6-pixel difference. **Report it; never count it.**
+**18 px vs 24 px** (0.516u and 0.682u × 35.6), a 6-pixel difference. **Report it; never count it.**
 
 ⚠ **Shared failure domain — named, because Bar 10's KNOWN-INCOMPLETE clause requires it.** The two channels
 have independent *mechanisms*, but they share **one** domain: both are baked into `Boot.unity` at bootstrap,
@@ -1116,7 +1172,7 @@ first is why the split was not simply "run AC1 on the ore nodes too":
    `y = 0` (`:3204`, `:3385`, §5.2). ⚠ **Revision 3.2: "exactly §0.1's `b/a`" was too loose and it is what
    let the metric error through.** `S` is the stand ratio *as read off `Renderer.bounds`* — tilt and sink
    included. The **derived** form `V·q/P` used in §2.3/§5.1 carries neither, and for the decorative class
-   the two differ materially (0.7925 vs 0.701 at option A's ceiling). See §0.1's `S`-vs-`V·q/P` row.
+   the two differ materially (0.7925 vs 0.700 at option A's ceiling). See §0.1's `S`-vs-`V·q/P` row.
 2. **The minable side is REPORTED, not thresholded, and the arithmetic is why.** `S > 1.0` is a *nominal*
    on that side, not a floor — §2.3's tails give a worst-case ore node `(0.55 + 0.626)/1.38` = **0.8522** and
    a worst-case boulder `(0.45 + 0.636)/1.38` = **0.7870**, both under 1.0. (Both are already on the `S`
@@ -1146,15 +1202,20 @@ their `S` is exactly `(lift + V)/P` — already the gate's metric. The boulder f
 **0.7870**. Everything below re-states the *decorative* side onto that same metric.
 
 **The decorative ceiling on AC1c's own metric** (option A: `V = 1.268`, `q = 0.60`, `P = 0.96` per §0.1's
-stand-ratio pin, `θ = 31.1°`, sink `0.08 × s`):
+stand-ratio pin, `θ = 30.7°` per §0.1, sink `0.08 × s`):
 
 ```
+θ    = acos(cos 22° · cos 22°) = acos(0.859670) = 30.72°   (§0.1 — NOT √2 × 22° = 31.11°)
 b    = 0.55 · V · q · s = 0.41844 s        a = 0.55 · P · s = 0.528 s
-apex = sqrt(b²cos²θ + a²sin²θ) − 0.08 s = (0.450286 − 0.08) s = 0.370286 s
-S    = 0.370286 s / 0.528 s = 0.7013            ← the scale `s` CANCELS (see below)
+apex = sqrt(b²cos²θ + a²sin²θ) − 0.08 s = (0.449614 − 0.08) s = 0.369614 s
+S    = 0.369614 s / 0.528 s = 0.6999            ← the scale `s` CANCELS (see below)
        (tilt alone → 0.85 · sink alone → 0.64 · neither → 0.7925, which is 3.1's figure)
-margin against the 0.7870 minable floor = +0.086
+margin against the 0.7870 minable floor = +0.087
 ```
+
+*(Revision 3.3, round-5 NIT 1: at the retired 31.11° these read `S` = 0.7013 / margin +0.086. Third
+decimal, no verdict moves — but §0.1's own rule is that a figure which cannot be recomputed from the
+declared conventions is a defect, and `31.1` cannot be recomputed from "8–22° each" without the shortcut.)*
 
 ⚠ **`S` is independent of `s`, and that is load-bearing.** `b`, `a` and the sink are all proportional to
 `s`, so `s` divides out of `S` entirely. **The scale cap therefore cannot move AC1c at all** — which is why
@@ -1170,12 +1231,22 @@ vs 0.7870, i.e. AC1c fails by 0.0055. That artifact disappears entirely on the c
 
 ⚠ **One honest bound on the derived margin, and it is why AC1c is MEASURED.** The derivation above uses the
 untilted planar half-extent `a` as the denominator. `Renderer.bounds` is a world **AABB**, and a slab tilted
-by `θ` has its *minimum* horizontal AABB half-extent at `sqrt(a²cos²θ + b²sin²θ)` = `0.5011 s` — 5.1% below
+by `θ` has its *minimum* horizontal AABB half-extent at `sqrt(a²cos²θ + b²sin²θ)` = `0.5017 s` — 5.0% below
 `a`. If the shipped mesh's widest planar axis lands near that minimum, option A's measured `S` rises to
-**0.739** and the margin narrows to **+0.048**. Both readings pass; the band is **`S` 0.70–0.74, margin
-+0.086 → +0.048**. This modelling uncertainty is the reason the trigger threshold below is **0.05** rather
-than a picked number — it is set to swallow exactly this band. The same bound applied to `q = 0.72` moves
-it from −0.026 to **−0.036**: it fails on both readings, so no verdict in §10.3 turns on this.
+**0.737** and the margin narrows to **+0.050**. Both readings pass; the band is **`S` 0.700–0.737, margin
++0.087 → +0.050**. This modelling uncertainty is the reason the trigger threshold below is **0.05** rather
+than a picked number — it is set to swallow exactly this band, and it still does: the band's **spread** is
+`0.087 − 0.050` = **0.037**, inside 0.05. The same bound applied to `q = 0.72` moves it from −0.026 to
+**−0.036**: it fails on both readings, so no verdict in §10.3 turns on this.
+
+⚠ **The one place revision 3.3's `θ` correction does more than move a third decimal — stated because it
+changes an EXPECTATION, and expectations are what a reader plans against.** At the retired 31.1° the
+AABB-worst reading was **+0.048**, i.e. *below* the 0.05 trigger, so the ladder's derived branch on that
+reading was "the lever fires once". At the correct 30.7° it is **+0.050** — marginally *above*. **No gate
+moves and no verdict moves**, because AC1c branches on the **measured** gap, not on either derived
+expectation; but a reader who planned for a lever pull on the pessimistic reading should now expect a
+straight PASS, with the pull still one option away if the measurement disagrees. That the derived
+expectation sits *on* the threshold is exactly why the ladder exists and why it terminates either way.
 
 **AC1c is calibrated for §10.3 option A (`q = 0.60`), and equally for option C (`q = 0.60`, `s` cancels).
 It does NOT hold for option B (`q = 0.72`), which measures `S = 0.813` against the 0.787 floor and
@@ -1190,18 +1261,18 @@ metric, measured on the saved scene:
 
 | Measured `gap` | Action — no judgement call anywhere in this ladder |
 |---|---|
-| **`> 0.05`** | **PASS.** Record `gap` in the PR and stop. (Derived expectation under option A: **+0.086**, or **+0.048** on the tilted-AABB bound.) |
-| **`≤ 0.05`** (including negative) | Apply the lever **ONCE**: `q` **0.60 → 0.55** — §5.1's hard floor, *do not go below it* — regenerate the scene, re-measure. Derived effect: ceiling `S` 0.701 → **0.657**, i.e. the lever buys **≈ +0.044** of gap (**+0.036** on the tilted-AABB bound). Touch **no** minable value. |
+| **`> 0.05`** | **PASS.** Record `gap` in the PR and stop. (Derived expectation under option A: **+0.087**, or **+0.050** on the tilted-AABB bound.) |
+| **`≤ 0.05`** (including negative) | Apply the lever **ONCE**: `q` **0.60 → 0.55** — §5.1's hard floor, *do not go below it* — regenerate the scene, re-measure. Derived effect: ceiling `S` 0.700 → **0.655**, i.e. the lever buys **≈ +0.045** of gap (**+0.037** on the tilted-AABB bound). Touch **no** minable value. |
 | ↳ re-measured **`> 0.05`** | **PASS.** Quote **both** measurements in the PR and note the lever fired. |
 | ↳ re-measured **`0 < gap ≤ 0.05`** | **PASS WITH DEFECT.** Quote both; file the residual as a follow-up. Disjoint is disjoint, but a sub-0.05 gap is inside the modelling band above and should not be claimed as comfortable. |
 | ↳ re-measured **`≤ 0`** | ⛔ **STOP AND REPORT. Do not proceed and do not improvise.** The direction's disjointness premise is falsified on shipped geometry; this returns to **direction**, not to tuning. **Do not touch a minable value to close it** — ticket AC3 and §8.2's OOS list forbid it, and doing so would trade a red gate for an unmeasured change to the class the whole cue is defined against. |
 
 **Why the ladder terminates.** `q = 0.55` is the floor (§5.1: below it the slab reads as a disc, not stone),
-so there is exactly one lever pull available and the ladder cannot loop. Its headroom is ≈ 0.044, so a
+so there is exactly one lever pull available and the ladder cannot loop. Its headroom is ≈ 0.045, so a
 measured gap below about **−0.045** is not rescuable in-scope — that branch is reachable, which is why it
 is written rather than assumed away. **The scale cap is not a second lever** (`s` cancels). **The tilt band
 is arithmetically a lever but is not an available one:** dropping tilt to 0° moves option A's ceiling
-0.701 → **0.641** (gain 0.060), but tilt is the single feature §5.1 names as what kills the "mound" read,
+0.700 → **0.641** (gain 0.059), but tilt is the single feature §5.1 names as what kills the "mound" read,
 so spending it to buy AC1c margin trades the gate against the one risk most likely to fail the soak.
 **`q` is the only lever this AC may pull, and it may pull it once.**
 
@@ -1209,7 +1280,7 @@ so spending it to buy AC1c margin trades the gate against the one risk most like
 |---|---|---|---|
 | **AC1a** *(non-cued side)* | Every `LP_Rock` in the saved `Boot.unity` has stand ratio **`S < 1.0`**, where **`S = bounds.max.y ÷ max(bounds.extents.x, bounds.extents.z)`** on the world ground plane `y = 0` (§0.1) | EditMode test over the saved scene; prints the achieved **maximum** `S` across all 60 instances | any single instance ≥ 1.0 |
 | **AC1b** *(cued side — NEW, N3)* | Every `OreNode` and every `Boulder` is measured on the **same** `S`, and the achieved **minimum** across all 24 + 7 is printed alongside AC1a's maximum | same test, same metric, same scene | not printed — see the note below for why this side is **reported**, not thresholded |
-| **AC1c** *(the inversion itself — N3; trigger added in 3.2)* | The two populations are **disjoint**: `gap = min(S over minable) − max(S over decorative) > 0`, and the achieved gap is printed. **`gap ≤ 0.05` fires the self-terminating lever ladder above — apply `q → 0.55` ONCE, regenerate, re-measure, quote both.** Derived expectation under option A: **+0.086** (**+0.048** on the tilted-AABB bound); minable floor **`S = 0.7870`** | same test; prints both extremes and their difference, and — if the lever fired — the pre- and post-lever gap | the **re-measured** gap is still `≤ 0` after the single `q → 0.55` pull. Then **STOP and report**; do NOT touch a minable value (ticket AC3, OOS below). ⚠ Calibrated for §10.3 **option A / C** (`q = 0.60`); **option B (`q = 0.72`) fails this AC as specified — `S = 0.813` vs the 0.7870 floor** (§10.3) |
+| **AC1c** *(the inversion itself — N3; trigger added in 3.2)* | The two populations are **disjoint**: `gap = min(S over minable) − max(S over decorative) > 0`, and the achieved gap is printed. **`gap ≤ 0.05` fires the self-terminating lever ladder above — apply `q → 0.55` ONCE, regenerate, re-measure, quote both.** Derived expectation under option A: **+0.087** (**+0.050** on the tilted-AABB bound); minable floor **`S = 0.7870`** | same test; prints both extremes and their difference, and — if the lever fired — the pre- and post-lever gap | the **re-measured** gap is still `≤ 0` after the single `q → 0.55` pull. Then **STOP and report**; do NOT touch a minable value (ticket AC3, OOS below). ⚠ Calibrated for §10.3 **option A / C** (`q = 0.60`); **option B (`q = 0.72`) fails this AC as specified — `S = 0.813` vs the 0.7870 floor** (§10.3) |
 | **AC2** | Every `LP_Rock` has another `LP_Rock` within **2.83u** planar (the D4 box diagonal); and the achieved **maximum** nearest-neighbour distance is **< 3.0u** | same test; prints max NN + the count of singletons | max NN ≥ 3.0u, or any singleton survives the company pass |
 | **AC3** | Minimum planar distance `LP_Rock` → any minable node is **≥ 2.6u**; the `LP_Rock`, `OreNode` and `Boulder` sets are each **non-empty** | D2a (§5.2); prints min distance, sub-2.6u pair count, and all three set sizes | min < 2.6u, or **any set is empty** (the round-1 silent-no-op guard) |
 | **AC4** | The achieved **minimum apex-height ratio** (shortest minable ÷ tallest decorative) is printed | same test — **reported, not gated** (§2.3: it is a nominal, not a floor) | not printed at all |
@@ -1274,7 +1345,7 @@ so spending it to buy AC1c margin trades the gate against the one risk most like
 >
 > **Round 3 adds a second, independently gradeable prediction — this one about the framing claim itself,
 > and revision 3.1 tightens its bounds onto the corrected rate (§8.0):** on the default-framing shipped
-> capture, the decorative instance will measure **≤ 18 px tall** (§5.1's worst-case ceiling apex 0.518u ×
+> capture, the decorative instance will measure **≤ 18 px tall** (§5.1's worst-case ceiling apex 0.516u ×
 > 35.6 px/u) and the minable instance **≥ 24 px tall** (§8.0's worst-case ore apex 0.682u × 35.6 px/u).
 > Both bounds are now *derived* rather than picked, so a miss is diagnostic rather than arguable.
 > **If that fails, §8.0's arithmetic is wrong** and every magnitude
@@ -1407,23 +1478,32 @@ whether the option **passes the gate this same document declares**. §8.2's AC1c
 minable `S` populations to be **disjoint**, against a minable floor of **`S = 0.787`**. That is a hard CI
 gate, not a preference — so it belongs in the table beside the taste columns:
 
+⚠ **Revision 3.3 — WHICH DRAW EACH COLUMN IS AT, because the table silently uses two and every column was
+individually correct (the N1 shape, one level down).** No figure below changes on this account; only the
+declaration is new. **Flatness** and **nominal apex on screen** are at the **common draw `s = 0.90`** — the
+same instance across all three rows, which is what makes those two columns comparable (and why C's flatness
+equals A's: they share `q`). **Height ratio nominal** is at **each option's OWN band mid** (`s` = 0.90 / 0.85
+/ **1.05**) — a height ratio is a claim about the population that option actually ships, so it has to move
+with the band; this is why C reads 3.04× rather than A's 3.55× despite sharing `q`. **Height ratio worst
+case** and **apex band** are at each option's own **cap**. `S` is draw-independent (`s` cancels, §8.2).
+
 | Option | Squash `q` | Scale cap | Apex band | Flatness, world → **on screen** | Height ratio **nominal** | Height ratio **worst case** | **Nominal apex on screen** (§8.0) | ⛔ **Decorative `S` ceiling on AC1c's metric → margin vs the 0.787 minable floor** |
 |---|---|---|---|---|---|---|---|---|
-| **A — recommended** | 0.60 | 1.25 | 0.09–0.52u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.55×** | **1.32×** | **~9 px** (floor ~3 px) | **`S` = 0.701** (0.739 on the tilted-AABB bound) → **+0.086 … +0.048** — ✅ **PASSES on both readings** |
-| **B — conservative** ("mound" risk-averse, and round 3's answer to the vanishing-floor risk) | 0.72 | 1.15 | 0.10–0.54u | 0.99 ÷ 0.288 = **3.44 : 1** → **4.91 : 1** | **3.18×** | **1.27×** | **~10 px** (floor ~4 px) | **`S` = 0.813** (0.823 on the tilted-AABB bound) → **−0.026 … −0.036** — ⛔ **FAILS on both readings** |
-| **C — keep the mass** (cap unchanged) | 0.60 | 1.55 | 0.09–0.64u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.04×** | **1.06×** | **~9 px** (ceiling ~23 px) | **`S` = 0.701** — identical to A → **+0.086 … +0.048** — ✅ **PASSES** (the scale cap cancels out of `S`; §8.2) |
+| **A — recommended** | 0.60 | 1.25 | 0.09–0.52u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.55×** | **1.32×** | **~9 px** (floor ~3 px) | **`S` = 0.700** (0.737 on the tilted-AABB bound) → **+0.087 … +0.050** — ✅ **PASSES on both readings** |
+| **B — conservative** ("mound" risk-averse, and round 3's answer to the vanishing-floor risk) | 0.72 | 1.15 | 0.11–0.54u | 0.99 ÷ 0.288 = **3.44 : 1** → **4.91 : 1** | **3.18×** | **1.27×** | **~10 px** (floor ~4 px) | **`S` = 0.813** (0.823 on the tilted-AABB bound) → **−0.026 … −0.036** — ⛔ **FAILS on both readings** |
+| **C — keep the mass** (cap unchanged) | 0.60 | 1.55 | 0.09–0.64u | 0.99 ÷ 0.243 = **4.07 : 1** → **5.82 : 1** | **3.04×** | **1.07×** | **~9 px** (ceiling ~23 px) | **`S` = 0.700** — identical to A → **+0.087 … +0.050** — ✅ **PASSES** (the scale cap cancels out of `S`; §8.2) |
 
 *(C's flatness equals A's at the nominal draw because they share `q`; C differs only in how far the band's
 ceiling reaches, which is what its worst-case column exists to show.)*
 
 **Read the worst-case column, because it is the whole reason this table was re-derived.** All three clear 2×
-comfortably at nominal. **None** clears 2× at the tail. And **option C's worst case is 1.06× — the tallest
+comfortably at nominal. **None** clears 2× at the tail. And **option C's worst case is 1.07× — the tallest
 decorative slab essentially REACHES the apex of the shortest of the 24 ore nodes.** That is the concrete
 cost of keeping the 1.55 cap, and round 1's "ratio still 2.1×" concealed it entirely. Option A has the best
 worst case and the stronger read; C is the one I would now argue against on evidence rather than taste.
 
 **Round 3's addition — the height columns are now a REPORT, not the decision.** §8.0 shows the camera
-suppresses height by ×0.57, so the difference between A's 1.32× and C's 1.06× worst case is a handful of
+suppresses height by ×0.57, so the difference between A's 1.32× and C's 1.07× worst case is a handful of
 pixels either way. **In all three the stand-ratio inversion holds at every draw on the decorative side** (§2.3) and it is the channel
 the framing amplifies. So what the Sponsor is really choosing is **how much "decoratedness" the shoreline
 keeps** — and, new in round 3, **whether the smallest slabs stay visible at all** (§5.1: at option A's floor
@@ -1440,17 +1520,34 @@ stated so the choice is informed rather than blocked.
 **Why B fails.** `q` is the one knob AC1c is sensitive to, and B *is* a `q` choice. At `q = 0.72` the
 decorative ceiling reaches `S = 0.813` against a minable floor of `0.787` — the populations **overlap**, so
 `min(S over minable) > max(S over decorative)` is false and AC1c is red. Break-even sits at **`q ≈ 0.693`**;
-a testable 0.05 gap needs **`q ≈ 0.639`**. Both are *below* B and *toward* A, so "lower `q` a little to fix
+a testable 0.05 gap needs **`q ≈ 0.640`**. Both are *below* B and *toward* A, so "lower `q` a little to fix
 it" is not a repair — it is a partial revert to A.
 
 ⚠ **And B fails on revision 3.1's OWN metric too, which is the part that makes the retraction unavoidable
 rather than a consequence of changing the ruler.** A reader could reasonably ask whether B only "became"
 a failure because §8.2 switched from `V·q/P` to `S`. It did not. B's three readings are **`V·q/P` = 0.951**
-(sink-free, tilt-free — the quantity 3.1 recommended B on), **`S` = 0.813** (the gate's metric) and
+(sink-free, tilt-free — the **quantity** 3.1 recommended B on), **`S` = 0.813** (the gate's metric) and
 **0.823** (the tilted-AABB bound). The 0.787 floor is below **all three**. The metric correction *rescued*
-option A — it turned A's apparent zero margin into a real `+0.086` — but it **changed nothing** about B,
-which was already failing by `0.164` on the number 3.1 was looking at when it recommended it. The
-recommendation was wrong in its own terms; the new column only made it visible.
+option A — it turned A's apparent zero margin into a real `+0.087` — but it **changed nothing** about B,
+which was already failing by `0.164` on **3.1's own quantity**. The recommendation was wrong in its own
+terms; the new column only made it visible.
+
+⚠ **Revision 3.3 (round-5 NIT 2) — "quantity", never "the number", and the distinction is load-bearing
+rather than pedantic.** The paragraph above previously also said *"the number 3.1 was looking at when it
+recommended it"*. **Of the two, "quantity" is the correct side and "the number" is the false one**, because
+3.1 never printed `0.951`. What it printed for B was **`b/a` = 0.68** — the *nominal* draw (`V = 0.94`,
+`P = 1.00`) — measured against the **retired `1.0`** threshold, verbatim *"still below 1.0 with margin"*
+(`438bc20` §5.1; §5.1's ⛔ block above carries the same record). `0.951` is **3.1's metric re-evaluated** at
+the **ceiling** draw (`V = 1.268`, `P = 0.96`) against the **0.787** floor. **That substitution is exactly
+what makes the argument work, which is why the surviving wording must be the metric one:** the defence
+against *"B only failed because you changed the ruler"* requires holding the **metric** fixed at 3.1's own
+while correcting the two things 3.1 had wrong independently of any metric — the **draw** (it read the
+nominal; the gate is decided at the decorative ceiling) and the **threshold** (`1.0` is not the gate).
+Hold the metric, fix the draw and the threshold, and B still fails by `0.164`. Saying 3.1 "was looking at"
+`0.951` would instead credit it with a comparison it never made — a **stronger** claim than the record
+supports, and an unnecessary one, since the like-for-like version is the one that actually defeats the
+objection. ⚠ **Neither the retraction nor any option's verdict moves on this; it is the wording that was
+over-strong, in the direction of overstating my own case against my own earlier revision.**
 
 **Every other lever, enumerated, because "no lever exists" is a claim that has to be tested rather than
 asserted:**
@@ -1480,7 +1577,7 @@ argument that the vanishing-floor risk and the squash dial should never have bee
 **What remains genuinely his, and I am not settling any of it:** A vs C (how much "decoratedness" the
 shoreline keeps — a real taste call, and both pass the gate); whether to take B anyway with the deeper-sink
 repair and its cost; whether to treat the vanishing-floor risk pre-emptively via the scale floor or wait for
-the soak to report it. **C remains the one I would argue against on evidence** — its 1.06× worst-case height
+the soak to report it. **C remains the one I would argue against on evidence** — its 1.07× worst-case height
 ratio means the tallest decorative slab essentially reaches the shortest ore node's apex — but that is an
 argument, not a gate, and C passes AC1c exactly as A does.
 
@@ -1576,4 +1673,10 @@ invisible-wall verdict.
   `21h12_49` (flat grey rounds settled in the grass by the stump), `21h21_30` (standing columnar outcrop
   with loose rounds at its foot), `21h22_52` (decorative stone as low half-buried litter along a path).
 - **Sibling specs:** `team/uma-ux/world-look-polish-direction.md`, `team/uma-ux/pre-soak-visual-audit.md`,
-  `team/uma-ux/status-effect-readability-spec.md` (the same channel-discipline reasoning applied to HUD).
+  `team/uma-ux/status-effect-readability-spec.md` (the same channel-discipline reasoning applied to HUD) ·
+  **PR #413** (`86caxjwb3`, enemy body hit-feedback audited against Bar 10) — cited by §0.1 for the
+  **`sec 55°` = 1.7434× plane-mix** instance only. ⚠ **It is the OTHER defect class from this spec's `θ`
+  (revision 3.3), which is the point of citing it:** the two look identical from the outside (*"the figure
+  does not reproduce"*) and are told apart by whether *stated ÷ correct* is constant across draws. **No
+  figure is shared between the two specs and neither owes the other a restatement**; what is shared is the
+  discriminator, which now lives in §0.1 here.
