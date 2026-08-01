@@ -129,11 +129,79 @@ namespace FarHorizon
 
         void Start()
         {
+            // 86cayp0ay — apply the verify-only SEAT FAULT before any gate runs, in EVERY launch mode, not just
+            // -verifySwings. WHY IT IS HOISTED HERE: the ticket's success test is not "the new gate reds", it is
+            // "the new gate reds AND the old REST-POSE gates stay green — that is the proof the two cover different
+            // classes". Those gates are separate flags in separate processes (-verifyHeldWood is AxeVerifyCapture),
+            // so a fault scoped to this component's own coroutine could never be run against them. Applied at Start
+            // it is one shared negative control any gate can be launched under.
+            ApplySeatFaultIfRequested();
             if (HasArg("-verifySwings"))
             {
                 if (player == null) player = Object.FindAnyObjectByType<WasdMovement>();
                 StartCoroutine(RunVerification());
             }
+        }
+
+        /// <summary>
+        /// Verify-only fault injection: add N cm to the PRODUCTION seat value (<see cref="HeldToolRig.seatOffsetFromHand"/>
+        /// — the field <see cref="HeldToolRig.ComposeSeat"/> actually reads), so a deliberate seat error of a stated
+        /// magnitude travels the real seat composition and the real LateUpdate chain. Absent
+        /// <see cref="SeatFaultArg"/> this is a no-op and every byte of behaviour is unchanged.
+        ///
+        /// It is deliberately LOUD: a faulted run logs a warning naming the magnitude and the before/after value, and
+        /// the gate's verdict line is therefore never quotable as evidence about the shipped seat by accident. There
+        /// is no restore here BY DESIGN — a faulted launch is a throwaway negative-control process that quits at the
+        /// end of the gate; nothing it does reaches a committed asset (the seat it mutates is the runtime component's
+        /// field, not the serialized scene).
+        /// </summary>
+        private void ApplySeatFaultIfRequested()
+        {
+            float faultCm = ReadFloatArg(SeatFaultArg, 0f);
+            if (Mathf.Abs(faultCm) < 0.0001f) return;
+            foreach (var tr in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include,
+                                                                   FindObjectsSortMode.None))
+            {
+                if (tr.name != HeroToolObjectName) continue;
+                var rig = tr.GetComponent<HeldToolRig>();
+                if (rig == null) continue;
+                Vector3 delta = new Vector3(faultCm * 0.01f, 0f, 0f);
+
+                // ⚠ WRITE THE FIELD THE RIG ACTUALLY CONSUMES, NOT THE ONE IT EXPOSES. HeldAxeRig overrides
+                // ApplySeat with `seatOffsetFromHand = worldOffsetFromHand;` EVERY LateUpdate, so a write to the
+                // BASE field is stomped before it is ever read - the write succeeds at the data layer and the
+                // effect is silently discarded. MEASURED, not reasoned: the first version of this injector wrote
+                // the base field, logged "(0.13, 0.14, 0.06) -> (0.43, 0.14, 0.06)", and the gate's readings came
+                // back BYTE-IDENTICAL to the clean run (0.4027 SW, u 0.2004). That is the documented "wired but
+                // conditionally inert" family (procedural-animation-verbs.md §Debug-instrument caveat - the
+                // weapon-mesh-holder stomp sibling), and an unverified injector makes a negative control that
+                // proves nothing while looking like proof.
+                Vector3 before;
+                if (rig is HeldAxeRig axeRig)
+                {
+                    before = axeRig.worldOffsetFromHand;
+                    axeRig.worldOffsetFromHand = before + delta;
+                    _seatFaultExpected = axeRig.worldOffsetFromHand;
+                }
+                else
+                {
+                    before = rig.seatOffsetFromHand;
+                    rig.seatOffsetFromHand = before + delta;
+                    _seatFaultExpected = rig.seatOffsetFromHand;
+                }
+                _seatFaultCm = faultCm;
+                Debug.LogWarning("[seat-fault] SEAT FAULT INJECTED: " + faultCm.ToString("F1") + " cm added to the " +
+                                 "seat offset the rig CONSUMES on '" + HeroToolObjectName + "' (" +
+                                 rig.GetType().Name + ": " + before + " -> " + _seatFaultExpected + "). THIS RUN IS " +
+                                 "A DELIBERATE NEGATIVE CONTROL. Its verdict is evidence that a gate REDS on a real " +
+                                 "seat error - it is NOT evidence about the shipped seat, and must never be quoted " +
+                                 "as such. The injection VERIFIES ITSELF before any gate reports (see " +
+                                 "VerifySeatFaultTookEffect).");
+                return;
+            }
+            Debug.LogError("[seat-fault] " + SeatFaultArg + " was requested but no '" + HeroToolObjectName +
+                           "' carrying a HeldToolRig was found - NO FAULT WAS INJECTED. A 'the gate stayed green' " +
+                           "conclusion from this run would be worthless; treat it as a failed negative control.");
         }
 
         private IEnumerator RunVerification()
@@ -535,6 +603,9 @@ namespace FarHorizon
                         // ===== MINE RELEASE PASS (86cay4282 round 5 — the Sponsor's round-4 soak defect) =====
                         yield return MineReleasePass(dir, castaway, animator, heldRig, leftIk, lArm, rArm, lHand, rHand,
                                                      hips, head);
+
+                        // ===== CHOP SEAT PASS (86cayp0ay) — the held-weapon SEAT judged DURING a swing =====
+                        yield return ChopSeatPass(dir, castaway, animator, heldRig, lArm, rArm, rHand, hips, head);
                     }
                 }
             }
@@ -542,7 +613,7 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.4f);
 
             bool meshStayed = smr != null && worstMeshGap <= ConeExplosionRadiusU;
-            bool pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk;
+            bool pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk && _chopSeatOk;
             Debug.Log($"[SwingVerifyCapture] verification complete -> {dir} allRouted={allRouted} " +
                       $"worstMeshGap={worstMeshGap:F2}u (<= {ConeExplosionRadiusU} = mesh stayed at the player, NO " +
                       $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} " +
@@ -565,8 +636,67 @@ namespace FarHorizon
                       // 86cay4282 round 5 — the RELEASE rides the one-line verdict, because "the arm never let go" is
                       // invisible to every engaged-frame figure above it and that is exactly how it shipped.
                       $"releaseSettleFrames={_releaseSettleFrames} releaseBudgetFrames={_releaseBudgetFrames} " +
-                      $"releaseOk={_releaseOk} => PASS={pass}");
+                      $"releaseOk={_releaseOk} " +
+                      // 86cayp0ay — the CHOP-swing seat read rides the one-line verdict, with the liveness figure
+                      // NEXT TO it: a seat number without the pose it was measured on is exactly the pair that let a
+                      // headless run report 39.5 cm off an idle skeleton.
+                      $"chopSeatRan={_chopSeatRan} chopPeakTilt={_chopPeakTilt:F1}deg " +
+                      $"chopPhases={_chopPhasesCovered}/{SwingSeatGate.RequiredPhases} " +
+                      $"chopWorstRightHaft={_chopWorstRightHaftSW:F4}SW@phase{_chopWorstAtPhase:F2} " +
+                      $"chopSeatOk={_chopSeatOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
+        }
+
+        // ===== CHOP SEAT PASS state (86cayp0ay) — hoisted so the one-line verdict carries them. =====
+        // _chopSeatOk defaults TRUE only so a SKIPPED pass cannot red the whole gate on its own (the same convention
+        // _releaseOk follows); a skip is LOUD in the log and _chopSeatRan goes to the verdict line, so a reviewer can
+        // never mistake "did not run" for "passed".
+        private bool _chopSeatOk = true;
+        private bool _chopSeatRan;
+        private float _chopPeakTilt = float.NaN;
+        private int _chopPhasesCovered;
+        private float _chopWorstRightHaftSW = -1f;
+        private float _chopWorstAtPhase = float.NaN;
+
+        // The layer-0 state the AXE class routes to. Source of truth is the controller build:
+        // Assets/Scripts/Editor/CharacterAssetGen.cs WireAttackClass(sm, "AttackAxe", ..., WeaponClassAxe, ...).
+        // Kept as a literal here because Runtime cannot reference the Editor asmdef; the duplication is pinned by
+        // SwingSeatGateTests.AttackAxeStateName_ExistsOnTheShippedController_86cayp0ay.
+        public const string AttackAxeState = "AttackAxe";
+
+        // Verify-only fault injection (86cayp0ay). Adds a hand-local offset of N cm to the PRODUCTION seat
+        // (HeldToolRig.seatOffsetFromHand, the value ComposeSeat actually reads) for the duration of this pass, then
+        // RESTORES it. It exists so the ticket's success test — "introduce a deliberate seat error of ~30 cm -> the
+        // gate REDS naming the measured value and the phase" — is reproducible from the shipped exe by anyone, with
+        // no rebuild and no edit to a committed seat value. Absent the flag it is 0 and the pass is byte-identical.
+        private const string SeatFaultArg = "-swingSeatFaultCm";
+
+        // The injected fault's magnitude + the seat value it is supposed to have produced, so the injection can
+        // verify ITSELF against the live rig once frames have run (see VerifySeatFaultTookEffect).
+        private float _seatFaultCm;
+        private Vector3 _seatFaultExpected;
+
+        /// <summary>
+        /// Did the injected fault actually reach the seat the rig drives from? Called after many frames have run, so
+        /// any per-frame re-sync has had every chance to stomp it. Logs an ERROR and returns false when the write was
+        /// discarded — a negative control that did not inject is worthless, and worse than worthless if its green is
+        /// read as "the gate is insensitive".
+        /// </summary>
+        private bool VerifySeatFaultTookEffect(HeldToolRig rig)
+        {
+            if (Mathf.Abs(_seatFaultCm) < 0.0001f) return true;   // no fault requested
+            Vector3 live = rig is HeldAxeRig a ? a.worldOffsetFromHand : rig.seatOffsetFromHand;
+            bool held = (live - _seatFaultExpected).magnitude < 1e-4f;
+            if (!held)
+                Debug.LogError("[seat-fault] THE INJECTION DID NOT STICK: the seat the rig consumes now reads " +
+                               live + " but the injection set " + _seatFaultExpected + ". Something re-synced it " +
+                               "(HeldAxeRig.ApplySeat copies worldOffsetFromHand over the base field every " +
+                               "LateUpdate). This run is a FAILED NEGATIVE CONTROL - do NOT read its verdict as " +
+                               "evidence about the gate's sensitivity in either direction.");
+            else
+                Debug.Log("[seat-fault] injection verified live on the rig: seat reads " + live +
+                          " (the value the injection set), so the gate below is scoring a genuinely faulted seat.");
+            return held;
         }
 
         // ===== MINE RELEASE PASS state (86cay4282 round 5) =====
@@ -698,6 +828,226 @@ namespace FarHorizon
             if (hips != null && head != null)
                 yield return SideProfileShot(Path.Combine(dir, "swing_pickaxe_release_side.png"), hips, head,
                                             castaway.ModelTransform);
+        }
+
+        /// <summary>
+        /// 86cayp0ay — IS THE HELD WEAPON STILL IN THE HAND WHILE THE HAND IS SWINGING?
+        ///
+        /// WHAT THIS COVERS THAT THE REST-POSE GATES DO NOT. -verifyHeldWood / -verifyHeldBelt evidence the held prop
+        /// with the character STANDING: they assert a renderer is enabled and the holder's sharedMesh is the expected
+        /// lineup node. Both are strong for their own bug class ("nothing in the hand") and both are structurally
+        /// blind to WHERE the prop is — a mesh seated 30 cm off the palm satisfies every one of those asserts.
+        ///
+        /// WHY A SWING AND NOT A REST POSE. The seat reads <c>hand.rotation</c>
+        /// (<see cref="HeldToolRig.ApplySeat"/>), and that rotation is written by a chain that is MOVING during a
+        /// swing: Animator -> CastawayArmPose (50) -> CastawayFingerCurl (60) -> CastawayHandPose (65, the WRIST
+        /// euler) -> CastawayFootYaw (70) -> HeldToolRig (100). At rest the chain runs too, but it runs to ONE pose;
+        /// a defect that only opens up at some phases of the arc cannot show there. Measuring on the LIVE runtime
+        /// skeleton means every order in that chain is included BY CONSTRUCTION — there is no re-implementation here
+        /// for order 65 to be missing from, which is the exact omission that had two self-authored instruments
+        /// agreeing at 0.615 SW while the shipped exe measured 1.220 (procedural-animation-verbs.md).
+        ///
+        /// DRIVE LAYER — ALL PRODUCTION. The weapon is granted and SELECTED through
+        /// <c>InventoryModel.AddToolToBelt</c> + <c>SelectBelt</c> (a crafting grant + a hotbar click), never through
+        /// <c>ShowWeaponForCaptureDebug</c>, so the held visual is placed by the same
+        /// <c>SelectBelt -> Inventory.Changed -> SyncHeldVisualToSelection -> WoodSelectionIndexFor</c> path that
+        /// broke in soak-3. The swing is fired with <see cref="CastawayCharacter.TriggerChop"/> — the tree-chop
+        /// verb's own seam, at the shipped <c>chopSpeed</c>, NOT a hand-picked TriggerAttack speed and NOT a forced
+        /// Animator state.
+        ///
+        /// THE VERDICT IS A MEASUREMENT: the RIGHT hand's distance to the haft LINE in shoulder-widths
+        /// (<see cref="TwoHandGripRead"/>), worst frame over the swing, capped at a value anchored to a measured
+        /// achieved worst (<see cref="SwingSeatGate"/>). No pixel statistic is consulted — whole-frame luma/variance
+        /// is structurally blind to a held weapon (on PR #355's own pair the negative control scored HIGHER variance
+        /// than the positive case), so the PNGs below are reviewer evidence only.
+        ///
+        /// AND IT REFUSES TO REPORT ONE WITHOUT PROVING THE SWING POSED. See <see cref="SwingSeatGate.Posed"/>: a
+        /// headless launch of this exe advances the state machine but never takes the swing pose, and the two-hand
+        /// pass above happily scored 4696 frames of that idle stance and reported 39.5 cm. A seat figure is only a
+        /// swing verdict if a swing happened, so liveness is a PRECONDITION here, not a co-equal term.
+        /// </summary>
+        private IEnumerator ChopSeatPass(string dir, CastawayCharacter castaway, Animator animator,
+                                         HeldToolRig heldRig, Transform lArm, Transform rArm, Transform rHand,
+                                         Transform hips, Transform head)
+        {
+            var inventory = Object.FindAnyObjectByType<Inventory>();
+            var cycle = heldRig != null ? heldRig.GetComponent<HeldWeaponCycleDebug>() : null;
+            if (inventory == null || inventory.Model == null || inventory.Catalog == null || cycle == null)
+            {
+                Debug.LogWarning("[chop-seat] SKIPPED — Inventory/Catalog/HeldWeaponCycleDebug not resolvable " +
+                                 "(inventory=" + (inventory != null) + " cycle=" + (cycle != null) + "). The " +
+                                 "swing-time SEAT evidence is MISSING from this run; do NOT read the PASS above as " +
+                                 "proof the weapon stayed in the hand during a swing.");
+                yield break;
+            }
+
+            // --- GRANT + SELECT the WOOD axe through the REAL seams (the crafting grant + a hotbar click). ---
+            if (!inventory.Model.OwnsItem(ItemCatalog.AxeWoodId))
+            {
+                var def = inventory.Catalog.ById(ItemCatalog.AxeWoodId);
+                if (def != null) inventory.Model.AddToolToBelt(def);
+            }
+            int slot = -1;
+            var belt = inventory.Model.BeltSlots;
+            for (int i = 0; i < belt.Count; i++)
+                if (!belt[i].IsEmpty && belt[i].Def != null && belt[i].Def.Id == ItemCatalog.AxeWoodId) { slot = i; break; }
+            if (slot < 0)
+            {
+                Debug.LogError("[chop-seat] '" + ItemCatalog.AxeWoodId + "' is not on the belt after the grant (it " +
+                               "fell through to the pack, or the catalog id changed) — cannot drive a belt selection, " +
+                               "so this pass cannot judge a production-selected weapon.");
+                _chopSeatOk = false;
+                yield break;
+            }
+            inventory.Model.SelectBelt(slot);
+            for (int i = 0; i < 10; i++) yield return null;
+
+            // The SAME discriminator triple ChopVerifyCapture uses: without the NOT-stone term a future change that
+            // re-selected the stone axe would green this pass while the wood tier stayed unexercised.
+            bool woodSelected = inventory.IsAxeWoodSelectedInBelt && inventory.IsAnyAxeSelectedInBelt
+                                && !inventory.IsAxeSelectedInBelt;
+            // …and the held VISUAL must have followed that selection on its own. DebugViewActive false is what proves
+            // the selection path (not a capture-debug force) is what put the mesh in the hand.
+            bool visualFollowed = cycle.CurrentIndex == HeldWeaponCycleDebug.AxeWoodFamilyIndex && !cycle.DebugViewActive;
+            Debug.Log("[chop-seat] production selection: woodAxeSelected=" + woodSelected +
+                      " (wood=" + inventory.IsAxeWoodSelectedInBelt + " anyAxe=" + inventory.IsAnyAxeSelectedInBelt +
+                      " stone=" + inventory.IsAxeSelectedInBelt + ") heldVisualFollowed=" + visualFollowed +
+                      " (index=" + cycle.CurrentIndex + "/" + HeldWeaponCycleDebug.AxeWoodFamilyIndex +
+                      " debugViewActive=" + cycle.DebugViewActive + " — false is what proves SelectBelt, not " +
+                      "ShowWeaponForCaptureDebug, placed this mesh)");
+
+            // (Any -swingSeatFaultCm negative control was applied in Start, before every gate — see
+            //  ApplySeatFaultIfRequested. Nothing seat-related is mutated here.) Verify it STUCK before scoring:
+            //  an injection that was silently re-synced away would make this pass look insensitive.
+            VerifySeatFaultTookEffect(heldRig);
+
+            // --- Fire the CHOP verb and score the swing frame by frame. ---
+            int axeHash = Animator.StringToHash(AttackAxeState);
+            castaway.TriggerChop();
+            float t0 = Time.time;
+            int scored = 0;
+            var phaseHit = new bool[SwingSeatGate.RequiredPhases];
+            float peakTilt = 0f, worstSW = -1f, worstPhase = float.NaN, swAtWorst = TwoHandGripRead.ReferenceShoulderWidthM;
+            float worstAtSec = 0f;
+            float minU = float.MaxValue, maxU = float.MinValue, haftLen = 0f;
+            while (Time.time - t0 < FoldWindowSec)
+            {
+                var st = animator.GetCurrentAnimatorStateInfo(0);
+                bool inTr = animator.IsInTransition(0);
+                // Score ONLY frames the AXE swing owns outright. A crossfade blends idle with the swing, which is a
+                // pose the clip never contains and nothing was ever seated against (the round-4 lesson: scoring
+                // blends produced a hand separation less than HALF the clip's own minimum).
+                if (st.shortNameHash == axeHash && !inTr)
+                {
+                    float tilt = Vector3.Angle(head.position - hips.position, Vector3.up);
+                    if (tilt > peakTilt) peakTilt = tilt;
+                    // The chop is a ONE-HANDED verb, so this scores the RIGHT hand only — the hand the tool is
+                    // actually seated in. TwoHandGripRead.Measure is the two-hand read and would report a meaningless
+                    // separation here, so the shared primitive DistanceToSegment is used directly: same maths, same
+                    // shoulder-width normalisation, no invented second hand.
+                    float sw = (rArm.position - lArm.position).magnitude;
+                    if (sw > 1e-5f && heldRig.TryGetHaftSegment(out Vector3 gripW, out Vector3 headW)
+                        && (headW - gripW).sqrMagnitude > 1e-10f)
+                    {
+                        float d = TwoHandGripRead.DistanceToSegment(rHand.position, gripW, headW, out float u) / sw;
+                        scored++;
+                        float phase = Mathf.Repeat(st.normalizedTime, 1f);
+                        phaseHit[SwingSeatGate.PhaseBucket(phase)] = true;
+                        // THE ALONG-HAFT COMPONENT. A perpendicular distance-to-LINE is BLIND to the tool sliding
+                        // along its own axis: translate the haft parallel to itself and the perpendicular distance
+                        // does not move at all. MEASURED, not argued — a 30 cm -swingSeatFaultCm injection left the
+                        // perpendicular reading at 0.4027 SW, byte-identical to the clean run. So the discarded
+                        // component is gated too (procedural-animation-verbs.md: "the discarded ALONG component is a
+                        // second, independent defect axis - compute it, DRAW it, and decide explicitly whether to
+                        // gate it"). u is 0 at the BUTT/grip end, 1 at the HEAD end, UNCLAMPED so a hand that has
+                        // slid off an end reads <0 or >1.
+                        // ⚠ Do NOT re-attach the retired "-swingSeatFaultCm 30 moved the perpendicular by 0.0000 SW"
+                        // justification: that came from the pre-fix injector writing a field HeldAxeRig stomps, so
+                        // NEITHER axis moved. The argument above is geometric and needs no such control. See
+                        // SwingSeatGate's ALONG-HAFT block for the full correction.
+                        haftLen = (headW - gripW).magnitude;
+                        if (u < minU) minU = u;
+                        if (u > maxU) maxU = u;
+                        if (d > worstSW)
+                        {
+                            worstSW = d;
+                            worstPhase = phase;
+                            swAtWorst = sw;
+                            worstAtSec = Time.time - t0;
+                        }
+                    }
+                }
+                yield return null;
+            }
+            int phases = 0;
+            foreach (bool b in phaseHit) if (b) phases++;
+
+            _chopSeatRan = true;
+            _chopPeakTilt = peakTilt;
+            _chopPhasesCovered = phases;
+            _chopWorstRightHaftSW = worstSW;
+            _chopWorstAtPhase = worstPhase;
+
+            float driftU = haftLen > 1e-5f ? TwoHandGripRead.HaftRadiusM / haftLen : float.NaN;
+            // INVARIANT culture on every figure: this line is quoted into PR bodies and may be grepped, so it must
+            // not change shape on a comma-decimal machine (this project's own runner is one).
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            Debug.Log("[chop-seat] ALONG-HAFT (0 = BUTT/grip end, 1 = HEAD end): the hand sits at u " +
+                      (minU == float.MaxValue ? -9f : minU).ToString("F4", inv) + ".." +
+                      (maxU == float.MinValue ? -9f : maxU).ToString("F4", inv) + " over the swing; haft length " +
+                      haftLen.ToString("F4", inv) + " m, so one haft radius of allowed slide is " +
+                      driftU.ToString("F4", inv) + " u. This is the component a perpendicular distance-to-line " +
+                      "THROWS AWAY: translating the haft parallel to itself maps the line onto itself, so the " +
+                      "perpendicular CANNOT move. That is geometry, not a measured control - and note that " +
+                      "-swingSeatFaultCm is NOT an along-only control (it injects along hand-local +X and moves " +
+                      "BOTH axes), so do not quote it as one.");
+
+            bool verdict = SwingSeatGate.Verdict(scored, phases, peakTilt, worstSW, swAtWorst, worstPhase,
+                                                 minU, maxU, driftU, out string why);
+            // The production-drive terms are part of the verdict: a seat measured while the wrong tier was selected,
+            // or while a capture-debug force (not the selection path) placed the mesh, is a measurement of a
+            // combination that does not ship.
+            _chopSeatOk = verdict && woodSelected && visualFollowed;
+            Debug.Log("[chop-seat] VERDICT: " + why + " | woodAxeSelected=" + woodSelected +
+                      " heldVisualFollowed=" + visualFollowed + " => chopSeatOk=" + _chopSeatOk +
+                      " (worst frame at +" + worstAtSec.ToString("F2", inv) + "s, 1 SW = " + swAtWorst.ToString("F4", inv) +
+                      " m). A FALSE with a SWING NEVER POSED reason means the run measured an idle skeleton and the " +
+                      "seat number in it is not a swing reading at all.");
+
+            // Reviewer evidence at the JUDGED moment — re-fire and shoot the worst frame, never a nice one. Under a
+            // headless launch ScreenCapture writes nothing; that is expected and is not the verdict (the verdict is
+            // the measurement above).
+            castaway.TriggerChop();
+            float t1 = Time.time;
+            while (Time.time - t1 < worstAtSec) yield return null;
+            ShotTo(Path.Combine(dir, "chop_seat_worst.png"));
+            yield return null;
+            // A CLOSE shot framed ON THE HAND, aimed from the SUBJECT (chest -> hand), which by construction puts the
+            // hand between the lens and the body whichever way the character has yawed. Round 4 paid for taking a
+            // capture axis from an assumed rig 'forward' and photographing the back of the head instead.
+            {
+                Vector3 chest = (lArm.position + rArm.position) * 0.5f;
+                Vector3 aim = Vector3.ProjectOnPlane(rHand.position - chest, Vector3.up);
+                if (aim.sqrMagnitude < 1e-4f) aim = Vector3.forward;
+                yield return ProfileShotAt(Path.Combine(dir, "chop_seat_worst_close.png"),
+                                           rHand.position + aim.normalized * GripShotDistU, rHand.position);
+            }
+
+            yield return null;
+        }
+
+        /// <summary>Read a float CLI argument, or <paramref name="fallback"/> when absent/unparseable. Invariant
+        /// culture: this machine runs a comma-decimal locale, and a locale-sensitive parse would silently read
+        /// "-30.0" as 300.</summary>
+        private static float ReadFloatArg(string flag, float fallback)
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == flag &&
+                    float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float,
+                                   System.Globalization.CultureInfo.InvariantCulture, out float v))
+                    return v;
+            return fallback;
         }
 
         /// <summary>
