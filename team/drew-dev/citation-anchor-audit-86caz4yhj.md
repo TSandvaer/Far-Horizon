@@ -167,6 +167,8 @@ Two blocks in `unity-conventions.md` hold **100%**:
 - the `AxeVerifyCapture.cs` block at `:16` — **18/18 anchors exact**;
 - the `test_gate_scripts.sh` block at `:13`–`:15` — **10/10 exact**.
 
+> **The second block already declares itself self-verifying** — `:13` names `test_gate_scripts.sh:861-922` as *"the MACHINE-CHECKED source of truth"* and carries its own re-find rule. **So the 10/10 above is a confirmation that the block's own mechanism works, not a fresh derivation of a number nobody had** *(Uma's soft note on the #391 "cite the canonical figure" rule — recorded rather than left implicit)*. That it holds while the sha-labelled `ci.yml` block next door drifts 6/6 is the whole argument of this section.
+
 Both were re-derived by hand in PR #364 and both **name the symbol next to the number** (`:562`-`:635` *"RunFacingsVerification"*, `:861` *"`assert_launch_headless()`"*). `:13` goes further and writes the re-find rule into the prose: *"re-find by NAME if the numbers have drifted again — a range that no longer contains `HEADLESS_GATES=(` is stale, not empty."* **That is the shape that survives, and it is also the shape a guard can check.** See §6.
 
 ---
