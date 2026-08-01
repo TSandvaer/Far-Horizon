@@ -85,7 +85,7 @@ gates separately.
   than extrapolate it.**
 - **Reasoned inference from Strong general facts (label: Inference, not measured for this
   scenario).** Static batching (confirmed live via `StaticEditorFlags.BatchingStatic` on scatter
-  props in both `WorldBootstrap.cs:611-650` and `NextIslandPocScatter.cs:668-669`) works by
+  props in both `WorldBootstrap.cs:611-652` and `NextIslandPocScatter.cs:668-669`) works by
   Unity combining each batched group's separate mesh vertex data into one new **combined** mesh
   per batch — memory cost is roughly proportional to the sum of each instance's own vertex data,
   not shared. GPU Resident Drawer / `BatchRendererGroup`-based instancing (Unity official docs,
@@ -125,9 +125,12 @@ gates separately.
   carried here as project-internal, not re-verified against a fresh official source this session.
 - **In-repo confirmed current state (Strong).** `Assets/Settings/FarHorizonURP.asset:86` reads
   `m_GPUResidentDrawerMode: 0` — GPU Resident Drawer is OFF today; the SRP Batcher
-  (`m_UseSRPBatcher: 1`) is the live batching path (also independently confirmed in
-  `unity-conventions.md` §Build stripping & shaders, "verified on `origin/main` @ `fee2604`" —
-  i.e. that specific line WAS checked against `origin/main`, not just this lagging local tree).
+  (`m_UseSRPBatcher: 1`) is the live batching path. Independently corroborated on `origin/main`
+  @ `1f2f3c8` from three separate artifacts during peer review of this note:
+  `Assets/Settings/FarHorizonURP.asset:86` (`m_GPUResidentDrawerMode: 0`),
+  `.claude/docs/unity6-mastery.md:13` ("the shipped config runs plain Forward + GPU Resident
+  Drawer OFF"), and `team/analysis/2026-07-07-island2-c4-perf.md:91` ("GPU Resident Drawer /
+  Forward+ (still off — not needed at this load)").
 - **Conclusion (Erik's synthesis, not a citation).** The multi-island case does **not**
   mechanically force the GRD-vs-Static-Batching flag open, because the actual blocker — the
   low-poly scatter's seeded per-instance mesh *shape* variation (`FacetedRock`, `BlobCanopy`
@@ -201,7 +204,7 @@ gates separately.
   i.e. the Rec 3 depth-fade water from `lowpoly-quality.md` §2 (ticket `86caamnmb`) has already
   landed, not merely "filed" as that doc's own §4 table (written earlier) implies. Both
   `LowPolyZoneGen.MakeWaterMaterial` (ocean) and `LowPolyZoneGen.MakePondMaterial` (pond) build
-  material instances on this **same** shader (`LowPolyZoneGen.cs:2030,2103`) — confirming the
+  material instances on this **same** shader (`LowPolyZoneGen.cs:2039,2106`) — confirming the
   water-shader-research.md's "one shader, tuned per-context via material properties" plan was
   followed through. **Consequence for `unity-conventions.md`:** its §Build stripping & shaders
   bullet "Opaque-queue water is the FPS-protecting CHOICE" is now stale prose describing a
@@ -271,11 +274,21 @@ gates separately.
 - **Staleness caveat (per this dispatch's own instruction and `unity-conventions.md`'s own
   documented warning about this exact tree):** this research reads the orchestrator's local
   worktree on `orch/coordination`, which may lag `origin/main`. Every code-path claim above was
-  taken from that local tree; none were independently re-verified against `origin/main` (no git
-  access in this session). Where `unity-conventions.md` itself states a fact was checked against
-  `origin/main` (the GRD-mode-0 line), that provenance is called out explicitly above; everywhere
-  else, treat the code citations as "true as of this local tree" rather than "true on `main`
-  right now."
+  taken from that local tree; none were independently re-verified against `origin/main` at the
+  time of writing (no git access in this session).
+
+  **RESOLVED at peer review — do not re-run the enumeration.** The claims *were* subsequently
+  verified against `origin/main` @ `1f2f3c8` in the review of this note. The headline finding
+  reproduced on both counted sets: exactly **2** island terrain generators exist on `main`
+  (`LowPolyZoneGen.BuildIslandTerrainMesh`, `NextIslandPocGen.BuildTerrainMesh`), and **7 of 7**
+  public field-sampling methods across them lack a centre parameter.
+
+  ⚠ **One trap for anyone re-checking this:** the `ox`/`oz` parameters in those signatures *look*
+  like a centre offset and are not. They come from `SeedOffset(seed, out ox, out oz)` and are
+  consumed only as Perlin sample-space offsets — they re-roll the coast *shape*, they do not move
+  the island. **Do not confirm or refute the origin-keying claim from the signatures alone; read
+  the bodies** (`Atan2(wz, wx)` and `sqrt(wx*wx + wz*wz)` on raw world XZ, with no centre
+  subtraction).
 
 ### The smallest POC that would actually de-risk this (Q4)
 
