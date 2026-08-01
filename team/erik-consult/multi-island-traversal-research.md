@@ -18,8 +18,12 @@ island runs at 8x frame-time headroom (488fps uncapped vs the 60fps/16.67ms budg
 actually breaks first is the world-authoring model**, not perf: both existing terrain
 generators compute their radial shore/height fields directly from **world origin** (not a
 per-island center parameter), and each existing "island" scene ships its own full-extent
-"all-sides ocean" plane — putting two islands in one world today would either need new
-center-offset plumbing or would produce two overlapping/duplicated ocean meshes. The
+"all-sides ocean" plane — putting two islands in one world today needs **both** new
+center-offset plumbing **and** an ocean dedupe. They are two separate jobs, not an either/or:
+the centre parameter fixes the terrain field, and the duplicate ocean planes (exactly 2, both
+at local `(0, WaterY, 0)` with `WaterY = -0.20f`, i.e. exactly coplanar) survive it untouched.
+A third anchor — `NextIslandPocGen.Peaks[]`, which stores absolute world XZ — is reached by
+neither. The
 GPU-Resident-Drawer-vs-Static-Batching reconciliation flag in `elite-techniques.md` is **NOT
 forced open by scale** — its root cause (the scatter uses procedurally-unique per-instance
 meshes, which GPU Resident Drawer cannot instance regardless of world size) is independent of
@@ -43,21 +47,72 @@ gates separately.
 
 ### 1. What breaks first
 
-- **In-repo, directly read from source (Strong — verified against this session's local
-  worktree; NOT independently cross-checked against `origin/main`, see Application section for
-  the staleness caveat).** `NextIslandPocGen.ShoreRadiusAt` computes the warped coast radius
-  from `Mathf.Atan2(wz, wx)` and `HeightAtRadial`/`MountainHeightAt`/`ColorAt` all key off
-  `r = sqrt(wx²+wz²)` — i.e. distance from **world origin (0,0)**, not from a per-island center
-  parameter. `LowPolyZoneGen`'s start-island generator uses the identical origin-centered
-  idiom (`IslandCoreR`/`IslandGridHalf` constants, no center offset argument anywhere in its
-  public API). Neither generator accepts an island-center parameter today.
-  (`c:/Trunk/PRIVATE/Far-Horizon/Assets/Scripts/Editor/NextIslandPocGen.cs:247-258`,
-  `c:/Trunk/PRIVATE/Far-Horizon/Assets/Scripts/Editor/LowPolyZoneGen.cs:236,247`.)
-- **In-repo, directly read (Strong, same caveat).** `NextIslandPocGen.BuildWater` builds a
-  square "all-sides sea" plane centred on **its own island's local root** at `halfExtent=1900u`
-  (a ~3800u² plane) so the coast dissolves into fog on every side
-  (`NextIslandPocGen.cs:685-706`). The start island's `LowPolyZoneGen.BuildIslandWater` does the
-  analogous thing at its own (smaller) scale. **Consequence:** simply translating a second
+- **In-repo, directly read from source (Strong — subsequently re-verified against `origin/main`
+  at peer review; see the Application section's RESOLVED note for the sha and the enumeration).**
+  `NextIslandPocGen.ShoreRadiusAt` computes the warped coast radius from `Mathf.Atan2(wz, wx)`,
+  and `HeightAtRadial`/`ColorAt` key off `r = sqrt(wx²+wz²)` — i.e. distance from **world
+  origin (0,0)**, not from a per-island center parameter. `LowPolyZoneGen`'s start-island
+  generator uses the identical origin-centered idiom (`IslandCoreR`/`IslandGridHalf` constants,
+  no center offset argument anywhere in its public API). Neither generator accepts an
+  island-center parameter today.
+  (`NextIslandPocGen.cs:247-258`, `LowPolyZoneGen.cs:236,247`.)
+- **`MountainHeightAt` is a THIRD, separate world anchor — do not file it under the radial
+  grouping (peer-review correction).** It does *not* key off `r = sqrt(wx²+wz²)`:
+  `MountainHeightAt` (`NextIslandPocGen.cs:295`) takes the max over `Peaks[]` via `PeakHeightAt`
+  (`:300`), which measures `wx - p.cx, wz - p.cz` (`:271`) against a table of **absolute world
+  XZ** peak centres. `Peaks[]` (`:138-163`) is declared over a struct whose own field comment
+  reads `public float cx, cz;      // centre (world XZ)` (`:120`), and all three entries are
+  hard-baked in world space: `[0]` via `cx = MtnCenterX, cz = MtnCenterZ` (`:142`; constants
+  `MtnCenterX = 90f` at `:89`, `MtnCenterZ = -60f` at `:90`), `[1]` `cx = 330f, cz = 150f`
+  (`:152`), `[2]` `cx = 250f, cz = -285f` (`:159`). **Consequence: a centre parameter on
+  `HeightAtRadial` alone would not move the mountains** — the Peaks table must be re-based too.
+  Different mechanism from the radial functions, same conclusion.
+- **Scope of the centre-offset job — 73 call sites across 9 files, not two signatures
+  (measured at peer review; counting rule stated so it is re-checkable).** The affected public
+  surface is wider than the headline names: **20 of 20** public methods across the two
+  generators that take a world XZ pair lack a centre parameter (`grep "public static"` filtered
+  to `float wx, float wz` over `LowPolyZoneGen.cs` + `NextIslandPocGen.cs` → 20 declarations,
+  0 with a centre/`cx`/`cz`/`Vector3` parameter). Counting *invocations* of the five headline
+  names (`ShoreRadiusAt` / `CliffinessAt` / `HeightAtRadial` / `MountainHeightAt` / `ColorAt`)
+  **outside** the two generator files, excluding comment lines: **73 call sites over 9 files** —
+  production 6 (`WorldBootstrap.cs` 2, `NextIslandPocScene.cs` 3, `NextIslandPocScatter.cs` 1)
+  and tests 67 (`NextIslandPocTests` 26, `RoundIslandTests` 16, `CoastPolishTests` 11,
+  `SeededScatterVariationTests` 8, `FreshwaterPondSceneTests` 4, `ChopScatterInvarianceTests` 2).
+  The production sites all pass **world** XZ straight through on the `local == world` assumption
+  the codebase states outright at `LowPolyZoneGen.cs:680`
+  (`float wx = (fx - 0.5f) * size;    // world X (local == world; root at origin)`) — verified
+  verbatim at `WorldBootstrap.cs:755,758`; `NextIslandPocScene.cs:263,266,285`;
+  `NextIslandPocScatter.cs:83`. Size POC step 1 against that number, not against "add a
+  parameter to two generators".
+  ↳ Deliberately **excluded** from the 73: `NextIslandPocPlayModeTests.cs` matches the same grep
+  4× but calls its OWN local `static float MountainHeightAt(float x, float z, float cx, float
+  cz)` (`:31`) — a test-side re-implementation of the peak field that already takes a centre. It
+  is not a call site of the generator, but it *is* a duplicate that needs re-basing alongside it.
+- **The centre-param idiom already exists in-repo at a smaller scope (peer-review addition).**
+  `WorldBootstrap.BuildLandmassBase(GameObject clusterRoot, MtnCluster c, Vector3 centre,
+  float radius, Color tint, Material mat, System.Random rnd)` (`:623-624`) already takes a
+  `Vector3 centre`, and consumes it as a world placement at `:642`
+  (`island.transform.position = new Vector3(centre.x, seaSink, centre.z);`). The pattern is
+  available and house-consistent — it simply was never applied at island scope. That lowers the
+  perceived cost of step 1: this is applying an existing in-repo idiom at a larger scope, not
+  inventing one.
+- **In-repo, directly read (Strong — ocean set enumerated and closed at peer review).** There
+  are **exactly 2** full-extent "all-sides sea" planes in the codebase, one per island, and the
+  overlap between them is **exact, not approximate**:
+
+  | Builder | Extent | Placement |
+  |---|---|---|
+  | `LowPolyZoneGen.BuildIslandWater` (`:1623`), called once from `BuildZone` (`:647`) | `WaterHalfExtent = 700f` (`:1607`), `WaterSeg = 160` (`:1609`) → 1400u square | `go.transform.position = new Vector3(0f, WaterY, 0f)` (`:1628`) — its own comment: *"sea centred at origin"* |
+  | `NextIslandPocGen.BuildWater` (`:689`), called once from `BuildPocIsland` (`:231`) | `halfExtent = 1900f` (`:705`), `waterSeg = 212` (`:706`) → 3800u square | `go.transform.position = new Vector3(0f, WaterY, 0f)` (`:694`) |
+
+  Both sit at **local `(0, WaterY, 0)`** under their own island root, and `WaterY = -0.20f` in
+  **both** generators — `LowPolyZoneGen.cs:1602` and `NextIslandPocGen.cs:66`, the latter's own
+  comment reading *"matches LowPolyZoneGen so the shader/fog read the same"*. So the two
+  surfaces are not merely "near" each other in Y; they are coplanar by construction, which is
+  what makes the z-fighting consequence certain rather than likely. The set is closed: the only
+  other water mesh is the freshwater pond (`LowPolyZoneGen.BuildPondWaterMesh`, `:2200`, built
+  at `PondSurfaceRadius = 6.1f` — `MovementCameraScene.cs:3697`), which is a small disc, not a
+  full-extent plane, and is correctly **not** in this set. **Consequence:** simply translating a second
   island's root GameObject to a real-world offset (which Unity's local-space mesh authoring
   *does* support cheaply — the vertices themselves stay local, only the root transform moves)
   would carry a full second copy of a 3800u²-class ocean plane along with it, overlapping the
@@ -278,10 +333,22 @@ gates separately.
   time of writing (no git access in this session).
 
   **RESOLVED at peer review — do not re-run the enumeration.** The claims *were* subsequently
-  verified against `origin/main` @ `1f2f3c8` in the review of this note. The headline finding
-  reproduced on both counted sets: exactly **2** island terrain generators exist on `main`
-  (`LowPolyZoneGen.BuildIslandTerrainMesh`, `NextIslandPocGen.BuildTerrainMesh`), and **7 of 7**
-  public field-sampling methods across them lack a centre parameter.
+  verified against `origin/main` @ `1f2f3c8`, and the code citations re-resolved at `c830f82`
+  after `main` moved (none of the cited `Assets/**` files changed in between —
+  `git diff --name-only 1f2f3c8 c830f82` touches only `.claude/docs/unity-conventions.md`,
+  `team/STATE.md`, `team/spikes/…`, `tools/debug/…`). The headline finding reproduced on both
+  counted sets: exactly **2** island terrain generators exist on `main`
+  (`LowPolyZoneGen.BuildIslandTerrainMesh` `:657`, `NextIslandPocGen.BuildTerrainMesh` `:481`),
+  and **20 of 20** public methods across them that take a world XZ pair lack a centre parameter.
+
+  ⚠ **Scope of that "20 of 20", stated precisely, because an earlier draft of this note
+  under-counted it as "7 of 7".** The 7 are the coast/height/colour *entry points* the headline
+  claim names (`LowPolyZoneGen.ShoreRadiusAt` `:745` / `CliffinessAt` `:768` / `HeightAtRadial`
+  `:789`; `NextIslandPocGen.ShoreRadiusAt` `:247` / `MountainHeightAt` `:295` / `HeightAtRadial`
+  `:423` / `ColorAt` `:641`). They are **not** the whole public field-sampling surface — the
+  mechanical set is every `public static` method taking `float wx, float wz`, which is 20, and
+  0 of the 20 take a centre parameter. Use 20 when sizing the work; use the 7 when tracing the
+  headline claim.
 
   ⚠ **One trap for anyone re-checking this:** the `ox`/`oz` parameters in those signatures *look*
   like a centre offset and are not. They come from `SeedOffset(seed, out ox, out oz)` and are
@@ -298,10 +365,20 @@ rather than a demo:
 
 1. Add a center-offset parameter to `NextIslandPocGen` (and, if the start island needs to move
    too, `LowPolyZoneGen`) so an island's radial math can be evaluated relative to an arbitrary
-   world-space center, not hard-baked to origin.
+   world-space center, not hard-baked to origin. **Size this against the measured numbers in §1,
+   not against "two signatures":** 20 world-XZ public methods, 73 call sites over 9 files, plus
+   two anchors a radial centre parameter does *not* reach — the `Peaks[]` absolute-world-XZ
+   table (`NextIslandPocGen.cs:138-163`) and the test-local `MountainHeightAt` duplicate
+   (`NextIslandPocPlayModeTests.cs:31`), both of which need re-basing separately. The idiom to
+   follow already exists in-repo: `WorldBootstrap.BuildLandmassBase(… Vector3 centre …)`
+   (`:623-624`). Most of the 73 are test call sites, so the cheapest sequencing is probably a
+   centre-defaulted overload (defaulting to `(0,0)` keeps every existing call green) rather than
+   a breaking signature change across all 9 files at once — a route note, not a mandate.
 2. Place the (already-built) destination island at a real world-space distance from the start
    island in ONE shared scene; build exactly ONE ocean plane sized to cover both landmasses plus
-   the gap, deleting the second per-island "all-sides sea" duplicate.
+   the gap, deleting the second per-island "all-sides sea" duplicate. Both planes today sit at
+   local `(0, WaterY, 0)` with `WaterY = -0.20f` in each generator, so the duplicate is exactly
+   coplanar — dedupe is mandatory, not cosmetic.
 3. Re-run the **existing** `-perfProbe` + NavMesh-coverage + shadow-caster-policy instrumentation
    (the same methodology as PR #226/#278) at the new combined extent — this answers the memory/
    draw-call/NavMesh-bake questions from §1 and the water-at-scale question from §4 with real
