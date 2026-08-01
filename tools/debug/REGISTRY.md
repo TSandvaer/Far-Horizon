@@ -4,6 +4,15 @@ One-line index of durable debug/build instruments. Reuse before rebuilding.
 
 > Operator/infra reliability tooling (CI runner watchdog, machine ops) lives in `tools/ops/` — see `tools/ops/REGISTRY.md`.
 
+> **What earns a row here, and where the LESSON goes instead** (the routing rule — `86caz42fr`, adopted verbatim from Devon's PR #337 review, comment [`5094420111`](https://github.com/TSandvaer/Far-Horizon/pull/337#issuecomment-5094420111)):
+>
+> - **"The registry indexes *diagnostics you reach for*, not in-pipeline generators that run on every bootstrap."** A row earns its place when a future author would go LOOKING for the tool by name. Precedent this keeps out: `Assets/Scripts/Editor/SneakGaitCurveFix.cs` and `Assets/Scripts/Editor/PickaxeMineCurveFix.cs` both exist in-tree and neither has a row — they are bootstrap-time clip-repair generators, not things you reach for. (`PickaxeMineCurveFix` is *named* inside the `AttackClipPoseDiag` row as a `-regenPickaxeFix` flag; being mentioned by another tool's row is not having one.)
+> - **The reusable LESSON a tool taught goes in the matching `.claude/docs` doc, not in its registry cell** — that doc is the MANDATORY pre-work read, i.e. where the next author will actually look *before* building the instrument that falls into the same trap. A lesson only a registry cell carries is a lesson nobody reads until after they needed it.
+> - **The split, operationally: registry = the instrument's capabilities + its measured empirical findings; doc = the transferable rule.**
+> - **BOTH is correct — and is not duplication — when a tool's measured finding is also the evidence for a rule.** Cross-link the two rather than deleting either. ⚠ **Never strip measured numbers out of a registry cell** to resolve an apparent overlap: they are the record of a real instrument run. Live cross-linked pair: the `[haft-profile]` material in the `AttackClipPoseDiag` row below ↔ `.claude/docs/procedural-animation-verbs.md` § "A distance-to-LINE metric leaves the along-line position unscored".
+>
+> ⚠ **Nothing enforces this rule** — no test guards a doc and no grep checks the boundary. It holds only by being read here.
+
 | Tool | Purpose |
 |---|---|
 | `Assets/Scripts/Editor/FogSeamDump.cs` (editor -executeMethod) | Ground-truth WorldLook fog-seam dumper (86cajt6jb). `FarHorizon.EditorTools.FogSeamDump.DumpCommitted` opens the COMMITTED Boot.unity + logs `[fog-seam-dump] fog=… skybox._HorizonColor=… palette.SkyHorizon=… seamKillR_ok=…` (what a bare LoadScene sees); `.DumpAfterBootstrap` runs `BootstrapProject.Run` first (what the CI playmode job — which re-bootstraps — sees). Run when a fog-R-0.42-class seam drift is suspected to tell committed-drift from a live writer, before assuming a Boot.unity regen is needed. |

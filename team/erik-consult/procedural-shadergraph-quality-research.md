@@ -111,6 +111,9 @@ are explicitly ruled out — they fight the existing look.
 
 ### D — White-edge highlight as chamfer geometry in Blender (hero props)
 
+> **⚠ Editorial note added 2026-07-31 (ticket `86caz5m75`) — the OBSERVATION below is confirmed; the ROUTE is retired.**
+> This note was written 2026-06-17, **two days before** the shared-palette contract landed (`blender-asset-pipeline.md`, `c7658b3`, PR #99). The finding that the board's white edge is DISCRETE GEOMETRY rather than a Fresnel wrap is Strong ground truth and still governs. But the prescribed route — *"a distinct material index"* on the axe head, driven by *"the existing `AxeAssetGen.cs`"* — is superseded: that file no longer exists (replaced by `WeaponPackAssetGen.cs`), and a distinct material slot on a weapon forks the one-material `Mat_WeaponPalette` invariant. **The live fork-free route to the identical feature is `blender-asset-pipeline.md` §3** (inset strip → separate mesh island → UV to the `EdgeWhite` palette block). Kept unedited below as the historical record.
+
 - **Source:** RetroStyleGames, "Low Poly Game Art: An Ultimate Guide"
   [https://retrostylegames.com/blog/low-poly-game-art-an-ultimate-guide/] — **Moderate** (practitioner
   guide, widely cited in stylized-art community, covers the geometry-edge highlight idiom).

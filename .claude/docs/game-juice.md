@@ -52,4 +52,4 @@ All five must-haves are zero-GC or pool-managed and DO NOT touch the world's sha
 
 ---
 
-> **A note on the older draft.** `team/erik-consult/game-juice-concepts.md` (2026-06-23) was the first pass: 5 techniques, 8 sources. `game-juice-research.md` (2026-06-30) supersedes it as a strict superset — same 5 + T6–T10, a ranked table, a fuller AVOID table, the stronger proportionality source, and the system-by-system mapping. This checklist distills the **research** note; treat `concepts` as historical.
+> **A note on the older draft.** An earlier "game-juice concepts" note (2026-06-23) was the first pass: 5 techniques, 8 sources. **It is NOT in the repo — it was deleted in PR #201 (`187e486`) and is not restorable by path**; it is named here only so a reader who meets the name in an old ticket or PR knows what it was. `team/erik-consult/game-juice-research.md` (2026-06-30) supersedes it as a strict superset — same 5 + T6–T10, a ranked table, a fuller AVOID table, the stronger proportionality source, and the system-by-system mapping. This checklist distills the **research** note, which is the only one you can open.
