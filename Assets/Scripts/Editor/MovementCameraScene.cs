@@ -486,10 +486,33 @@ namespace FarHorizon.EditorTools
         // and the thumb rides the index chain rigidly => it reads as an undifferentiated block. Baking any
         // right-thumb euler would encode a number the eye cannot see. The fix is SOURCE-SIDE (re-weight/re-rig);
         // do NOT add another runtime euler here. See PR #317 round-9 comment + ticket 86catvb6u.
+        //
+        // ROUND-10 RE-BAKE OF THE LEFT THUMB ONLY (86cau4za2, Sponsor RE-SCOPE 2026-08-01, verbatim: "fix that one
+        // hand is not the same as the other. If both hands are just a square with no thumb thats fine, its meant to
+        // be low poly minecraft style"). The dial-7 left thumb above is RELEASED by that re-scope — matching the two
+        // hands is the requirement; "both plain blocks" was a permission he granted, not the bar.
+        //
+        // WHY THIS VALUE, AND WHY THE OTHER THREE DID NOT MOVE (CastawayV4DefectDiag.RunBlockHands round-10,
+        // ci-out/blockhands-r10c.log — every figure below is a line in that log):
+        //   * The right thumb LUMP is the BIGGER of the two, not the smaller: standoff max 59.40mm right vs 33.17mm
+        //     left, on a hand spanning 143.1mm. Round 9's "the right is a block, the left has a thumb" framing is
+        //     the wrong way round — the Sponsor's dial had pulled the LEFT thumb IN, which is what made the pair
+        //     differ (profile asymmetry 17.46mm).
+        //   * The right cannot be brought down to meet it. Its thumb verts are welded to the index chain, so the
+        //     thumb-vs-finger relationship is rigid; the only rotation that lowers the number (index1 +120° local-X:
+        //     59.40 -> 22.66mm) does it by swinging the whole index subtree into the palm — 82.81mm of block travel
+        //     on a 143.1mm hand. That is a finger driven through the palm, not a tucked thumb.
+        //   * So the pair is matched from the side that CAN move. Putting the left thumb back where the right's
+        //     frozen geometry already sits takes profile asymmetry 17.46mm -> 1.18mm empty-handed and 14.13 -> 3.68mm
+        //     gripping. Both hands then carry the same small thumb nub in the same place — symmetric blocky hands.
+        //   * Near-zero, not zero: absolute (0,0,0) only reaches 8.06mm asymmetry, because the idle clip poses the
+        //     LEFT thumb bone (which the left geometry follows and the right's ignores). This euler is the small
+        //     residual that cancels that clip pose.
+        // Right wrist / left wrist / right thumb are UNCHANGED — this is a left-thumb-only, pose-only change.
         public static readonly Vector3 CastawayV4RightWristEuler = new Vector3(-22.0f, 250.0f, -30.0f); // Sponsor-dialed right wrist (dial-7)
         public static readonly Vector3 CastawayV4LeftWristEuler = new Vector3(-21.8f, 282.6f, 3.7f);    // Sponsor-ACCEPTED left wrist (dial-7)
         public static readonly Vector3 CastawayV4RightThumbEuler = Vector3.zero;                        // inert until the right hand is re-weighted (see above)
-        public static readonly Vector3 CastawayV4LeftThumbEuler = new Vector3(-502.0f, -890.0f, -6.0f); // Sponsor-ACCEPTED left thumb (dial-7)
+        public static readonly Vector3 CastawayV4LeftThumbEuler = new Vector3(-2.7f, 10.6f, -22.8f);    // round-10 MATCH bake (was the dial-7 (-502,-890,-6), released by the re-scope)
 
         /// <summary>
         /// Author the player + orbit camera + flat ground + saved NavMesh into the CURRENT open
