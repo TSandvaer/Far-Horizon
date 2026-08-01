@@ -4,6 +4,47 @@
 **Status:** DIRECTION — docs only. No implementation here.
 **Verified against:** `origin/main` @ `c8ce948`. Every path, line number and quoted string below was read in this worktree; none is relayed. *(Re-verified at `c8ce948` during round 2 — the `SettingsPanel.uxml` / `.uss` / `.cs`, `SettingsCategory.cs`, `BootHud.cs`, `BootstrapProject.cs` and `Castaway_Attribution.txt` refs cited below all still resolve, with no drift from the original `3992e96` pin.)*
 
+> ### ⚠ REVISION 2 — 2026-07-31, re-verified at `origin/main` @ `8ad6e24`
+>
+> §§0–8 landed in **PR #368** and stand. **Revision 2 adds §§9–14** and closes four gaps that
+> R1 left open — one of which is a **defect that would have shipped an AC4 violation**:
+>
+> | # | Gap | Closed in |
+> |---|---|---|
+> | 1 | R1 says render *"the verbatim text of every shipped attribution file."* At today's file that is **all 146 lines** — including `Viktor.G` and `"Mini Chibi Kid"`, the two names **AC4 explicitly bars**. R1 therefore violates AC4 by construction. | **§9** — marker-delimited extraction + the exact retained text, quoted. |
+> | 2 | R1 specifies **no dismissal** — the word `Esc` does not appear in it, and it never says what view the drawer shows when reopened. | **§10** |
+> | 3 | R1 does not state the Danish-keyboard constraint on its entry point, nor the footer-swap wiring trap. | **§10** |
+> | 4 | R1 has no developer-verifiable AC list and no crisp OOS list. | **§13**, **§14** |
+>
+> **R2 fix round — 2026-07-31, re-verified at `origin/main` @ `721701d`** *(Tess's PR #388 REQUEST_CHANGES).*
+> **Blocker:** §9.2's own marker insert shifted the block to `:23-42`, invalidating the `sed -n '22,41p'`
+> reproduction that §9.3, **AC-D1** and **AC-D11** all rest on — so **AC-D1 read FALSE on a correct
+> implementation**, and §9.3 then told the developer their extraction was wrong. **Fixed durably**, by making
+> the extraction **marker-relative** rather than by re-pinning the range: §9.3 (+ a three-way failure-value
+> table), **AC-D1**, **AC-D11**, and a new **§9.6** stating the pre-marker `+0 / +1 / +2` cite rule once for the
+> whole document. The `sha256` pin is **unchanged** and reproduces at `721701d`. Also closed, from her six NITs:
+> **N1** `BarredStrings` (one named 9-string constant at both layers, §9.2), **N2** new **G6** pinned
+> change-detector, **N3** AC-D9 made mechanical, **N4** §4.3's scan net widened **with a `.meta` exclusion**,
+> **N5** AC-D12 quotes the boundary clause verbatim, **N6** the `CC-Attribution` under-credit caveat.
+>
+> **N7 — 2026-08-01** *(Tess's APPROVE_WITH_NITS, PR #388).* §4.3's **"Widened net (binding)"** line stated the
+> pattern but left the mandatory `.meta` exclusion in the callout beneath it — **the same shape as the blocker
+> above**: the load-bearing constraint sitting one paragraph away from the thing a developer copies. The binding
+> line now carries the exclusion itself and is complete without anything below it. **Swept the document for the
+> general form** — a binding line whose correctness depends on a qualifier that lives only in prose beneath it.
+> Two further sites, both `Castaway_Attribution.txt` line cites reading as current rather than pre-marker,
+> now carry §9.4's `pre-marker — §9.6` pointer: **§9.1's table** and the **R1 cross-reference bullet**. Every
+> other line labelled *binding* — §4.3's P1/P2, §4.3's row shape, §10.1's layout-agnostic key set, §11.2's
+> line-break requirement, §10.4's wiring contract, and the AC-D1 / AC-D2 / AC-D11 / AC-D12 rows — was read and
+> is **self-sufficient as written**, each carrying its own qualifier inline.
+> **S5 and S7 remain open Sponsor items — neither is decided here, and S5's ask is unchanged (§14.3).**
+>
+> **Drift check at `8ad6e24`:** `git diff --stat c8ce948..8ad6e24` over `SettingsPanel.cs` / `.uss` /
+> `.uxml`, `Palette.uss` and `Castaway_Attribution.txt` is **empty** — every R1 line-ref still resolves
+> (spot-checked `:409`, `:444`, `:579`, `:619`, `:637`, `:645`, `:671`). The §1 debt scan re-run at
+> `8ad6e24` still returns exactly one attribution file, zero `.ttf`/`.otf`, zero `.wav`/`.ogg`/`.mp3`,
+> and a `Packages/manifest.json` with no non-`com.unity.*` dependency.
+
 ---
 
 ## 0. Tonal anchor (read this first)
@@ -229,7 +270,11 @@ diffed artifact; a non-deterministic sort makes it churn on every regeneration a
 ### 4.1 MUST (the floor)
 
 - The two entries in §3.2, with their captions.
-- The **verbatim** text of every shipped attribution file (§4.3) — the literal discharge of *"retain this attribution."*
+- ~~The **verbatim** text of every shipped attribution file (§4.3) — the literal discharge of *"retain this attribution."*~~
+  **⚠ SUPERSEDED BY §9.** *Every shipped attribution file* resolves today to all 146 lines of
+  `Castaway_Attribution.txt`, which contains `Viktor.G` and `"Mini Chibi Kid"` at `:46-48` — the two
+  names **AC4 bars from the panel**. The floor is now: **the marker-delimited attribution block**
+  defined and quoted verbatim in §9.
 - The build stamp (§3.3).
 
 ### 4.2 MAY — my calls
@@ -261,6 +306,7 @@ because a violation is visible to the player as a wrong or missing credit:
 
 - **Generated artifact** — `Assets/Resources/AttributionBundle.txt`, written by an editor pass, carrying for each
   attribution file: its repo path, then its text verbatim, between plain `=== FILE <path>` / `=== END` markers.
+  **⚠ AMENDED BY §9:** "its text verbatim" means **the marker-delimited block**, not the whole file.
   Plain text, not JSON: the diff stays human-readable (a reviewer can *see* what changed), and the prose needs no
   escaping. **Precedent for exactly this generated-editor-time / loaded-at-runtime-from-Resources pattern:**
   `Resources/BuildStamp.txt` (`BootstrapProject.cs:74`, `:269-277`), read at runtime by `BootHud`.
@@ -288,17 +334,40 @@ because a violation is visible to the player as a wrong or missing credit:
   name **as written in the attribution file**, `Trim()`-non-empty and **≥ 4 characters**. A short or generic token
   (`"a"`, `"the"`, `"free"`) would match any prose and silently disarm the over-crediting catch that is G3's whole
   purpose. Assert the constraint in the guard itself (**G3b**) so a future entry cannot weaken G3 by construction.
-- **File-scan net for the guard** — match, under `Assets/`, any `.txt` whose filename matches
-  `(?i)(attribution|licen[cs]e|notice|third[-_]?party)`. That is deliberately wider than today's single
-  `*_Attribution.txt`, because it also catches the retired `*_License_CC-Attribution.txt` convention named at
-  `Castaway_Attribution.txt:44-45` — so a future asset arriving with *either* naming convention trips the guard.
+- **File-scan net for the guard.** **⚠ WIDENED BY §9 (Tess N4, PR #388) — implement the widened form, not the
+  original.** R1 matched, under `Assets/`, any **`.txt`** whose filename matches
+  `(?i)(attribution|licen[cs]e|notice|third[-_]?party)`. That was already wider than today's single
+  `*_Attribution.txt` — it also catches the retired `*_License_CC-Attribution.txt` convention named at
+  `Castaway_Attribution.txt:44-45` — **but it has a blind spot that R2's new G0 now rides on**, so it must be
+  closed here rather than inherited. A future third-party asset shipping `Foo_Credits.txt`, `COPYRIGHT`,
+  `AUTHORS`, `NOTICE.md` or `Foo_Attribution.md` falls **outside** the net: G0, G1 and G4 all stay green and the
+  credit silently never renders — AC2's named ADD case surviving the guard.
 
-**The four assertions (all EditMode, no scene, no build, no play mode):**
+  **Widened net (binding):** under `Assets/`, match any file whose **filename** matches
+  `(?i)(attribution|licen[cs]e|notice|third[-_]?party|credits?|copyright|authors?)`, with **no extension
+  restriction** (so extensionless `COPYRIGHT` / `AUTHORS` and `.md` are caught), **excluding `*.meta` and
+  any other Unity sidecar the scan surfaces.** The exclusion is *part of* the net, not a refinement of it:
+  drop it and the net matches `Castaway_Attribution.txt.meta`, which will never carry markers, so **G0 is
+  RED on arrival**. Implement this line as written and nothing below it is needed — the callout carries the
+  measurement, not an additional requirement.
+
+  > ⚠ **Excluding `.meta` is NOT optional — dropping the `.txt` restriction is a day-one RED without it.**
+  > Measured at `origin/main` @ `721701d`: today's net matches exactly one file
+  > (`Assets/Art/Character/Castaway/Castaway_Attribution.txt`); the widened net with no extension rule matches
+  > **two** — that file **and its Unity sidecar `Castaway_Attribution.txt.meta`**, which matches `attribution`
+  > and will never carry markers. G0 would go RED on arrival, and §4.3's own warning applies: *a guard that is
+  > red on arrival gets quarantined instead of trusted.* **So: exclude `.meta` explicitly** (and, for the same
+  > reason, exclude any other Unity sidecar the scan surfaces). With `.meta` excluded the widened net matches
+  > exactly the same one file today — the widening is pure future-proofing with **zero** behaviour change now.
+
+**The four assertions (all EditMode, no scene, no build, no play mode). ⚠ §9.2 is the CURRENT suite** — it adds
+**G0** (markers present), **G5** (`BarredStrings`) and **G6** (pinned marker-relative `sha256`) and amends **G2**
+to compare the between-markers text. Implement §9.2's table; this one is the R1 foundation it builds on.
 
 | # | Assertion | Catches |
 |---|---|---|
 | **G1** | The set of file paths in the bundle == the set found by the scan. | **The ADD case** (AC2's named priority), plus remove and rename. |
-| **G2** | For each path, bundled text == on-disk text, byte-for-byte. | The EDIT case — an attribution file changed without regenerating. |
+| **G2** | For each path, bundled text == on-disk text, byte-for-byte. **⚠ AMENDED BY §9.2 — compare against the on-disk BETWEEN-MARKERS text, not the whole file.** | The EDIT case — an attribution file changed without regenerating. |
 | **G3** | Every entry's **`MatchToken`** (never its displayed `Source`) occurs as a substring in at least one bundled text. | **Over-crediting (AC4).** A resurrected "Viktor.G" or "joaobaltieri" entry matches nothing and goes RED. |
 | **G3b** | Every `MatchToken` is `Trim()`-non-empty and **≥ 4 chars**. | A degenerate token (`"a"`, `"the"`) that would match any prose and silently disarm G3. |
 | **G4** | Every bundled file has ≥1 entry pointing at it. | **Under-crediting at the readable layer** — a new sourced asset ships its attribution file, and the panel silently says nothing about it. |
@@ -357,7 +426,7 @@ beat that sells "same drawer, turned over" rather than "a new window appeared."
 | `about-entry__source` | `--ink-cream`, 14px, bold | Same weight/size as `.setting-row__label` (`:104-111`) so the About view reads at the same rhythm as the settings rows. |
 | `about-entry__covers` | `--ink-dim`, 12px, `white-space: normal` | The caption. Wraps; never truncates. |
 | `about-view__expander` | `--ink-dim` → `--ink-cream` on hover, 12px, borderless | **Reuses the `.settings-reset` idiom verbatim** (`:82-90`) — the drawer's established "quiet text action." |
-| `about-view__verbatim` | `--ink-dim`, 11px, `white-space: normal`, full width | Monospace-ish is *wrong* here — it would read as a console dump. Same face, smaller and dimmer. |
+| `about-view__verbatim` | `--ink-dim`, 11px, ~~`white-space: normal`~~, full width | Monospace-ish is *wrong* here — it would read as a console dump. Same face, smaller and dimmer. **⚠ `white-space: normal` SUPERSEDED BY §11.2** — `normal` REFLOWS the source's line breaks, and "retain this attribution" is poorly served by silently re-flowing the retained text. §11.2 gives the requirement + two routes. |
 | `about-view__stamp` | `--ink-dim`, 11px | Bottom of the view. |
 
 **Entry as two lines, not `name — caption` on one.** The panel is 470px wide (`:24`) and captions run 45–60
@@ -383,6 +452,12 @@ inconsistency the moment anyone moves that slider. No fixed-px value columns her
 
 Reset must not be reachable while About is open — a destructive action next to static legal text is a small,
 permanent wrongness.
+
+> **⚠ "in place of" is a VISIBILITY swap, not a re-text — see §10.4.** `settings-reset` is queried **by name**
+> (`SettingsPanel.cs:632`) and bound to `Registry.ResetAll()` (`:636`) inside `SetupDrawerCommon` (`:617`);
+> the code-shell fallback builds the same-named button at `:1321`. Re-texting or re-binding that button to
+> serve as `← Back` silently breaks reset-to-defaults (AC10). §10.4 specifies the three-button visibility
+> contract that avoids it.
 
 **USS:** give the About button the `.settings-reset` rule by widening that selector to
 `.settings-reset, .settings-about { … }` (and the same for its `:hover`). One-word diff to an existing rule, zero
@@ -469,13 +544,506 @@ spec `team/uma-ux/about-credits-surface-spec.md`.*
 
 ---
 
+# REVISION 2 — §§9–14
+
+*Everything below was added 2026-07-31 and verified at `origin/main` @ `8ad6e24`; the fix round for Tess's
+PR #388 review was re-verified at `origin/main` @ `721701d`, where `Castaway_Attribution.txt` is byte-identical
+to `8ad6e24` (146 lines / 11624 bytes / zero CR) and the `sha256` pin still reproduces.*
+
+---
+
+## 9. The EXACT text that must appear — and why "the whole file" is a defect
+
+R1's floor (§4.1) said *"the verbatim text of every shipped attribution file."* **That is wrong, and it is wrong
+in a way that ships an AC4 violation.** This section replaces it with a delimited block, quotes that block
+verbatim, and pins it with a checksum so QA can diff rather than judge.
+
+### 9.1 The defect, stated concretely
+
+*(All line numbers in this subsection are **pre-marker** — §9.6.)*
+
+`Assets/Art/Character/Castaway/Castaway_Attribution.txt` is **146 lines** (`wc -l`, at `8ad6e24`). It is an
+*engineering* document, not a player-facing one. Rendering it whole puts all of the following in front of a
+player, one click deep:
+
+| Source lines | What a player would read | Why it must not ship |
+|---|---|---|
+| **`:46-48`** | *"…the Sketchfab axe **(Viktor.G)** and the **"Mini Chibi Kid"** base…"* | **Decisive.** AC4's constraint is *"no Viktor.G … and no joaobaltieri."* Both assets are deleted. Rendering the whole file **resurrects both retired credits in the credits surface** — the exact mirror-image error `86cay47zh` spent a ticket retiring. **This alone disqualifies the whole-file route.** |
+| `:4-6`, `:14-20` | `STATUS 2026-07-30`, `CharacterAssetGen.FbxPath (:228-231)`, `UseCastawayV4Default = true (:217)`, `activation ticket 86catvb6u` | Source paths, code line numbers, internal toggle constants and ticket IDs. Dev-voice at the player. |
+| `:49-52` | *"the exact licence / terms-of-use text behind the retain instruction above is **not recorded anywhere in this repo**"* | An internal to-do. Publishing *"we have not read our licences"* inside the legal surface is actively harmful — it is the one place that sentence must not be. |
+| `:54-58` | *"The Mixamo Humanoid muscle-space retarget **EXPLODED** the skinned mesh into a cone at runtime"* | An engineering post-mortem. |
+| `:137-140` | *"**DO NOT** re-export this rigged FBX through Blender … whole-skeleton "helicopter" … **Known accepted defect, Sponsor-deferred**: the RIGHT hand's thumb weights sit on the index chain"* | A shipped, player-visible admission of an unfixed rig defect. |
+| `:141-146` | *"**OPEN QUESTION (unverified)**: v4 has NO committed provenance README"* | Internal. |
+
+**On feel, not just correctness:** §0's anchor is *"the maker's mark on the underside of a hand-made thing."*
+A 146-line dump of status blocks, toggle constants and deferred-defect notes is not a maker's mark — it is the
+workshop's job-tracking whiteboard photographed by accident. R1 got the mechanics right (generated, guarded,
+collapsed) and the **content boundary** wrong.
+
+### 9.2 The fix — marker-delimited extraction (NOT a line range)
+
+A line range (`22-41`) would be drift by construction — the exact failure AC2 exists to stop. **Delimit in the
+source file instead**, so the boundary moves with the text:
+
+**Two literal marker lines are added to `Castaway_Attribution.txt`**, at column 0, each alone on its line:
+
+```
+--- BEGIN ATTRIBUTION (player-visible) ---
+--- END ATTRIBUTION (player-visible) ---
+```
+
+- **`BEGIN` goes immediately before** the line `ATTRIBUTION — WHAT THIS BUILD OWES CREDIT FOR` (line 22 today).
+- **`END` goes immediately after** the line `      was generated by a third-party service nor sourced from an asset library.` (line 41 today).
+- **Nothing else in the file is touched** — no wording changes, no reordering, no deletions.
+
+**The generator** copies the lines **strictly between** the markers, byte-for-byte: no trimming, no reflow, no
+re-indenting, no marker lines. **The guard suite changes as follows:**
+
+| # | Assertion | Status |
+|---|---|---|
+| **G0** *(new)* | Every file caught by §4.3's filename scan contains **exactly one** `BEGIN` marker and **exactly one** `END` marker, `BEGIN` before `END`, with **≥1 non-blank line** between them. | **New.** A new attribution file that arrives without markers goes **RED** — the ADD case at the right granularity. Also catches a marker deleted by a later edit. |
+| **G1** | Bundle path-set == scan path-set. | Unchanged (§4.3). |
+| **G2** | Bundled text == the on-disk **between-markers** text, byte-for-byte. | **Amended** — was "on-disk text". |
+| **G3 / G3b / G4** | `MatchToken` present / ≥4 chars / every file has ≥1 entry. | Unchanged (§4.3). |
+| **G5** *(new)* | No bundled text contains any string in **`BarredStrings`** (the nine below). | **New.** A *belt-and-braces* assert of AC4's named bar, at the bundle layer. If a future marker move re-admits `:43-48`, this goes RED instead of shipping. Cheap, and it is the assertion that would have caught this defect. |
+| **G6** *(new)* | The marker-relative `sha256` of the on-disk block equals a **pinned expected value** stored beside the guard (today `5b178b65…d375a8`). RED on change → regenerate the bundle **and** re-pin, in the same PR. | **New — Tess N2, PR #388.** G0 and G2 both stay **green if a marker is MOVED and the bundle regenerated**; only the deny-list would catch the widened content, and today's containment is *incidental* (you cannot reach `:54-58`'s *"EXPLODED the skinned mesh into a cone"* — on no list — without first passing `:46-48`, which G5 catches). A pinned change-detector makes the deny-list a **backstop** rather than the primary defence, and gives **AC-D1** a home that survives edits instead of expiring at the next wording pass. |
+
+**`BarredStrings` — ONE named constant, asserted at BOTH layers.** R2 first shipped a 4-string list in G5 and a
+9-string list in AC-D2 with nothing reconciling them — a developer implementing "the guard suite" ships four,
+and the ninth only appears at a second assertion site (Tess N1, PR #388). They are the same list; name it once
+and have **G5 (bundle layer)** and **AC-D2 (composed-view layer)** both read it:
+
+```
+BarredStrings = [ "Viktor.G", "joaobaltieri", "Mini Chibi Kid", "CC-Attribution",
+                  "CharacterAssetGen", "UseCastawayV4Default", "helicopter",
+                  "OPEN QUESTION", "STATUS 2026-" ]
+```
+
+**Promoting all nine to the bundle layer is verified day-one clean, and the list is a real boundary assertion —
+not decoration.** Counted at `origin/main` @ `721701d` against the between-markers block and against the whole
+file: **every one of the nine occurs 0× in the block**, so G5 cannot be red on arrival (§4.3's own warning — *a
+guard that is red on arrival gets quarantined instead of trusted*). And **eight of the nine occur in the file
+outside the block** — `Viktor.G` 1×, `Mini Chibi Kid` 1×, `CC-Attribution` 1×, `CharacterAssetGen` 10×,
+`UseCastawayV4Default` 3×, `helicopter` 1×, `OPEN QUESTION` 2×, `STATUS 2026-` 5× — so the list discriminates
+*block* from *whole file* exactly. The ninth, `joaobaltieri`, occurs **0× anywhere** (the file names the asset,
+never the author's handle); it stays because AC4 bars it **by name**, and a forward-looking bar costs nothing.
+
+> ⚠ **One honest caveat on `CC-Attribution` (Tess N6).** That string bars a **live** class, not only a retired
+> one. If the project ever adopts a CC-BY asset again, `CC-Attribution` is precisely the text the credits
+> surface would legitimately need to carry. Risk is low as written — G5 reads bundled *text*, and a future
+> `Foo_License_CC-Attribution.txt` need not repeat its own filename in its body — but if this guard ever goes
+> RED, **check whether it is catching an under-credit before you "fix" the content.** The rest of
+> `BarredStrings` has no such double life.
+
+### 9.3 The exact text — verbatim, as it must render today
+
+This is the **expected generator output at `8ad6e24`**, reproduced byte-for-byte (LF endings; the file has no
+CRLF — verified with `cat -A`). It is the **day-one expected value for review and QA**, *not* a second source of
+truth: the file stays authoritative, and G2 is what keeps them equal.
+
+```text
+ATTRIBUTION — WHAT THIS BUILD OWES CREDIT FOR
+
+  Retain this attribution in any distribution of the game (an in-game / about-screen credits
+  entry covers it).
+
+  Third-party, in use regardless of which hero version is live:
+    - Mixamo animation clips (Adobe, free account) — every clip FBX in this folder, played on
+      the selected hero mesh by CastawayAnimator.controller.
+    - The Mixamo auto-rigger skeleton + skin weights (Adobe, free account) — EVERY hero
+      version, v4 included, is rigged by Mixamo (mixamorig:* Standard skeleton).
+  Third-party, committed here — credit retained regardless of which version is selected:
+    - v1 / v2 / v3 hero meshes + their diffuse/normal maps — GENERATED 3D content
+      (Hyper3D Rodin, Creator-tier web export), from openai-image A-pose concept references.
+      None of these is the live hero mesh today, but all three stay in the repo as the rollback
+      chain, so the credit stays. Whether an UNSELECTED FBX is included in a given built player is
+      a Unity build-inclusion question this file deliberately does not assert either way.
+  IN-HOUSE, no third-party credit owed:
+    - the v4 hero MESH (hand-modeled in Blender in this project, driven through the Blender MCP
+      tooling) and its palette texture — ticket 86catpwc4, look-dev approved 2026-07-18. Neither
+      was generated by a third-party service nor sourced from an asset library.
+```
+
+**Checksum (so review is a diff, not a judgement). Extract MARKER-RELATIVE, never by line number:**
+
+```
+$ sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' \
+      Assets/Art/Character/Castaway/Castaway_Attribution.txt | sed '1d;$d' | sha256sum
+5b178b654c23acafde48f5b8d94b75f7430ad13faa50fa42006bd38443d375a8
+```
+
+**Run this one, not a line range.** ⚠ **`:22-41` is the PRE-marker range and it stops reproducing the pin the
+moment §9.2 lands** — §9.2 inserts `BEGIN` immediately *before* line 22, so the block moves to `:23-42` and
+`sed -n '22,41p'` returns the marker line plus 19 of the 20 content lines. Measured on a file with §9.2 applied
+exactly (`awk` insert at the two stated positions, `origin/main` @ `721701d`): 148 lines, `git diff` `+2`,
+`BEGIN` at `:22` / `END` at `:43`, and
+
+```
+$ sed -n '22,41p'  <post-marker file> | sha256sum
+e940fc0fd923032dd79a48790ca21b7858c4c8d243a5a5ceb51611f8052d2a45   ← NOT the pin
+$ sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <post-marker file> | sed '1d;$d' | sha256sum
+5b178b654c23acafde48f5b8d94b75f7430ad13faa50fa42006bd38443d375a8   ← the pin, 20 lines
+```
+
+*(Independently recomputed 2026-07-31 in this worktree; Tess reached the same two values in her PR #388 review.
+The pin itself is unchanged and holds at `8ad6e24`, `750f190`, `721701d` and PR head `9053893` — the file is
+byte-identical across all four, 146 lines / 11624 bytes / zero CR.)*
+
+**The command is a three-way discriminator — read the value you got before concluding anything:**
+
+| You got | What it means | Do |
+|---|---|---|
+| `5b178b65…d375a8`, **20 lines** | Correct. | Nothing. |
+| `e3b0c442…7852b855`, **0 lines** | The sha256 of **empty input** — `BEGIN` is not in the file. The markers have not landed yet (S5, §9.5). | Apply §9.2 first. **This is not an extraction bug.** |
+| Anything else, **≫20 lines** | `END` is missing, so `sed`'s range ran to EOF. Measured with `END` deleted: **124 lines**, `c4336267…40927f` — a silent over-extraction that would ship the whole tail of the file. | **G0** (§9.2) is the guard that must catch this. Restore the marker. |
+| Anything else, **≈20 lines** | The extraction trims, reflows or re-indents. | Fix the extraction — do **not** edit the expected value here. |
+
+If the generated block's `sha256` differs and the between-markers text has not changed, **the extraction is
+wrong** — do not "fix" it by editing the expected value here.
+
+### 9.4 Where the boundary is, and the one wart I am NOT hiding
+
+*(All line numbers in this subsection are **pre-marker** — §9.6.)*
+
+**Included** (`:22-41`): the heading, the retain instruction, what is owed (Mixamo rig + clips; Rodin v1/v2/v3
+meshes), and what is **not** owed (the in-house v4 mesh + palette). The last part stays in deliberately — drop it
+and a reader reasonably concludes the live hero is Rodin's too.
+
+**Excluded:** `:1-21` (status / version-selection internals), `:43-48` (the no-CC paragraph — **it carries the two
+barred names**), `:49-52` (the OPEN QUESTION), `:54-146` (rig notes, per-version file inventories, the deferred
+defect).
+
+**The wart, named rather than quietly accepted:** the included block still says `CastawayAnimator.controller`
+(`:29`), `ticket 86catpwc4` (`:40`), and *"a Unity build-inclusion question this file deliberately does not assert
+either way"* (`:37`). That is dev-voice leaking into a player surface. **I am not hand-fixing it here** — editing
+the file's wording is `86cay4hyz`'s job and this ticket's OOS, and doing it inside the panel would create the
+second source of truth AC2 exists to prevent. §12's framing line is what makes it read as *the primary document,
+unedited* rather than as sloppiness. → **follow-up S6 (§14.3).**
+
+### 9.5 This widens the ticket's OOS by two lines — flagging, not deciding
+
+The ticket's OOS says *"Editing `Castaway_Attribution.txt`'s content — that is `86cay4hyz`."* §9.2 adds **two
+marker lines** to that file.
+
+**My reading:** this is not the edit the OOS bars. `86cay4hyz` was about *correcting stale claims*; it landed
+(`03bca30`, PR #356). Adding two delimiters changes **no assertion, no wording, and no fact** — a `git diff` is
+exactly `+2` lines. And there is no lower-cost alternative: heading-matching is a silent-breakage heuristic, and a
+line range is the drift AC2 forbids.
+
+**But it is still a diff to a file this ticket puts OOS, so it is flagged, not assumed** → **S5 (§14.3)**.
+If Priya or the Sponsor prefers, the markers can land as a separate 2-line ticket ahead of implementation; this
+spec is unchanged either way.
+
+**One caveat for whoever answers S5** (raised by Tess, PR #388 review): `+2` is the *diff*, but it **renumbers
+every downstream line reference into that file** — including this spec's own. That is not a reason to refuse;
+it is a reason to land the markers and the re-cite together. §9.6 discharges the renumbering for this document.
+
+### 9.6 Every `Castaway_Attribution.txt` line cite in this spec is PRE-marker — the +0 / +1 / +2 rule
+
+This spec cites `Castaway_Attribution.txt` by line in a dozen places (§9.1's table, §9.4's boundary, the
+cross-references). **All of them are read against the file as it stands today** — `origin/main` @ `721701d`,
+**146 lines**, markers not yet applied. §9.2 then shifts most of them. Rather than re-pin a dozen numbers that
+would drift again the next time anything above the block moves, one rule discharges the whole class:
+
+> **Every `Castaway_Attribution.txt` line ref in this document is PRE-marker.** After §9.2 lands:
+> **`:1-21` unchanged · `:22-41` (the block) `+1` · `:42-146` (after `END`) `+2`.**
+
+Spot-verified on the simulated post-marker file: `:4-6` still the `STATUS 2026-07-30` block (unchanged);
+`:46-48` → **`:48-50`**, the `(Viktor.G)` / `"Mini Chibi Kid"` lines; `:49-52` → **`:51-54`**, the
+`OPEN QUESTION` about the unread licence text; `:141-146` → **`:143-148`**, the file's last line. So
+`:22-41` → `:23-42` and the cross-reference block's `:24-25` / `:27-41` / `:43-48` become `:25-26` / `:28-42` /
+`:45-50`.
+
+**Do not convert this document to post-marker numbers.** The rule above is stable under the one edit this
+ticket makes; a re-pinned number is not, and the pin's own reproduction command (§9.3) is now marker-relative
+precisely so that nothing load-bearing depends on a line number at all.
+
+---
+
+## 10. Entry point, keys, and dismissal
+
+R1 fixed the *entry* (§2) but never specified **exit**. The word `Esc` does not appear in §§0–8, and R1 never
+says which view the drawer shows when it is reopened. Both are specified here.
+
+### 10.1 Entry point — F1, and it is already layout-agnostic
+
+| Fact | Ground truth (read at `8ad6e24`) |
+|---|---|
+| The player drawer opens on **F1** | `Assets/Scripts/Editor/MovementCameraScene.cs:4906` — `panel.toggleKey = KeyCode.F1;` (F3 dev console at `:4907`). |
+| The C# default is deliberately **not** F1 | `SettingsPanel.cs:144` — `public KeyCode toggleKey = KeyCode.None;`, so the scene-presence guard is non-tautological. |
+| F1 is polled directly | `SettingsPanel.cs:330` — `if (Input.GetKeyDown(toggleKey)) SetPlayerOpen(!IsPlayerOpen);` |
+| **F-keys are certified Danish-safe in-code** | `SettingsPanel.cs:138`, verbatim: *"Layout-agnostic + Danish-safe (an F-key) + verified non-clashing with WASD/Shift/Space/Tab/F7-F10 (F2 UNBOUND) ([[sponsor-danish-keyboard-layout]])"*. |
+
+**The About view adds no key to reach it** (AC1). Entry is a mouse click on the footer `About` button, and the
+cursor is already free + visible whenever a panel is open (`OrbitCamera.cs:192-196`, `:226-234`; R1 §2.1).
+
+**Layout-agnostic constraint — binding on every key this surface ever uses.** The Sponsor uses a **Danish**
+keyboard. Only keys whose physical position and `KeyCode` are layout-invariant may be used: **F1–F12, Esc, Tab,
+Space, Enter, Backspace, the arrow keys, PageUp/PageDown, Home/End, Insert/Delete, Shift/Ctrl/Alt**.
+**Never** any punctuation or symbol key — `/`, `\`, `;`, `'`, `[`, `]`, `-`, `=`, `` ` ``, `,`, `.` all sit
+elsewhere on a Danish layout (and several require AltGr), so a US-layout binding is simply unreachable.
+Precedent in this same file: `PageUp`/`PageDown` were chosen for the nudge (`SettingsPanel.cs:340-341`) because
+they are *"Danish-keyboard-safe + NOT a locomotion key (WASD/arrows/Shift/Space)"* (`:335`).
+
+### 10.2 Dismissal — two routes ship, both layout-agnostic
+
+**Route A — the `← Back` button (primary).** Footer-left, replacing `Reset to defaults` while About is open
+(R1 §5.3, wiring contract in §10.4). Returns to the Settings view; the drawer **stays open**; the header title
+flips `About` → `Settings`. Mouse-only, and that is fine — it mirrors how the whole drawer is already operated.
+
+**Route B — F1 (closes the whole drawer).** Already live: `SettingsPanel.cs:330` toggles `SetPlayerOpen`. No code
+is needed to make F1 close the drawer while About is showing — but **one thing IS needed**, and it is the AC below.
+
+> ### 10.3 ⚠ THE RESET-ON-CLOSE REQUIREMENT (the gap R1 left)
+>
+> **When the player drawer closes, the About view must reset to closed, so the drawer always REOPENS on the
+> Settings view — never on About.**
+>
+> **Why this is not optional.** F1 is the *settings* key. A player who taps F1 to nudge a decay slider and lands
+> on a page of licence text has been handed the wrong drawer, and it will happen every time until he finds the
+> Back button. Worse, it is *sticky*: the wrong state persists across every subsequent open for the rest of the
+> session. On feel, §0's read is *"you close it and get back to the island"* — a surface that greets you again
+> uninvited is the opposite of a maker's mark on the underside.
+>
+> **The hook already exists.** `OpenDrawer`'s `if (!open)` block (`SettingsPanel.cs:391-406`) is exactly where
+> per-drawer state is torn down on close — it already clears `_playerFocusedFields` + `_playerPointerOver`
+> (`:393-394`) and the nudge selection `_active` (`:402-403`). The About-view flag is the **fourth member of that
+> same family**, and the merged code comment at `:395-396` names the class outright: *"the third shared
+> single-state of the FIX1 focus / FIX4 pointer class."* Reset it there, scoped to the player drawer
+> (`isDev == false`), so closing F3 can never disturb F1's view state.
+>
+> **Verifiable:** open F1 → About → F1 (close) → F1 (open) → the **Settings rows** are showing and the header
+> reads `Settings`. This is **AC-D3** in §13.
+
+### 10.4 The footer-swap wiring contract (three buttons, visibility-toggled)
+
+`settings-reset` is queried **by name** (`SettingsPanel.cs:632`) and bound to `Registry.ResetAll()` (`:636`) in
+`SetupDrawerCommon` (`:617`); the code-shell fallback creates the same-named button at `:1321`. **Re-texting that
+button to `← Back`, or rebinding its `clicked`, silently breaks reset-to-defaults (AC10) and its tests.**
+
+The contract:
+
+| Button | `name` | Lives | About CLOSED | About OPEN |
+|---|---|---|---|---|
+| Reset to defaults | `settings-reset` *(existing — do not rename, re-text, or re-bind)* | footer-left | `display: Flex` | `display: None` |
+| `← Back` | `settings-about-back` *(new)* | footer-left, sibling of reset | `display: None` | `display: Flex` |
+| `About` | `settings-about` *(new)* | footer-right | `display: Flex` | `display: None` |
+
+Both new buttons take the existing `.settings-reset` USS rule by widening the selector (R1 §5.3):
+`.settings-reset, .settings-about, .settings-about-back { … }` and the same for `:hover`
+(`SettingsPanel.uss:82` / `:90`). **No new USS declarations.** All three register through `RegisterText(el, 13f)`
+so they honour the `UI text scale` dial (R1 §5.2's note, and its warning that `RegisterText` is `private` and
+must not be made public).
+
+**Scope:** built into the **player** container only, mirroring `BuildCornerPicker(devContainer)`
+(`SettingsPanel.cs:645`) — the dev console (F3) must never grow an About button. The shared `SettingsPanel.uxml`
+is **not** edited (it is cloned by both drawers, `CloneShell` `:579`).
+
+### 10.5 `Esc` — RECOMMENDED, but a Sponsor call. Do not implement it unasked.
+
+`Esc` is the project's established close/cancel key: `BuildMenuUI.cs:66` and `CraftingMenuUI.cs:62` both declare
+`closeKey = KeyCode.Escape`, and `CampfirePlacement.cs:83`, `CraftingTablePlacement.cs:91`, `ForgePlacement.cs:74`
+all use it to cancel. **But `SettingsPanel` has no `Escape` handling at all** — I grepped the whole runtime; the
+only `KeyCode.Escape` occurrences are those five files.
+
+So making `Esc` back out of About introduces an **asymmetry**: `Esc` would dismiss the About view but still not
+close the Settings drawer itself. That is a keymap / information-architecture decision on a Sponsor-facing key
+map, and the dispatch is explicit that menu IA is flagged, not decided. → **S7 (§14.3).** My recommendation is in
+that entry; **ship Routes A + B only** unless the Sponsor says otherwise. Neither is blocked by the flag.
+
+> **Doc defect found while verifying this — corrected in the same PR.**
+> [`gameplay-ui-direction.md`](gameplay-ui-direction.md) §2.1 and its §8 input-map table state that **`Esc`**
+> opens the settings panel. **It does not, and never did in the shipped build** — `MovementCameraScene.cs:4906`
+> assigns `F1`, and the panel was later SPLIT into F1-player / F3-dev by `86cah8ukr`. That table is the first
+> place anyone checks for a free key, so a stale row there is a live trap. Corrected in place using that file's
+> own `⚠ CORRECTED` idiom.
+
+---
+
+## 11. Scroll & overflow — the two cases R1's §6 does not cover
+
+R1 §6 handles list *growth* well (collapsed verbatim block, short captions, own ScrollView, never truncate).
+Two behaviours remain unspecified.
+
+### 11.1 Expanding the verbatim block must not move what the player is reading
+
+The `Full attribution text` expander sits near the bottom of the About view. Expanding it inserts a tall block
+**above the stamp and below the expander**, which in a naive implementation yanks the scroll position.
+
+- **On expand:** the expander row itself stays put on screen. Do not auto-scroll to the top; do not auto-scroll
+  to the bottom of the newly-revealed text. If the toolkit needs a nudge, scroll **the expander** into view
+  (`ScrollView.ScrollTo(expander)`) — never the block's end.
+- **No animated scroll, no height animation.** R1 §5.4's rule holds: `display: None` ⇄ `Flex`, not an animated
+  height. Motion here would be a beat serving itself.
+- **On collapse:** if the scroll offset now exceeds the shrunken content, clamp to the new maximum rather than
+  snapping to zero. The player should be roughly where he was.
+
+### 11.2 The retained text keeps the source's line breaks
+
+R1 §5.2 specified `white-space: normal` for `about-view__verbatim`. **That reflows the retained text into one
+justified paragraph blob** — the indented `- Mixamo animation clips…` structure collapses, and the surface that
+exists to *retain* an attribution silently re-typesets it.
+
+**Requirement (binding):** the block preserves the source's own line breaks, and a source line too long for the
+470px panel (`SettingsPanel.uss:24`) **wraps** — it must never produce a horizontal scrollbar (the panel family's
+standing rule, `.setting-row { flex-wrap: wrap }` `:97` + `.setting-row__label { white-space: normal }` `:110`).
+
+**Two routes; Devon's call:**
+
+1. `white-space: pre-wrap` on `about-view__verbatim` — honours `\n`, wraps long lines. **Verify it in a BUILT
+   player before relying on it:** the only `white-space` value used anywhere in this project today is `normal`
+   (`SettingsPanel.uss:110` — the sole occurrence in `Assets/`), so `pre-wrap` is **unproven in this Unity
+   version here**. I am not asserting it works.
+2. **One `Label` per source line**, each `white-space: normal`, stacked in a column container. Verbose but
+   works on any USS version and cannot regress.
+
+Route 2 is the safe default if route 1 does not verify in the shipped-build capture.
+
+---
+
+## 12. Copy — the framing line above the retained text
+
+The retained block is dev-voice (§9.4). Dropped in bare under a `Full attribution text` toggle it reads as a
+leak. **One line above it turns the same text into an asset** — it announces the block as the primary document,
+which is exactly what the retain instruction is honouring:
+
+```
+Kept exactly as written in the project's own files.
+```
+
+`--ink-dim`, 11px, sits between the expander and the block, visible only when expanded. Registered via
+`RegisterText(el, 11f)`.
+
+**Why these words.** *"Kept"* is the retain instruction in the player's language. *"exactly as written"* pre-empts
+the reaction the wart in §9.4 would otherwise cause — the reader now understands the plain phrasing is
+faithfulness, not carelessness. *"the project's own files"* is honest and ages with no maintenance. Nine words,
+no product name, no date, no legal register.
+
+**Expander label:** `Full attribution text` (R1 §5.1) — keep it. It is accurate and unglamorous, which is right.
+
+---
+
+## 13. Developer-verifiable acceptance criteria
+
+Every row is a check a developer runs and reads a pass/fail from — no judgement calls. **AC-D*n*** numbering is
+this spec's own; it sits **under** the ticket's AC1–AC4, which remain authoritative.
+
+| # | Criterion | How it is verified |
+|---|---|---|
+| **AC-D1** | The generated bundle's block for `Castaway_Attribution.txt` equals the file's **between-markers** text byte-for-byte, `sha256 = 5b178b65…d375a8` (§9.3). **Extract marker-relative, not by line number** — `sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <file> \| sed '1d;$d' \| sha256sum`. ⚠ `sed -n '22,41p'` is the **pre-marker** range and returns `e940fc0f…` once §9.2 lands; §9.3's table reads the three failure values. | EditMode (G2) + that one-line `sha256sum` in the Self-Test Report. |
+| **AC-D2** | The rendered surface contains **none** of the nine strings in **`BarredStrings`** (§9.2) — the same named constant G5 asserts over the bundle, not a second hand-maintained list. | EditMode G5 over the bundle + a substring assert over the composed view text, **both reading `BarredStrings`**. |
+| **AC-D3** | **Reset-on-close.** F1 → `About` → F1 → F1 shows the **Settings** rows, header `Settings`. | PlayMode: `SetPlayerOpen(true)`, open About, `SetPlayerOpen(false)`, `SetPlayerOpen(true)`, assert the About container is `DisplayStyle.None` and the title `Label.text == "Settings"`. |
+| **AC-D4** | `← Back` returns to Settings with the drawer still open (`IsPlayerOpen == true`). | PlayMode, real `ClickEvent` / `Button.clicked` — not a direct field poke. |
+| **AC-D5** | Reset-to-defaults still works after an About open/close cycle, and `settings-reset` is never re-texted or re-bound. | The existing AC10 reset test, re-run after an About round-trip; plus assert `Q<Button>("settings-reset").text == "Reset to defaults"`. |
+| **AC-D6** | No `About` control exists in the **F3 dev** drawer. | EditMode/PlayMode: `devContainer.Q<Button>("settings-about") == null`. |
+| **AC-D7** | `SettingsPanel.uxml` is unmodified by this PR. | `git diff --stat origin/main -- Assets/UI/SettingsPanel.uxml` is empty. |
+| **AC-D8** | No new USS custom property, colour literal, or font is introduced; every colour resolves to a `Palette.uss` token. | Review + `grep -E "#[0-9A-Fa-f]{6}|rgba?\(" ` over the PR's USS diff returns only the widened `.settings-reset` selector. |
+| **AC-D9** | **No horizontal scrollbar** in the About view at 1920×1080 or 1280×720, verbatim block expanded. | **Mechanical, primary:** PlayMode — expand the block, then assert the About `ScrollView`'s `horizontalScroller` resolved style is `DisplayStyle.None` (equivalently: content `layout.width` ≤ `contentViewport.layout.width`) at both panel resolutions. **Capture frames at both resolutions are CORROBORATION, not the check** — an eyeballed PNG is a judgement call, which §13's own bar bars. *(Tess N3, PR #388.)* |
+| **AC-D10** | Expanding the verbatim block does not scroll-jump (§11.1). | PlayMode: record `scrollOffset`, expand, assert the expander is still within the viewport rect. |
+| **AC-D11** | The retained block's line breaks match the source's (§11.2). | Assert the rendered text's newline count equals the **source block's, extracted marker-relative** — `sed -n '/^--- BEGIN ATTRIBUTION/,/^--- END ATTRIBUTION/p' <file> \| sed '1d;$d' \| wc -l`. At `721701d` that is **20 lines** → **19** `\n` separators. Assert against the source, never against the literal 19 and never against a line range, so the check survives both an edit and the §9.2 marker insert. |
+| **AC-D12** | **A `credits_*` capture frame from the BUILT exe** shows the About view populated, driven the `SettingsVerifyCapture` way (programmatic open + real `ChangeEvent`s), wired into the CI capture gate. | Ticket AC3. An editor `RenderTexture` shot does **not** satisfy it — `unity-conventions.md:197` (⚠ **the ticket cites `:182`; that ref has DRIFTED** — see §13.2). The About view is a **UI-Toolkit overlay**, so the capture **MUST stay WINDOWED**. The boundary sentence (`unity-conventions.md:9`) says *"cite it verbatim, do not paraphrase it … and if you find yourself writing a launch-mode constraint in an AC, quote it there too"* — so, quoted: *"it MUST stay WINDOWED (`-screen-fullscreen 0`, no `-batchmode`) **iff any judged pixel comes from the BACKBUFFER** — i.e. `ScreenCapture.CaptureScreenshot` / `WaitForEndOfFrame`, or a screen-space IMGUI / UI-Toolkit OVERLAY (overlays composite to the swapchain, never into a camera's `RenderTexture`)."* Also register the new gate in `tests/scripts/test_gate_scripts.sh`'s `WINDOWED_GATES` — an unregistered gate reds the wiring check. |
+| **AC-D13** | **G0 goes RED on a marker-less file.** Add a throwaway `Assets/Art/_guardprobe_Attribution.txt` with no markers → the EditMode guard fails; delete it → green. | Demonstrate the RED in the Self-Test Report (`team/TESTING_BAR.md`; PR #383 is tightening this rule — *a gate is not a gate until demonstrated RED*). |
+| **AC-D14** | **G1 goes RED on the ADD case** (ticket AC2's named priority): a new marker-carrying attribution file with no bundle entry fails. | Same probe-then-delete demonstration. |
+| **AC-D15** | Every text element in the About view scales with the `UI text scale` dial. | PlayMode: change the scale, assert each About `Label`'s `fontSize` changed (R1 §5.2). |
+
+### 13.1 Predict-Before-Soak
+
+Not soak-gated (ticket AC3). If the Sponsor is shown the capture frame anyway, the falsifiable prediction is:
+**he will accept placement and copy without a dial round, and any comment will be about the retained block's
+dev-voice wording (§9.4's wart) rather than about the panel.** If instead he objects to *placement* — that the
+About button belongs somewhere other than the F1 footer — then §2.2's five-reason argument is wrong and §14.3's
+S8 is the escalation, not a tweak.
+
+### 13.2 ⚠ Two `unity-conventions.md` line refs in the TICKET have drifted — use these
+
+The ticket body was authored against `origin/main` @ `fee2604`; that doc has grown since. **Re-derived by
+direct read at `8ad6e24`:**
+
+| Cited in the ticket | Actually at `8ad6e24` | The rule |
+|---|---|---|
+| `unity-conventions.md:182` | **`:197`** | *"Judgment-grade prop/visual captures must come from the SHIPPED exe … never from an editor RenderTexture — an editor capture can show a false NEGATIVE as easily as a false positive."* (`:182` today is an unrelated bullet about recoloring a toon atlas by UV cells.) |
+| `unity-conventions.md:185` | **`:200`** | *"Component-in-source-but-not-serialized-into-scene is a named failure class …"* (U7 / PR #6 `CaptureGate`) — the rule behind the ticket's AC3 scene-presence assert. |
+
+Also worth reading before wiring the capture, and **not cited by the ticket at all**:
+`unity-conventions.md:9` — the launch-mode **boundary sentence** (*"cite it verbatim, do not paraphrase it"*).
+It is what makes AC-D12's WINDOWED requirement non-negotiable for this surface.
+
+---
+
+## 14. Out of scope, and the Sponsor flags
+
+### 14.1 Out of scope — this SPEC (it is direction, not code)
+
+Implementation of any kind; UXML/USS/C# authoring; the capture harness; the EditMode guard's code; scene wiring.
+
+### 14.2 Out of scope — the TICKET (do not widen; several are already filed or flagged)
+
+1. **Editing `Castaway_Attribution.txt`'s wording / facts** — `86cay4hyz`, landed (`03bca30`, PR #356).
+   *(The two marker lines in §9.2 are the one deliberate exception; flagged as S5.)*
+2. **A main menu / title screen.** None exists; the game boots straight into `Boot.unity`.
+3. **A new keybind to reach About** (ticket AC1). Entry is a footer click.
+4. **Any `SettingsCatalog` / `SettingsCategory` change** (ticket AC1) — credits is not a setting, and
+   `SettingsCategory.PlayerIds` is asserted row-for-row by the existing categorization test.
+5. **A third-party PACKAGE licence audit.** Re-verified at `8ad6e24`: every `Packages/manifest.json` dependency
+   is `com.unity.*`, so there is **no third-party package debt**. Unity's own distribution terms are a separate
+   question → S3 (R1 §8).
+6. **Retiring the `.txt` file** in favour of the panel. It stays — it is what the guard reads.
+7. **`team/DECISIONS.md`** — append-only, Priya-only. A `Decision draft:` line goes in the PR body instead.
+8. **Adding `Esc` handling to `SettingsPanel`** — S7 below; not implemented unless the Sponsor asks.
+9. **Team credits / tooling acknowledgements / logos / changelog** — R1 §4.2; S2.
+10. **Audio.** This surface is silent by design (R1 §5.4): no cue, no bus, no dB target, no sting. Deliberate —
+    a legal surface that announces itself is a beat serving itself.
+
+### 14.3 Sponsor-input items added by Revision 2
+
+*(S1–S4 are in R1 §8 and still open.)*
+
+- **S5 — the two marker lines widen the ticket's stated OOS by `+2` lines in `Castaway_Attribution.txt`.**
+  §9.5 gives my reading (not the edit the OOS bars: no assertion, wording or fact changes) and the alternative
+  (land the markers as a separate 2-line ticket first). **Recommend: allow it inside this ticket** — a separate
+  ticket for a two-line delimiter costs a full build slot. Needs a Priya/Sponsor nod either way.
+  **⚠ The fix round for Tess's PR #388 blocker did NOT change what S5 asks for.** The ask is still exactly the
+  same two marker lines, at the same two positions, `git diff` still exactly `+2`, and the alternative is still
+  the same separate 2-line ticket. What changed is only on *this document's* side: §9.3 / AC-D1 / AC-D11 now
+  extract **marker-relative** instead of by line range, and §9.6 states the pre-marker cite rule — so the spec
+  no longer breaks when the markers land. Tess's caveat for whoever answers: `+2` is the diff, but it renumbers
+  every downstream line ref into that file; §9.6 discharges that for this spec, and the re-cite should land with
+  the markers rather than after them. **The decision itself is untouched and still open.**
+- **S6 — dev-voice inside the retained block.** The included `:22-41` still says
+  `CastawayAnimator.controller`, `ticket 86catpwc4`, and *"a Unity build-inclusion question this file
+  deliberately does not assert either way."* §12's framing line mitigates it; a genuine fix is a wording pass on
+  the source file, which is `86cay4hyz`-class work. **Recommend: a small follow-up ticket** — *"re-voice
+  `Castaway_Attribution.txt:22-41` for a player audience without changing any claim."* Not blocking.
+- **S7 — should `Esc` do anything here?** Three options, mine first:
+  **(a) Nothing — ship Back + F1 only** *(recommended: no keymap change, no asymmetry, zero risk)*;
+  **(b) `Esc` = Back from About only** (matches `BuildMenuUI`/`CraftingMenuUI`, but `Esc` then dismisses a view
+  and not the drawer that contains it);
+  **(c) `Esc` = close the whole player drawer** (most conventional, but it is a real keymap addition to a
+  Sponsor-facing map and can collide with a future pause menu). **Menu IA is a Sponsor surface — flagged, not
+  decided.**
+- **S8 — placement sanity, one look.** Not a dial session (ticket AC3 is explicit this is not soak-gated) — just
+  the `credits_*` capture frame in front of the Sponsor once, to confirm the About button reads right in the F1
+  footer. §13.1 is the prediction it grades against.
+
+**Decision draft (R2):** *The in-game attribution renders a MARKER-DELIMITED block of
+`Castaway_Attribution.txt` — not the whole file. Rendering the whole file would put `Viktor.G` and
+`"Mini Chibi Kid"` in the credits surface, which ticket `86cay4k73` AC4 explicitly bars, alongside internal
+ticket IDs, source paths and a deferred-defect note. The source file gains a two-line
+`--- BEGIN/END ATTRIBUTION (player-visible) ---` marker pair; the generator extracts strictly between them; new
+guards G0 (markers present) and G5 (no barred name in the bundle) enforce it. The About view is dismissed by a
+`← Back` button and by F1, and the player drawer MUST reopen on the Settings view — never on About.
+`Esc` is deliberately unhandled pending a Sponsor IA call. Ticket `86cay4k73`; spec
+`team/uma-ux/about-credits-surface-spec.md` §§9–14.*
+
+---
+
 ## Cross-references
 
 - Ticket **`86cay4k73`** (this) · **`86cay47zh`** + PR #352 (the CC-BY retirement that routed this out) ·
   **`86cay4hyz`** + PR #356 (the attribution-text correction — **landed**, `03bca30`) · **`86cabh907`** + PR #100
   (the axe + its CC-BY licence file deleted).
 - `Assets/Art/Character/Castaway/Castaway_Attribution.txt` — the single source of the debt (`:24-25` retain
-  instruction, `:27-41` what is owed, `:43-48` no-CC, `:49-52` the open question).
+  instruction, `:27-41` what is owed, `:43-48` no-CC, `:49-52` the open question). **Pre-marker — §9.6.**
 - `Assets/Scripts/Runtime/Settings/SettingsPanel.cs` — `:134-155` key map, `:409-426` the open/fade idiom to reuse,
   `:444-449` `RegisterText`, `:579-583` the shared shell clone (why not to touch the UXML), `:619-623` ScrollView
   setup, `:637-639` the per-drawer title, `:645-655` `BuildCornerPicker` (the per-drawer-scoped precedent),
@@ -491,7 +1059,34 @@ spec `team/uma-ux/about-credits-surface-spec.md`.*
   PR #83 false-green it exists to prevent).
 - [`gameplay-ui-direction.md`](gameplay-ui-direction.md) — §0 tonal anchor (carved-from-the-same-wood), §1 the
   palette this inherits, §9 the "reuse an archetype class, no new CSS" discipline.
-- `.claude/docs/art-direction.md` + `inspiration/2026-06-12_21h16_13.png`, `21h13_31.png` (looked at) ·
+- `.claude/docs/art-direction.md` + `inspiration/2026-06-12_21h16_13.png`, `21h13_31.png` (looked at again for
+  R2 — faceted saturated hills, soft daylight, a lot of quiet air, nothing shouting) ·
   `.claude/docs/game-juice.md` §0 amplitude, §1.1 easing · `.claude/docs/unity6-mastery.md` §9 UI Toolkit +
   §Critical Don'ts · `.claude/docs/vision-far-horizon-game-concept.md` · `.claude/docs/unity-conventions.md`
   §editor-vs-runtime.
+
+### Added by Revision 2
+
+- `Assets/Art/Character/Castaway/Castaway_Attribution.txt` — **`:22-41`** the marker-delimited block (§9.3,
+  `sha256 5b178b65…d375a8`, extracted **marker-relative**); **`:46-48`** the `Viktor.G` / `"Mini Chibi Kid"`
+  names that make the whole-file route an AC4 violation; `:4-6`, `:14-20`, `:49-52`, `:54-58`, `:137-146` the
+  excluded internals. ⚠ **Every line ref to this file in this document is PRE-marker — see §9.6's +0 / +1 / +2
+  rule.**
+- `Assets/Scripts/Editor/MovementCameraScene.cs:4906-4907` — `toggleKey = KeyCode.F1` / `devToggleKey =
+  KeyCode.F3`, the ONLY place the shipped keys are assigned.
+- `Assets/Scripts/Runtime/Settings/SettingsPanel.cs` — `:138` the in-code "Danish-safe (an F-key)" certification;
+  `:144` `toggleKey = KeyCode.None` default; `:330` the F1 poll; `:335` + `:340-341` the PageUp/PageDown
+  Danish-safe precedent; `:391-406` the close-teardown block AC-D3 hooks (`:393-394`, `:395-396`, `:402-403`);
+  `:617` `SetupDrawerCommon`; `:632` + `:636` the `settings-reset` query + `ResetAll()` bind that §10.4 protects;
+  `:1321` the code-shell fallback button.
+- `Assets/UI/SettingsPanel.uss:24` (470px width), `:82` + `:90` (`.settings-reset` + `:hover`), `:97` + `:110`
+  (the wrap / never-h-scroll rules), `:38` / `:73` (header / footer). `Assets/UI/Palette.uss:16-31` — every token
+  re-verified sub-1.0 (max channel 234).
+- `Assets/Scripts/Runtime/BuildMenuUI.cs:66`, `CraftingMenuUI.cs:62`, `CampfirePlacement.cs:83`,
+  `CraftingTablePlacement.cs:91`, `ForgePlacement.cs:74` — every `KeyCode.Escape` in the runtime (§10.5). None is
+  in `SettingsPanel`.
+- `.claude/docs/unity-conventions.md:9` (launch-mode boundary sentence — WINDOWED for a UI-Toolkit overlay),
+  **`:197`** (no editor `RenderTexture` for judgement captures), **`:200`** (component-in-source-not-in-scene).
+  ⚠ The ticket cites `:182` / `:185` for the latter two — **drifted; see §13.2.**
+- [`gameplay-ui-direction.md`](gameplay-ui-direction.md) §2.1 + §8 — **corrected in this PR**: they claimed `Esc`
+  opens the settings panel; the shipped key is `F1` (§10.5).

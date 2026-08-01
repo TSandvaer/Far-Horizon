@@ -50,7 +50,7 @@ Every surface below inherits this. It is deliberately a **sibling of the existin
 **Tonal read:** a quiet wooden workbench the Sponsor pulls open mid-soak to turn knobs, then closes. On-tone but utility-first — legibility and instant-tweak beat decoration here. It is the soak-tuning instrument; its job is to *get out of the way of dialing*.
 
 ### 2.1 Framing & open/close
-- **Toggle key:** `Esc` (the ticket's suggested settings/menu key). Confirmed non-clashing with the locked input map — WASD (move), Shift (run), Ctrl (crouch), Space (jump), Tab (inventory), 1–5 + scroll (belt). `Esc` is free and is the universal "open the menu" expectation.
+- **Toggle key:** ~~`Esc` (the ticket's suggested settings/menu key).~~ **⚠ CORRECTED 2026-07-31 (`86cay4k73` R2): the SHIPPED key is `F1`, not `Esc`, and the panel has since been SPLIT into two drawers.** `Assets/Scripts/Editor/MovementCameraScene.cs:4906-4907` assigns `panel.toggleKey = KeyCode.F1` (the small **player** Settings drawer) and `panel.devToggleKey = KeyCode.F3` (the full **dev console**) — the split landed under `86cah8ukr`. `SettingsPanel.cs:330-331` polls both directly; the C# defaults are deliberately `KeyCode.None` (`:144`, `:155`) so the scene-presence guard is non-tautological. **`SettingsPanel` handles `Esc` nowhere** — the only `KeyCode.Escape` in the runtime is `BuildMenuUI.cs:66`, `CraftingMenuUI.cs:62`, `CampfirePlacement.cs:83`, `CraftingTablePlacement.cs:91`, `ForgePlacement.cs:74`. F-keys were chosen because they are **layout-agnostic + Danish-safe** (`SettingsPanel.cs:138`, `[[sponsor-danish-keyboard-layout]]`) — `Esc` would have been fine on that count too, but it was never wired. Confirmed non-clashing with the locked input map — WASD (move), Shift (run), Ctrl (crouch), Space (jump), Tab (inventory), 1–5 + scroll (belt).
 - **Placement:** a **centered vertical panel**, ~420px wide, max ~70% screen height, the world dimmed to ~60% behind it (a `panel-walnut`-tinted scrim, NOT black — the world stays warm behind the drawer). The world is still visible so the Sponsor sees his live tweak take effect *behind* the panel.
 - **Open/close feel:** a quick **120ms ease-out slide-up + fade-in** (panel rises ~16px into place as it fades). Close is the reverse, ~90ms. Snappy, not floaty — this panel is opened and closed dozens of times per soak; sluggish animation would annoy. (USS `transition` on `translate` + `opacity`; no per-frame script.)
 - **Header:** a single `ink-cream` title row — `Settings` — with a thin `panel-edge` underline. Optional small flame/gear glyph left of it (language-free), but text is fine.
@@ -177,9 +177,15 @@ Per the HUD-spec precedent (`u2-5` §4 — "fall back to short warm-cream text l
 | Space | jump | `86ca9yq3q` (queued) |
 | **Tab** | **inventory** | `86caa4bya` AC1 — FREE |
 | **1–5 / scroll** | **belt select** | `86caa4bya` AC2 — FREE |
-| **Esc** | **settings panel** | `86caa4bqp` AC1 — FREE |
+| ~~**Esc**~~ **F1** | **player Settings drawer** | **⚠ CORRECTED 2026-07-31** — `MovementCameraScene.cs:4906`. This row read `Esc` and was **never true of the shipped build**. |
+| **F3** | **dev console** | `MovementCameraScene.cs:4907` (panel SPLIT, `86cah8ukr`). |
+| **F7 / F8 / F9 / F10** | camera-follow nudge / float diagnostic / axe nudge / world-look + overlay master | `CameraFollowNudgeTool.cs:38`, `FloatDiagnostic.cs:41`, `AxeNudgeTool.cs:111`, `WorldLookNudgeTool.cs:38`. **F2 is UNBOUND** (`SettingsPanel.cs:138`). |
+| **PageUp / PageDown** | nudge the selected settings entry | `SettingsPanel.cs:340-341` — chosen as *"Danish-keyboard-safe + NOT a locomotion key"* (`:335`). |
+| **Esc** | close/cancel for the **build + crafting menus and the three placement modes only** | `BuildMenuUI.cs:66`, `CraftingMenuUI.cs:62`, `CampfirePlacement.cs:83`, `CraftingTablePlacement.cs:91`, `ForgePlacement.cs:74`. **`SettingsPanel` does not handle `Esc` at all.** |
 
-No collisions. (If a future feature wants `Esc` for pause, the settings panel moves to a dedicated key — flag at that time; for now `Esc` is the natural menu key and is unclaimed.)
+No collisions. **Every binding above is layout-agnostic and Danish-safe** — F-keys, `Esc`, `Tab`, `Space`, `PageUp`/`PageDown`, digits and modifiers all sit in the same physical place on a Danish layout. **Never bind a punctuation/symbol key** — slash, backslash, semicolon, apostrophe, square brackets, minus, equals, backtick, comma, period all move on a Danish layout, and several need AltGr, so a US-layout binding is simply unreachable for the Sponsor ([[sponsor-danish-keyboard-layout]]).
+
+> **⚠ CORRECTED 2026-07-31 (`86cay4k73` R2).** The old table asserted `Esc` = settings panel and closed with *"for now `Esc` is the natural menu key and is unclaimed"* — **both were wrong against the shipped build**, and `Esc` is in fact claimed by five other scripts. This table is the first place anyone looks for a free key, so the stale row was a live trap. Re-derived by direct read at `origin/main` @ `8ad6e24`. Whether `Esc` *should* additionally close the settings drawer is an open Sponsor call — see [`about-credits-surface-spec.md`](about-credits-surface-spec.md) §10.5 / S7.
 
 ---
 
