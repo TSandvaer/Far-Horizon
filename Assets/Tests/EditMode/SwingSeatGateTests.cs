@@ -1,3 +1,4 @@
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Animations;
@@ -322,6 +323,64 @@ namespace FarHorizon.EditTests
                 "pass scores only frames that state owns on layer 0, so a rename makes it score ZERO frames - " +
                 "silently, in a gate ci.yml does not invoke. Update SwingVerifyCapture.AttackAxeState to match " +
                 "CharacterAssetGen's WireAttackClass literal.");
+        }
+
+        // =========================================================================================================
+        // FAIL CLOSED — the absent-EVIDENCE hole, in this pass's own state (#411 review item c).
+        //
+        // Every leg above judges a MEASUREMENT. This one judges what happens when there is no measurement at all:
+        // if the pass cannot run (unresolvable Inventory/Catalog/HeldWeaponCycleDebug, unresolved hips/head or
+        // arm/hand bones, no HeldToolRig), the gate must RED rather than exit 0 with the swing-time seat evidence
+        // simply missing. That is 86caz428q's shape, and reproducing it inside a pass whose reason for existing is
+        // closing a gate hole is the failure this pins.
+        // =========================================================================================================
+
+        /// <summary>
+        /// <c>SwingVerifyCapture._chopSeatOk</c> must START FALSE. The one-line verdict composes
+        /// <c>pass = ... &amp;&amp; _chopSeatOk</c>, and the field is set true ONLY by the completed pass's own
+        /// verdict — so the default IS the fail-closed property: flip it to true and every not-run path exits 0 with
+        /// the entire swing-time seat evidence absent, exactly the "a PASS inferred from an ABSENCE" class.
+        /// Reflection is used deliberately: the field is private state of a MonoBehaviour, and the property under
+        /// test is its INITIALISER, which no public seam exposes. Killed by the M12 mutation in the demonstrated-RED
+        /// matrix (default restored to <c>= true</c>); the SHIPPED-build half is
+        /// <c>-verifySwings -swingSeatSkipEvidence</c>, which drives the real SKIPPED branch and exits non-zero.
+        /// </summary>
+        [Test]
+        public void ChopSeatOk_StartsFalse_SoAnAbsentPassCannotGreenTheGate_86cayp0ay()
+        {
+            var go = new GameObject("chop-seat-fail-closed-probe");
+            try
+            {
+                var cap = go.AddComponent<SwingVerifyCapture>();
+                const BindingFlags Flags = BindingFlags.NonPublic | BindingFlags.Instance;
+
+                var okField = typeof(SwingVerifyCapture).GetField("_chopSeatOk", Flags);
+                Assert.IsNotNull(okField,
+                    "SwingVerifyCapture._chopSeatOk no longer exists under that name. It is the field the one-line " +
+                    "verdict ANDs into `pass`; if it was renamed, re-point this guard at the new name rather than " +
+                    "deleting it - the fail-closed default is the only thing standing between an unrunnable pass " +
+                    "and a green exit code.");
+                Assert.IsFalse((bool)okField.GetValue(cap),
+                    "_chopSeatOk must default to FALSE. It is set true ONLY by the completed chop-seat verdict, so " +
+                    "a TRUE default makes every path where the pass never runs - unresolvable Inventory/Catalog/" +
+                    "HeldWeaponCycleDebug, unresolved mixamorig:Hips/Head, unresolved arm/hand bones, no " +
+                    "HeldToolRig - exit 0 with the swing-time seat evidence entirely ABSENT. This file's own " +
+                    "stricter idiom is `palmOk = anyPalmMeasured && allPalmMeasured`; match it, do not copy " +
+                    "_releaseOk's older default-TRUE convention.");
+
+                var ranField = typeof(SwingVerifyCapture).GetField("_chopSeatRan", Flags);
+                Assert.IsNotNull(ranField,
+                    "SwingVerifyCapture._chopSeatRan no longer exists under that name. It is what lets a reader of " +
+                    "the verdict line tell 'the pass did NOT run' from 'the seat failed'; a RED without it is not " +
+                    "diagnosable.");
+                Assert.IsFalse((bool)ranField.GetValue(cap),
+                    "_chopSeatRan must default to FALSE, so chopSeatRan=True on the verdict line is evidence the " +
+                    "pass actually executed rather than a value printed from an initialiser.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(go);
+            }
         }
     }
 }

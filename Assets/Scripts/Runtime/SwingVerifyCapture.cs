@@ -47,7 +47,12 @@ namespace FarHorizon
     ///           swing_pickaxe_twohand.png (gameplay cam at the WORST two-hand-grip frame — 86cay4282 round 2),
     ///           swing_pickaxe_twohand_front.png (a CLOSE FRONTAL shot — the plane a hand-on-haft read lives in),
     ///           swing_pickaxe_panel.png (the F9 MINE-SEAT panel drawn in the SHIPPED exe with its rows populated —
-    ///           86cay4282 round 3, so the Sponsor is handed a picture of the instrument he is asked to find).
+    ///           86cay4282 round 3, so the Sponsor is handed a picture of the instrument he is asked to find),
+    ///           swing_chop_seat_worst.png + swing_chop_seat_worst_close.png (86cayp0ay — the CHOP swing's worst
+    ///           seat frame, gameplay cam + a close shot framed on the hand).
+    /// EVERY capture this component writes is named `swing_*` ON PURPOSE — see the note at the chop-seat shots: the
+    /// gate wrapper's stale-artifact clear is globbed on that prefix while the frame checker judges every PNG in the
+    /// directory, so a name outside the glob is a stale-frame false-green waiting to happen.
     ///
     /// MINE TWO-HAND GRIP PASS (86cay4282 round 2 — the Sponsor's DIRECTION REVERSAL). The second defect from the
     /// same soak — "he is swinging like he is handing the axe with both hands". Round 1 treated the mine clip's
@@ -648,10 +653,21 @@ namespace FarHorizon
         }
 
         // ===== CHOP SEAT PASS state (86cayp0ay) — hoisted so the one-line verdict carries them. =====
-        // _chopSeatOk defaults TRUE only so a SKIPPED pass cannot red the whole gate on its own (the same convention
-        // _releaseOk follows); a skip is LOUD in the log and _chopSeatRan goes to the verdict line, so a reviewer can
-        // never mistake "did not run" for "passed".
-        private bool _chopSeatOk = true;
+        // FAIL CLOSED (#411 review item c). _chopSeatOk starts FALSE and is set true ONLY by the completed pass's own
+        // verdict below, so every path on which the swing-time seat evidence is ABSENT — an unresolvable
+        // Inventory/Catalog/HeldWeaponCycleDebug, unresolved mixamorig:Hips/Head, unresolved arm/hand bones, a missing
+        // HeldToolRig, the wood axe not reaching the belt — REDS this gate instead of exiting 0 with the entire
+        // evidence missing.
+        //
+        // It deliberately does NOT copy _releaseOk's older default-TRUE convention a few lines below. This file
+        // already carries the stricter idiom, adopted in round 4 after the Sponsor caught a green-on-air:
+        // `bool palmOk = anyPalmMeasured && allPalmMeasured;` — "an unmeasured palm fails closed, because scoring a
+        // different, easier question silently is how a cap loses its meaning". A pass whose own reason for existing
+        // is closing an absent-evidence hole (86caz428q's shape) must not reproduce that hole in itself.
+        //
+        // The skip is ALSO loud in the log and _chopSeatRan rides the one-line verdict, so a RED is diagnosable as
+        // "did not run" rather than mistaken for "measured and failed".
+        private bool _chopSeatOk;
         private bool _chopSeatRan;
         private float _chopPeakTilt = float.NaN;
         private int _chopPhasesCovered;
@@ -670,6 +686,14 @@ namespace FarHorizon
         // gate REDS naming the measured value and the phase" — is reproducible from the shipped exe by anyone, with
         // no rebuild and no edit to a committed seat value. Absent the flag it is 0 and the pass is byte-identical.
         private const string SeatFaultArg = "-swingSeatFaultCm";
+
+        // Verify-only NEGATIVE CONTROL for the FAIL-CLOSED path (86cayp0ay, #411 review item c). Forces the chop-seat
+        // pass down its OWN SKIPPED branch — the same branch an unresolvable Inventory/Catalog/HeldWeaponCycleDebug
+        // takes, not a parallel one — so "absent evidence REDS the gate" is DEMONSTRATED from the shipped exe rather
+        // than argued from the source. Same discipline as SeatFaultArg: a fail-closed default that has never been seen
+        // to red is exactly the claim this project keeps having to retract. Read ONLY inside ChopSeatPass, which is
+        // reachable only under -verifySwings, so absent the flag no launch mode changes by a byte.
+        private const string SkipEvidenceArg = "-swingSeatSkipEvidence";
 
         // The injected fault's magnitude + the seat value it is supposed to have produced, so the injection can
         // verify ITSELF against the live rig once frames have run (see VerifySeatFaultTookEffect).
@@ -872,12 +896,18 @@ namespace FarHorizon
         {
             var inventory = Object.FindAnyObjectByType<Inventory>();
             var cycle = heldRig != null ? heldRig.GetComponent<HeldWeaponCycleDebug>() : null;
-            if (inventory == null || inventory.Model == null || inventory.Catalog == null || cycle == null)
+            bool forcedSkip = HasArg(SkipEvidenceArg);
+            if (forcedSkip || inventory == null || inventory.Model == null || inventory.Catalog == null || cycle == null)
             {
+                _chopSeatOk = false;
                 Debug.LogWarning("[chop-seat] SKIPPED — Inventory/Catalog/HeldWeaponCycleDebug not resolvable " +
-                                 "(inventory=" + (inventory != null) + " cycle=" + (cycle != null) + "). The " +
-                                 "swing-time SEAT evidence is MISSING from this run; do NOT read the PASS above as " +
-                                 "proof the weapon stayed in the hand during a swing.");
+                                 "(inventory=" + (inventory != null) + " model=" +
+                                 (inventory != null && inventory.Model != null) + " catalog=" +
+                                 (inventory != null && inventory.Catalog != null) + " cycle=" + (cycle != null) +
+                                 "), forcedSkip=" + forcedSkip + ". The swing-time SEAT evidence is MISSING from " +
+                                 "this run, so this gate FAILS CLOSED: chopSeatOk=false and the exe exits non-zero. " +
+                                 "An absent measurement must never render as a pass — read this as 'the pass did " +
+                                 "NOT run' (chopSeatRan=False on the verdict line), not as 'the seat failed'.");
                 yield break;
             }
 
@@ -955,16 +985,18 @@ namespace FarHorizon
                         phaseHit[SwingSeatGate.PhaseBucket(phase)] = true;
                         // THE ALONG-HAFT COMPONENT. A perpendicular distance-to-LINE is BLIND to the tool sliding
                         // along its own axis: translate the haft parallel to itself and the perpendicular distance
-                        // does not move at all. MEASURED, not argued — a 30 cm -swingSeatFaultCm injection left the
-                        // perpendicular reading at 0.4027 SW, byte-identical to the clean run. So the discarded
-                        // component is gated too (procedural-animation-verbs.md: "the discarded ALONG component is a
-                        // second, independent defect axis - compute it, DRAW it, and decide explicitly whether to
-                        // gate it"). u is 0 at the BUTT/grip end, 1 at the HEAD end, UNCLAMPED so a hand that has
-                        // slid off an end reads <0 or >1.
-                        // ⚠ Do NOT re-attach the retired "-swingSeatFaultCm 30 moved the perpendicular by 0.0000 SW"
-                        // justification: that came from the pre-fix injector writing a field HeldAxeRig stomps, so
-                        // NEITHER axis moved. The argument above is geometric and needs no such control. See
-                        // SwingSeatGate's ALONG-HAFT block for the full correction.
+                        // does not move at all. That is GEOMETRY — a property of the metric, true by construction —
+                        // NOT an empirical control. So the discarded component is gated too
+                        // (procedural-animation-verbs.md: "the discarded ALONG component is a second, independent
+                        // defect axis - compute it, DRAW it, and decide explicitly whether to gate it"). u is 0 at
+                        // the BUTT/grip end, 1 at the HEAD end, UNCLAMPED so a hand that has slid off an end reads
+                        // <0 or >1.
+                        // ⚠ Do NOT attach a "-swingSeatFaultCm 30 left the perpendicular unmoved" justification to
+                        // this leg IN ANY WORDING. That reading came from the pre-fix injector writing a field
+                        // HeldAxeRig.ApplySeat stomps every LateUpdate, so NEITHER axis moved and the run measured
+                        // the injector's own inertness. With the injection landing, a 30 cm hand-local +X fault moves
+                        // BOTH axes (measured: perpendicular 0.4027 -> 0.7172 SW, u 0.2004 -> 0.0107), so that fault
+                        // is NOT an along-only control. See SwingSeatGate's ALONG-HAFT block for the full correction.
                         haftLen = (headW - gripW).magnitude;
                         if (u < minU) minU = u;
                         if (u > maxU) maxU = u;
@@ -1020,7 +1052,14 @@ namespace FarHorizon
             castaway.TriggerChop();
             float t1 = Time.time;
             while (Time.time - t1 < worstAtSec) yield return null;
-            ShotTo(Path.Combine(dir, "chop_seat_worst.png"));
+            // ⚠ THE `swing_` PREFIX IS LOAD-BEARING, not decoration (#411 review §3(2)). The -verifySwings wrapper
+            // #369 authors clears stale artifacts with `rm -f "$ABS_CAP"/swing_*.png` before EVERY launch attempt,
+            // while frame_check.py judges EVERY .png in that directory (_iter_pngs, frame_check.py:41-49). A capture
+            // named outside that glob therefore SURVIVES a retry and is judged as fresh — the #130 stale-artifact
+            // false-green class, in picture form. Every sibling shot in this file already carries the prefix; these
+            // two were the only exceptions, so they are renamed INTO the convention rather than leaving the wrapper
+            // to widen its glob for them (widening it is still worth doing as defence-in-depth for the next author).
+            ShotTo(Path.Combine(dir, "swing_chop_seat_worst.png"));
             yield return null;
             // A CLOSE shot framed ON THE HAND, aimed from the SUBJECT (chest -> hand), which by construction puts the
             // hand between the lens and the body whichever way the character has yawed. Round 4 paid for taking a
@@ -1029,7 +1068,7 @@ namespace FarHorizon
                 Vector3 chest = (lArm.position + rArm.position) * 0.5f;
                 Vector3 aim = Vector3.ProjectOnPlane(rHand.position - chest, Vector3.up);
                 if (aim.sqrMagnitude < 1e-4f) aim = Vector3.forward;
-                yield return ProfileShotAt(Path.Combine(dir, "chop_seat_worst_close.png"),
+                yield return ProfileShotAt(Path.Combine(dir, "swing_chop_seat_worst_close.png"),
                                            rHand.position + aim.normalized * GripShotDistU, rHand.position);
             }
 
