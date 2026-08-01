@@ -756,25 +756,40 @@ namespace FarHorizon.EditorTools
         // =====================================================================================================
         // ROUND-10 (86cau4za2, RE-SCOPED by the Sponsor 2026-08-01) — "BOTH HANDS READ AS PLAIN BLOCKS"
         //
-        // THE NEW REQUIREMENT (verbatim): "fix that one hand is not the same as the other. If both hands are
-        // just a square with no thumb thats fine, its meant to be low poly minecraft style." Follow-ups: both
-        // hands MAY become blocks (the accepted dial-7 LEFT is explicitly released); "no thumb" means it must
-        // not READ as a thumb (geometry may stay — NO mesh surgery); a STATIC block is fine; he judges by soak.
+        // THE REQUIREMENT (verbatim): "fix that one hand is not the same as the other. If both hands are just a
+        // square with no thumb thats fine, its meant to be low poly minecraft style." Follow-ups: both hands MAY
+        // become blocks (the accepted dial-7 LEFT is explicitly RELEASED); "no thumb" means it must not READ as a
+        // thumb (geometry stays — NO mesh surgery); a STATIC block is fine; POSE ONLY (no re-rig, no Blender
+        // re-export of the rigged FBX, no skin-weight edit); he judges by soak.
         //
-        // WHAT IS A THUMB, IN PLAIN LANGUAGE (the physical-world anchor this instrument must satisfy — a metric
-        // is green on nonsense): a thumb READS as a thumb when a lump of geometry sticks OUT past the side of
-        // the hand block. It stops reading as a thumb when it is FLUSH — nothing protruding past the block.
-        // So the load-bearing number here is PROTRUSION: how far the thumb verts sit OUTSIDE the box formed by
-        // the rest of the hand, in millimetres, in the hand's own frame. Symmetry = |protrusion_L - protrusion_R|.
+        // WHAT A THUMB IS, IN PLAIN LANGUAGE (the physical-world anchor this instrument must satisfy — a metric is
+        // green on nonsense): a thumb READS as a thumb when a lump of geometry sticks OUT past the side of the hand
+        // block. It stops reading as a thumb when it is FLUSH — nothing protruding past the block. So the
+        // load-bearing number is how far the thumb geometry sits away from the rest of the hand, in millimetres.
         //
-        // WHY A NEW PROBE AND NOT ROUND-9's NUMBERS: round-9's RotateAndDiff averages displacement over EVERY
-        // vert in the WHOLE MESH that the bone moved (see its loop: `for i in 0..n` over all baked verts). Its
-        // headline "rotating right index1 moves them 1.77mm" is therefore the mean motion of everything index1
-        // drives — dominated by the INDEX FINGER — NOT the motion of the thumb geometry. That number cannot
-        // answer "can I tuck the right thumb by dialling index1", which is exactly the question the re-scoped
-        // ticket turns on. Round-10 scopes every displacement to a NAMED vert set, sweeps all THREE axes (round-9
-        // tested only X and Y) across a range of angles (round-9 tested only 40deg), and reports the geometric
-        // CEILING (2r) so an impossibility can be stated as a number rather than guessed at.
+        // ⛔ ROUND-10b SELF-CORRECTION — WHY THE FIRST PASS'S NUMBERS MEASURED NOTHING.
+        // The first pass built the RIGHT thumb vert set by mirroring each LEFT thumb vert across the mesh's X
+        // centre and keeping THE SINGLE nearest right vert. Low-poly faceted meshes DUPLICATE vertices at every
+        // hard-edge split (unity6-mastery.md §8 — "expect more vertices than triangle count"), so each thumb
+        // POSITION carries several coincident verts. Taking ONE per position left its twins inside the
+        // complementary "block" set, which forces:
+        //   * STANDOFF (thumb vert -> nearest block vert) to 0.00mm — each thumb vert's own coincident twin sits in
+        //     the block set at distance zero; and
+        //   * PROTRUSION (thumb vert outside the block's box) to 0.00mm — the twins EXPAND the block box until it
+        //     contains the thumb.
+        // Both numbers were properties of the SET CONSTRUCTION, not of the geometry — and they agreed with each
+        // other for exactly that reason. Two metrics sharing one blind spot read as corroboration; that is the
+        // round-2 two-rigs-one-blind-spot shape from procedural-animation-verbs.md, re-run inside a single
+        // instrument. Every set below is now CLUSTER-COMPLETE: a vert joins a set only together with every other
+        // vert at its position, and the log prints the naive numbers next to the corrected ones so the correction
+        // is auditable rather than asserted.
+        //
+        // AND THE FRAME MATTERS. The headline metric is now STANDOFF, which is FRAME-FREE (a distance between two
+        // vert clouds — no axes, no hull, no reference pose). The AABB protrusion is kept only as a corroborator
+        // and is explicitly framed in each hand's own bone frame, which on this rig is NOT a fair common frame:
+        // the v4 RightHand bind roll is ~176° off mirror (ticket 86cau4za2 root-cause section), so any "express
+        // both hands in their own bone frame and mirror" comparison inherits that 176°. The L-vs-R symmetry number
+        // is therefore a comparison of the two hands' sorted STANDOFF PROFILES, which carries no frame at all.
         // =====================================================================================================
 
         /// <summary>
@@ -795,7 +810,10 @@ namespace FarHorizon.EditorTools
 
         private static void ReportRound10(StringBuilder sb, string path, RuntimeAnimatorController ctrl)
         {
-            var go = PoseShipped(path, ctrl, sb);
+            // The bare hands are judged EMPTY-HANDED (CastawayFingerCurl is right-hand-only AND gated on a held
+            // weapon being the selected belt item), so that is the primary pose. The GRIPPING pose is measured
+            // afterwards because the Sponsor's soak checklist includes holding a weapon.
+            var go = PoseShipped(path, ctrl, sb, false);
             if (go == null) return;
             var smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
             var lHand = FindBone(go.transform, "lefthand");
@@ -803,119 +821,99 @@ namespace FarHorizon.EditorTools
             if (smr == null || lHand == null || rHand == null)
             { sb.AppendLine("[blockhands] missing smr/hand bones"); Object.DestroyImmediate(go); return; }
 
-            // ---------- vert sets ----------
-            var verts = smr.sharedMesh.vertices;
-            var bw = smr.sharedMesh.boneWeights;
-            var bones = smr.bones;
-            string NameOf(int i) => i >= 0 && i < bones.Length && bones[i] != null ? Tok(bones[i].name) : "?";
+            var sets = BuildVertSets(sb, smr, lHand, rHand);
+            if (sets == null) { Object.DestroyImmediate(go); return; }
 
-            // LEFT thumb verts: dominant bone is a thumb bone under the left hand (the side whose weights are correct).
-            var lThumb = new List<int>();
-            for (int v = 0; v < bw.Length; v++)
+            // ---------- (A) BASELINE — frame-free standoff, empty-handed ----------
+            sb.AppendLine("[blockhands] (A) BASELINE @ shipped dial-7, EMPTY-HANDED");
+            sb.AppendLine("[blockhands]   STANDOFF = per thumb vert, world-mm to the NEAREST vert of the rest of the hand.");
+            sb.AppendLine("[blockhands]   A thumb absorbed into the block has a SMALL max; a lump sticking out has a LARGE one.");
+            var sL0 = Standoff(smr, sets.lThumb, sets.lBlock);
+            var sR0 = Standoff(smr, sets.rThumb, sets.rBlock);
+            sb.AppendLine($"[blockhands]   LEFT  standoff: max={sL0.max:F2}mm mean={sL0.mean:F2}mm  ({sets.lThumb.Count} thumb verts vs {sets.lBlock.Count} block verts)");
+            sb.AppendLine($"[blockhands]   RIGHT standoff: max={sR0.max:F2}mm mean={sR0.mean:F2}mm  ({sets.rThumb.Count} thumb verts vs {sets.rBlock.Count} block verts)");
+            float asym0 = ProfileAsymmetry(smr, sets);
+            sb.AppendLine($"[blockhands]   L-vs-R STANDOFF-PROFILE asymmetry = {asym0:F2}mm  <- 'one hand is not the same as the other', frame-free");
+            var pL0 = Protrusion(smr, lHand, sets.lThumb, sets.lBlock);
+            var pR0 = Protrusion(smr, rHand, sets.rThumb, sets.rBlock);
+            sb.AppendLine($"[blockhands]   corroborator AABB protrusion (own-bone frame; see the frame caveat above): " +
+                          $"LEFT max={pL0.max:F2}mm outside={pL0.frac:P0} | RIGHT max={pR0.max:F2}mm outside={pR0.frac:P0}");
+
+            // ---------- (A2) INSTRUMENT CONTROLS ----------
+            // The whole point of this round is that a clean-looking 0.00mm can come from the instrument rather than
+            // the geometry. So: (i) print what the NAIVE (one-vert-per-match) set construction would have produced,
+            // which is the refuted first pass; (ii) print a POSITIVE control — the same metric on a set that is
+            // KNOWN to protrude — so a metric that can only ever return ~0 is caught here rather than believed.
+            sb.AppendLine("[blockhands] (A2) INSTRUMENT CONTROLS — a metric that cannot register a lump must be caught HERE");
+            var sNaive = Standoff(smr, sets.rThumbNaive, sets.rBlockNaive);
+            sb.AppendLine($"[blockhands]   NAIVE (refuted first pass) RIGHT standoff: max={sNaive.max:F2}mm mean={sNaive.mean:F2}mm " +
+                          $"[thumb={sets.rThumbNaive.Count} block={sets.rBlockNaive.Count}] — this is the 0.00mm that was a red flag");
+            sb.AppendLine($"[blockhands]   CORRECTED RIGHT standoff (same pose, cluster-complete sets): max={sR0.max:F2}mm mean={sR0.mean:F2}mm");
+            var posCtl = Standoff(smr, sets.lThumb, sets.rBlock);
+            sb.AppendLine($"[blockhands]   POSITIVE CONTROL (left thumb vs the OTHER hand's block — must be huge): max={posCtl.max:F2}mm");
+
+            // ---------- (B) RIGHT — can dialling the INDEX chain tuck the right thumb? ----------
+            // The right thumb verts carry ZERO thumb-chain weight and are driven by righthandindex1/2/3
+            // (ticket root-cause: index1:24 / index2:8 / index3:16 of 48). Those are the SAME bones that drive the
+            // right FINGER block, so the open question is whether an index rotation can move the thumb geometry
+            // RELATIVE TO the block at all, or only carry both rigidly. Scoped displacement (round-9's headline
+            // averaged over the whole mesh and was therefore dominated by the index FINGER, not the thumb) plus the
+            // resulting standoff after the rotation — the number that actually answers "is it tucked".
+            sb.AppendLine("[blockhands] (B) RIGHT — sweep the INDEX chain (the bones that actually drive the right thumb verts)");
+            sb.AppendLine("[blockhands]   thumbDisp = motion of the RIGHT THUMB verts | blockDisp = collateral motion of the rest of the hand");
+            sb.AppendLine("[blockhands]   standoffAfter = the judged number WITH the rotation applied (baseline " + sR0.max.ToString("F2") + "mm)");
+            float bestRightStandoff = sR0.max; string bestRightWhat = "none (baseline)";
+            float ceilingThumb = 0f;
+            foreach (var boneTok in new[] { "righthandindex1", "righthandindex2", "righthandindex3" })
             {
-                int d = bw[v].boneIndex0;
-                if (d < bones.Length && bones[d] != null && bones[d].IsChildOf(lHand) && NameOf(d).Contains("thumb"))
-                    lThumb.Add(v);
-            }
-            // RIGHT thumb verts: CANNOT be found by bone name (they are skinned to the INDEX chain — the whole
-            // defect). Found by mirroring the left thumb verts across the mesh's X centre and nearest-matching.
-            int[] rSub = SubtreeVertIdx(smr, rHand);
-            var rThumb = new List<int>();
-            foreach (int lv in lThumb)
-            {
-                Vector3 m = new Vector3(-verts[lv].x, verts[lv].y, verts[lv].z);
-                int best = -1; float bestD = float.MaxValue;
-                foreach (int rv in rSub) { float d = (verts[rv] - m).sqrMagnitude; if (d < bestD) { bestD = d; best = rv; } }
-                if (best >= 0 && Mathf.Sqrt(bestD) * 1000f <= 1f) rThumb.Add(best);
-            }
-            int[] lSub = SubtreeVertIdx(smr, lHand);
-            var lBlock = new List<int>(); foreach (int v in lSub) if (!lThumb.Contains(v)) lBlock.Add(v);
-            var rThumbSet = new HashSet<int>(rThumb);
-            var rBlock = new List<int>(); foreach (int v in rSub) if (!rThumbSet.Contains(v)) rBlock.Add(v);
-            sb.AppendLine($"[blockhands] vert sets: LEFT thumb={lThumb.Count} block={lBlock.Count} | " +
-                          $"RIGHT thumb={rThumb.Count} (mirror-matched) block={rBlock.Count}");
-            if (lThumb.Count == 0 || rThumb.Count == 0)
-            { sb.AppendLine("[blockhands] ABORT — could not isolate a thumb vert set"); Object.DestroyImmediate(go); return; }
-
-            // Which bone actually owns the right thumb verts (restates round-9 (D) on the scoped set, as a control).
-            var dom = new Dictionary<string, int>();
-            foreach (int v in rThumb) { string n = NameOf(bw[v].boneIndex0); dom.TryGetValue(n, out int c); dom[n] = c + 1; }
-            sb.AppendLine("[blockhands] RIGHT thumb verts are driven by: " + string.Join(", ", DictStr(dom)));
-
-            // ---------- (A) BASELINE PROTRUSION — the anchor number ----------
-            sb.AppendLine("[blockhands] (A) BASELINE PROTRUSION — mm of thumb geometry sticking OUT past the hand block");
-            sb.AppendLine("[blockhands]   (a thumb READS as a thumb when it protrudes; flush == 0 == reads as a plain block)");
-            var pL0 = Protrusion(smr, lHand, lThumb, lBlock);
-            var pR0 = Protrusion(smr, rHand, rThumb, rBlock);
-            sb.AppendLine($"[blockhands]   LEFT  (shipped dial-7): max={pL0.max:F2}mm mean={pL0.mean:F2}mm outside={pL0.frac:P0}");
-            sb.AppendLine($"[blockhands]   RIGHT (shipped dial-7): max={pR0.max:F2}mm mean={pR0.mean:F2}mm outside={pR0.frac:P0}");
-            sb.AppendLine($"[blockhands]   ASYMMETRY (what the Sponsor sees): |L-R| max-protrusion delta = {Mathf.Abs(pL0.max - pR0.max):F2}mm");
-
-            // ---------- (A2) CORROBORATING METRICS — the AABB above is a LOOSE hull ----------
-            // A thumb pointing diagonally can sit INSIDE the block's axis-aligned box and still read as a lump,
-            // so an AABB-protrusion of 0.00mm is necessary-but-not-sufficient evidence of "reads as a block".
-            // Two hull-free cross-checks; all three must agree before the verdict is trusted.
-            //   STANDOFF: for each thumb vert, distance to the NEAREST block vert. A flush/absorbed thumb has
-            //   every vert close to the block surface; a protruding lump has tip verts far from any block vert.
-            //   SHAPE-ASYMMETRY: express each hand's thumb verts in its OWN hand-bone frame, mirror one across
-            //   X, and nearest-match. This isolates hand SHAPE from where the arm happens to put the hand, and
-            //   is the most direct reading of the Sponsor's actual words ("one hand is not the same as the other").
-            sb.AppendLine("[blockhands] (A2) CORROBORATION — hull-free cross-checks (the AABB in (A) is a loose bound)");
-            var sL = Standoff(smr, lThumb, lBlock);
-            var sR = Standoff(smr, rThumb, rBlock);
-            sb.AppendLine($"[blockhands]   STANDOFF LEFT : max={sL.max:F2}mm mean={sL.mean:F2}mm (distance from thumb verts to nearest block vert)");
-            sb.AppendLine($"[blockhands]   STANDOFF RIGHT: max={sR.max:F2}mm mean={sR.mean:F2}mm");
-            float asym0 = ShapeAsymmetry(smr, lHand, rHand, lThumb, rThumb);
-            sb.AppendLine($"[blockhands]   SHAPE-ASYMMETRY (thumb region, hand-local, mirrored): mean={asym0:F2}mm  <- the Sponsor's complaint, as one number");
-
-            // ---------- (B) RIGHT: what can dialling the INDEX chain actually achieve? ----------
-            // Scoped to the right THUMB verts (round-9's gap), all three axes, a real angle sweep, plus the
-            // collateral cost on the index FINGER block (the brief's second unverified item).
-            sb.AppendLine("[blockhands] (B) RIGHT — sweep righthandindex1 (the bone that actually drives the right thumb verts)");
-            sb.AppendLine("[blockhands]   thumbDisp = motion of the RIGHT THUMB verts only | blockDisp = collateral motion of the rest of the hand");
-            var rIndex1 = FindBone(go.transform, "righthandindex1");
-            if (rIndex1 == null) sb.AppendLine("[blockhands]   righthandindex1 NOT FOUND");
-            else
-            {
-                float ceilingMax = 0f;
+                var bone = FindBone(go.transform, boneTok);
+                if (bone == null) { sb.AppendLine($"[blockhands]   {boneTok} NOT FOUND"); continue; }
                 foreach (char ax in new[] { 'X', 'Y', 'Z' })
-                    foreach (float deg in new[] { 20f, 40f, 60f, 90f, 120f, 160f, 180f })
+                    foreach (float deg in new[] { 30f, 60f, 90f, 120f, 180f, 240f, 300f })
                     {
-                        var t = ScopedDisp(smr, rIndex1, ax, deg, rThumb);
-                        var b = ScopedDisp(smr, rIndex1, ax, deg, rBlock);
-                        var pr = ProtrusionWith(smr, rIndex1, ax, deg, rHand, rThumb, rBlock);
-                        if (t.max > ceilingMax) ceilingMax = t.max;
-                        sb.AppendLine($"[blockhands]   index1 +{deg,3}deg local-{ax}: thumbDisp mean={t.mean,6:F2}mm max={t.max,6:F2}mm | " +
-                                      $"blockDisp mean={b.mean,6:F2}mm max={b.max,6:F2}mm | resulting thumb protrusion max={pr.max:F2}mm");
+                        var t = ScopedDisp(smr, bone, ax, deg, sets.rThumb);
+                        var b = ScopedDisp(smr, bone, ax, deg, sets.rBlock);
+                        Quaternion saved = bone.localRotation;
+                        bone.localRotation = saved * Quaternion.Euler(AxisEuler(ax, deg));
+                        var st = Standoff(smr, sets.rThumb, sets.rBlock);
+                        bone.localRotation = saved;
+                        if (t.max > ceilingThumb) ceilingThumb = t.max;
+                        if (st.max < bestRightStandoff) { bestRightStandoff = st.max; bestRightWhat = $"{boneTok} +{deg}deg local-{ax}"; }
+                        sb.AppendLine($"[blockhands]   {boneTok} +{deg,4}deg local-{ax}: thumbDisp mean={t.mean,7:F2}mm max={t.max,7:F2}mm | " +
+                                      $"blockDisp mean={b.mean,7:F2}mm max={b.max,7:F2}mm | standoffAfter max={st.max,6:F2}mm mean={st.mean,6:F2}mm");
                     }
-                // Geometric ceiling: a rotation moves a vert on a circle of radius r about the bone axis, so the
-                // FURTHEST any dial can EVER displace it is the diameter 2r. Recover r from the largest observed
-                // chord: chord = 2*r*sin(theta/2).
-                sb.AppendLine($"[blockhands]   GEOMETRIC CEILING: largest observed thumb-vert displacement over the whole sweep = {ceilingMax:F2}mm");
-                sb.AppendLine("[blockhands]   (a rotation can never exceed the diameter 2r of the vert's circle about the bone axis —");
-                sb.AppendLine("[blockhands]    so if this ceiling is below the baseline protrusion in (A), tucking the RIGHT thumb by");
-                sb.AppendLine("[blockhands]    dialling is GEOMETRICALLY IMPOSSIBLE, not merely un-found.)");
-                sb.AppendLine($"[blockhands]   VERDICT-INPUT: right baseline protrusion {pR0.max:F2}mm vs achievable {ceilingMax:F2}mm");
             }
+            sb.AppendLine($"[blockhands]   RIGHT SWEEP RESULT: best achievable standoff = {bestRightStandoff:F2}mm via [{bestRightWhat}] " +
+                          $"(baseline {sR0.max:F2}mm); largest thumb-vert travel anywhere in the sweep = {ceilingThumb:F2}mm");
+            sb.AppendLine("[blockhands]   RIGIDITY READ: thumbDisp ~= blockDisp at every entry means the index bone carries the thumb");
+            sb.AppendLine("[blockhands]   geometry and the finger block as ONE rigid body — no relative tuck is available by dialling it.");
 
-            // ---------- (C) LEFT: find the euler that tucks the left thumb flush ----------
-            sb.AppendLine("[blockhands] (C) LEFT — search leftThumbEuler for minimum protrusion (the left thumb DOES articulate: weight 0.919)");
+            // ---------- (C) LEFT — dial the left thumb until the left hand reads as a plain block ----------
+            // The left thumb DOES articulate (mean thumb-chain weight 0.919 vs the right's 0.000), so it is the one
+            // side where posing can change the read. Objective = drive the LEFT standoff down to (and no further
+            // than) the RIGHT's, i.e. make the two hands present the same thumb-lump profile. Optimising the left's
+            // own protrusion alone would let the search win on a number while the two hands still differ.
+            sb.AppendLine("[blockhands] (C) LEFT — search leftThumbEuler (additive on the shipped dial-7 left thumb)");
+            sb.AppendLine("[blockhands]   objective = match the RIGHT hand's standoff profile AND flatten the left's own lump");
             var lThumbBone = FindBone(go.transform, "lefthandthumb1");
+            Vector3 bestE = Vector3.zero; bool haveLeft = false;
             if (lThumbBone == null) sb.AppendLine("[blockhands]   lefthandthumb1 NOT FOUND");
             else
             {
                 Quaternion saved = lThumbBone.localRotation;
-                Vector3 bestE = Vector3.zero; float bestScore = float.MaxValue;
-                // OBJECTIVE = the SHAPE-ASYMMETRY against the right hand (the Sponsor's literal ask: make one
-                // hand the same as the other), NOT the loose AABB protrusion — optimising the AABB alone would
-                // let the search exploit its slack and "win" on a number while still reading as a thumb.
+                float bestScore = float.MaxValue;
+                // The RIGHT profile is invariant under a LEFT thumb rotation, so cache it once instead of
+                // re-baking it for each of the ~1200 candidates.
+                float[] rightProfile = StandoffProfile(smr, sets.rThumb, sets.rBlock);
                 float Score()
                 {
-                    float asym = ShapeAsymmetry(smr, lHand, rHand, lThumb, rThumb);
-                    float stand = Standoff(smr, lThumb, lBlock).max;
-                    return asym + stand; // both in mm; both must come down for a genuine block read
+                    float[] lp = StandoffProfile(smr, sets.lThumb, sets.lBlock); // sorted ascending
+                    float lmax = lp.Length > 0 ? lp[lp.Length - 1] : 0f;
+                    float asym = CompareProfiles(lp, rightProfile);
+                    // Both terms are millimetres. asym = "the two hands read the same"; lmax = "the left's own
+                    // lump is gone". Summing them means a candidate has to satisfy both, not trade one for the other.
+                    return asym + lmax;
                 }
-                // Coarse 45deg grid over the full sphere, then a 15deg refine in a +-45 window around the winner.
                 for (float x = 0; x < 360f; x += 45f)
                     for (float y = 0; y < 360f; y += 45f)
                         for (float z = 0; z < 360f; z += 45f)
@@ -925,40 +923,217 @@ namespace FarHorizon.EditorTools
                             if (s < bestScore) { bestScore = s; bestE = new Vector3(x, y, z); }
                         }
                 Vector3 c0 = bestE;
-                for (float x = c0.x - 45f; x <= c0.x + 45f; x += 15f)
-                    for (float y = c0.y - 45f; y <= c0.y + 45f; y += 15f)
-                        for (float z = c0.z - 45f; z <= c0.z + 45f; z += 15f)
+                for (float x = c0.x - 40f; x <= c0.x + 40f; x += 10f)
+                    for (float y = c0.y - 40f; y <= c0.y + 40f; y += 10f)
+                        for (float z = c0.z - 40f; z <= c0.z + 40f; z += 10f)
                         {
                             lThumbBone.localRotation = saved * Quaternion.Euler(x, y, z);
                             float s = Score();
                             if (s < bestScore) { bestScore = s; bestE = new Vector3(x, y, z); }
                         }
-                // Report every metric at the winner so the verdict is corroborated, not single-metric.
                 lThumbBone.localRotation = saved * Quaternion.Euler(bestE);
-                var pBest = Protrusion(smr, lHand, lThumb, lBlock);
-                var sBest = Standoff(smr, lThumb, lBlock);
-                float aBest = ShapeAsymmetry(smr, lHand, rHand, lThumb, rThumb);
+                var sBest = Standoff(smr, sets.lThumb, sets.lBlock);
+                float aBest = ProfileAsymmetry(smr, sets);
+                var pBest = Protrusion(smr, lHand, sets.lThumb, sets.lBlock);
                 lThumbBone.localRotation = saved;
-                sb.AppendLine($"[blockhands]   BEST leftThumbEuler (ADDITIVE on top of the shipped dial-7 left thumb) = " +
-                              $"({bestE.x:F0},{bestE.y:F0},{bestE.z:F0})");
-                sb.AppendLine($"[blockhands]     protrusion      {pL0.max:F2}mm -> {pBest.max:F2}mm (outside {pL0.frac:P0} -> {pBest.frac:P0})");
-                sb.AppendLine($"[blockhands]     standoff        {sL.max:F2}mm -> {sBest.max:F2}mm");
-                sb.AppendLine($"[blockhands]     shape-asymmetry {asym0:F2}mm -> {aBest:F2}mm  <- the number that must approach 0");
-                // The bake-ready ABSOLUTE value: the shipped dial-7 left thumb composed with the winning additive,
-                // read back as a single euler so it can replace CastawayV4LeftThumbEuler directly.
+                haveLeft = true;
+                sb.AppendLine($"[blockhands]   BEST additive leftThumbEuler = ({bestE.x:F0},{bestE.y:F0},{bestE.z:F0})");
+                sb.AppendLine($"[blockhands]     LEFT standoff        {sL0.max:F2}mm -> {sBest.max:F2}mm (mean {sL0.mean:F2} -> {sBest.mean:F2})");
+                sb.AppendLine($"[blockhands]     LEFT AABB protrusion {pL0.max:F2}mm -> {pBest.max:F2}mm (outside {pL0.frac:P0} -> {pBest.frac:P0})");
+                sb.AppendLine($"[blockhands]     L-vs-R asymmetry     {asym0:F2}mm -> {aBest:F2}mm  <- the number that must approach 0");
+                sb.AppendLine($"[blockhands]     RIGHT standoff (untouched reference) = {sR0.max:F2}mm");
                 Vector3 abs = (Quaternion.Euler(MovementCameraScene.CastawayV4LeftThumbEuler)
                                * Quaternion.Euler(bestE)).eulerAngles;
-                sb.AppendLine($"[blockhands]   ABSOLUTE leftThumbEuler to bake = ({abs.x:F1},{abs.y:F1},{abs.z:F1})");
+                sb.AppendLine($"[blockhands]   ABSOLUTE CastawayV4LeftThumbEuler to bake = ({abs.x:F1}f, {abs.y:F1}f, {abs.z:F1}f)");
             }
-
             Object.DestroyImmediate(go);
+
+            // ---------- (D) RE-VERIFY THE WINNER IN THE GRIPPING POSE ----------
+            // CastawayFingerCurl (order 60) curls the RIGHT index chain +26deg local-X x3 when a held-visual weapon
+            // is the selected belt item. The right thumb verts ride that chain, so the right hand's read CHANGES
+            // between empty and gripping — and the Sponsor's soak checklist includes holding a weapon. A left-thumb
+            // value chosen only against the empty pose could be right there and wrong in hand.
+            sb.AppendLine("[blockhands] (D) RE-VERIFY IN THE GRIPPING POSE (CastawayFingerCurl right index +26deg x3, thumb +14deg x3)");
+            var go2 = PoseShipped(path, ctrl, sb, true);
+            if (go2 != null)
+            {
+                var smr2 = go2.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                var l2 = FindBone(go2.transform, "lefthand");
+                var r2 = FindBone(go2.transform, "righthand");
+                if (smr2 != null && l2 != null && r2 != null)
+                {
+                    var sets2 = BuildVertSets(null, smr2, l2, r2);
+                    if (sets2 != null)
+                    {
+                        var gL = Standoff(smr2, sets2.lThumb, sets2.lBlock);
+                        var gR = Standoff(smr2, sets2.rThumb, sets2.rBlock);
+                        sb.AppendLine($"[blockhands]   GRIPPING baseline: LEFT standoff max={gL.max:F2}mm | RIGHT standoff max={gR.max:F2}mm | " +
+                                      $"asymmetry={ProfileAsymmetry(smr2, sets2):F2}mm");
+                        var lt2 = FindBone(go2.transform, "lefthandthumb1");
+                        if (haveLeft && lt2 != null)
+                        {
+                            Quaternion sv = lt2.localRotation;
+                            lt2.localRotation = sv * Quaternion.Euler(bestE);
+                            var gL2 = Standoff(smr2, sets2.lThumb, sets2.lBlock);
+                            float ga2 = ProfileAsymmetry(smr2, sets2);
+                            lt2.localRotation = sv;
+                            sb.AppendLine($"[blockhands]   GRIPPING with the (C) winner: LEFT standoff max={gL2.max:F2}mm | asymmetry={ga2:F2}mm");
+                        }
+                    }
+                }
+                Object.DestroyImmediate(go2);
+            }
         }
 
-        // Instantiate v4, tick the LIVE Animator to the shipped idle pose, then apply the four shipped
-        // CastawayHandPose eulers exactly as the order-65 driver does — so every round-10 number is measured on
-        // the pose the SPONSOR ACTUALLY SEES, not on the bind pose (the live-skeleton rule from
-        // procedural-animation-verbs.md: only the rendered skeleton is what the player sees).
-        private static GameObject PoseShipped(string path, RuntimeAnimatorController ctrl, StringBuilder sb)
+        // Holds the four vert sets plus the refuted naive sets, so the log can print the correction side by side.
+        private class HandSets
+        {
+            public List<int> lThumb = new List<int>(), lBlock = new List<int>();
+            public List<int> rThumb = new List<int>(), rBlock = new List<int>();
+            public List<int> rThumbNaive = new List<int>(), rBlockNaive = new List<int>();
+        }
+
+        // CLUSTER-COMPLETE vert-set construction. Every set is closed over coincident vertices: if one vert at a
+        // position is in a set, all verts at that position are. That is what the first pass got wrong, and it is
+        // what makes set-vs-set distances measure geometry instead of bookkeeping.
+        //
+        // LEFT thumb  = verts whose dominant bone is a thumb bone under the left hand, closed over their positions.
+        // RIGHT thumb = every right-hand-subtree vert sitting at the MIRROR of a left-thumb position. It cannot be
+        //               found by bone name — the right thumb geometry carries zero thumb-chain weight and is driven
+        //               by the index chain (that IS the defect), so position is the only handle.
+        // BLOCK       = the rest of that hand's subtree.
+        private static HandSets BuildVertSets(StringBuilder sb, SkinnedMeshRenderer smr, Transform lHand, Transform rHand)
+        {
+            var mesh = smr.sharedMesh;
+            var verts = mesh.vertices;
+            var bw = mesh.boneWeights;
+            var bones = smr.bones;
+            string NameOf(int i) => i >= 0 && i < bones.Length && bones[i] != null ? Tok(bones[i].name) : "?";
+            void Log(string s) { if (sb != null) sb.AppendLine(s); }
+
+            // Tolerances are declared in WORLD millimetres and converted into mesh-local units through the
+            // renderer's own scale, because these FBXs bake a large scale onto the SkinnedMeshRenderer transform
+            // (unity-conventions.md §FBX / rigs / characters) — a raw local-unit epsilon is not a physical distance.
+            float unitToM = smr.transform.localToWorldMatrix.MultiplyVector(Vector3.right).magnitude;
+            if (unitToM <= 1e-9f) { Log("[blockhands] degenerate renderer scale"); return null; }
+            float twinEps = 0.02f / 1000f / unitToM;     // 0.02 mm — coincident duplicates from hard-edge splits
+            float mirrorEps = 0.50f / 1000f / unitToM;   // 0.50 mm — mirror-match tolerance
+            Log($"[blockhands] scale: 1 mesh unit = {unitToM * 1000f:F3}mm world; twinEps={twinEps:E3}u mirrorEps={mirrorEps:E3}u");
+
+            // Spatial hash over every mesh vert, cell size = twinEps, with a 3x3x3 neighbour probe so a position
+            // straddling a cell boundary still finds its twins.
+            var cells = new Dictionary<Vector3Int, List<int>>();
+            for (int v = 0; v < verts.Length; v++)
+            {
+                var k = Cell(verts[v], twinEps);
+                if (!cells.TryGetValue(k, out var l)) { l = new List<int>(); cells[k] = l; }
+                l.Add(v);
+            }
+            List<int> Within(Vector3 p, float eps)
+            {
+                var res = new List<int>();
+                int span = Mathf.Max(1, Mathf.CeilToInt(eps / twinEps));
+                var k = Cell(p, twinEps);
+                float e2 = eps * eps;
+                for (int dx = -span; dx <= span; dx++)
+                    for (int dy = -span; dy <= span; dy++)
+                        for (int dz = -span; dz <= span; dz++)
+                            if (cells.TryGetValue(new Vector3Int(k.x + dx, k.y + dy, k.z + dz), out var l))
+                                foreach (int v in l) if ((verts[v] - p).sqrMagnitude <= e2) res.Add(v);
+                return res;
+            }
+
+            var lSub = new HashSet<int>(SubtreeVertIdx(smr, lHand));
+            var rSub = new HashSet<int>(SubtreeVertIdx(smr, rHand));
+            if (lSub.Count == 0 || rSub.Count == 0) { Log("[blockhands] a hand subtree is empty"); return null; }
+
+            // Duplicate-vertex census — the evidence that the first pass's set construction was lossy.
+            int lPos = DistinctPositions(verts, lSub, twinEps), rPos = DistinctPositions(verts, rSub, twinEps);
+            Log($"[blockhands] DUPLICATE-VERT CENSUS: LEFT hand verts={lSub.Count} distinct positions={lPos} " +
+                $"(x{(float)lSub.Count / Mathf.Max(1, lPos):F2}) | RIGHT hand verts={rSub.Count} distinct positions={rPos} " +
+                $"(x{(float)rSub.Count / Mathf.Max(1, rPos):F2})  <- multiplicity >1 is why one-vert-per-match loses twins");
+
+            // MIRROR PLANE — verified, not assumed. Try x=0 and x=bounds.centre.x; keep the smaller residual.
+            float MirrorResidual(float plane)
+            {
+                float sum = 0f; int n = 0;
+                foreach (int r in rSub)
+                {
+                    Vector3 p = verts[r]; Vector3 m = new Vector3(2f * plane - p.x, p.y, p.z);
+                    float best = float.MaxValue;
+                    foreach (int l in lSub) { float d = (verts[l] - m).sqrMagnitude; if (d < best) best = d; }
+                    sum += Mathf.Sqrt(best); n++;
+                }
+                return n > 0 ? sum / n * unitToM * 1000f : -1f;
+            }
+            float res0 = MirrorResidual(0f);
+            float resC = MirrorResidual(mesh.bounds.center.x);
+            float plane = res0 <= resC ? 0f : mesh.bounds.center.x;
+            Log($"[blockhands] MIRROR PLANE check: x=0 residual={res0:F4}mm | x=bounds.centre({mesh.bounds.center.x:F4}) " +
+                $"residual={resC:F4}mm -> using x={plane:F4} (a residual near 0 confirms the two hands are the same mesh)");
+
+            var sets = new HandSets();
+
+            // LEFT thumb seeds by dominant bone, then closed over coincident positions.
+            var lThumbSet = new HashSet<int>();
+            for (int v = 0; v < bw.Length; v++)
+            {
+                int d = bw[v].boneIndex0;
+                if (d >= 0 && d < bones.Length && bones[d] != null && bones[d].IsChildOf(lHand) && NameOf(d).Contains("thumb"))
+                    foreach (int t in Within(verts[v], twinEps)) lThumbSet.Add(t);
+            }
+            // RIGHT thumb = every right-subtree vert at the mirror of a left-thumb position (all twins included).
+            var rThumbSet = new HashSet<int>();
+            var rThumbNaiveSet = new HashSet<int>();
+            foreach (int lv in lThumbSet)
+            {
+                Vector3 m = new Vector3(2f * plane - verts[lv].x, verts[lv].y, verts[lv].z);
+                // corrected: every right-subtree vert within the mirror tolerance
+                foreach (int rv in Within(m, mirrorEps)) if (rSub.Contains(rv)) rThumbSet.Add(rv);
+                // naive (the refuted first pass): the single nearest right-subtree vert
+                int best = -1; float bestD = float.MaxValue;
+                foreach (int rv in rSub) { float d = (verts[rv] - m).sqrMagnitude; if (d < bestD) { bestD = d; best = rv; } }
+                if (best >= 0 && Mathf.Sqrt(bestD) * unitToM * 1000f <= 1f) rThumbNaiveSet.Add(best);
+            }
+            if (lThumbSet.Count == 0 || rThumbSet.Count == 0)
+            { Log("[blockhands] ABORT — could not isolate a thumb vert set"); return null; }
+
+            foreach (int v in lSub) if (lThumbSet.Contains(v)) sets.lThumb.Add(v); else sets.lBlock.Add(v);
+            foreach (int v in rSub) if (rThumbSet.Contains(v)) sets.rThumb.Add(v); else sets.rBlock.Add(v);
+            foreach (int v in rSub) if (rThumbNaiveSet.Contains(v)) sets.rThumbNaive.Add(v); else sets.rBlockNaive.Add(v);
+
+            Log($"[blockhands] VERT SETS (cluster-complete): LEFT thumb={sets.lThumb.Count} block={sets.lBlock.Count} | " +
+                $"RIGHT thumb={sets.rThumb.Count} block={sets.rBlock.Count}");
+            Log($"[blockhands]   vs NAIVE one-vert-per-match: RIGHT thumb={sets.rThumbNaive.Count} " +
+                $"({sets.rThumb.Count - sets.rThumbNaive.Count} coincident twins were being LEFT IN THE BLOCK SET)");
+
+            if (sb != null)
+            {
+                var dom = new Dictionary<string, int>();
+                foreach (int v in sets.rThumb) { string n = NameOf(bw[v].boneIndex0); dom.TryGetValue(n, out int c); dom[n] = c + 1; }
+                sb.AppendLine("[blockhands]   RIGHT thumb verts are driven by: " + string.Join(", ", DictStr(dom)));
+                var domL = new Dictionary<string, int>();
+                foreach (int v in sets.lThumb) { string n = NameOf(bw[v].boneIndex0); domL.TryGetValue(n, out int c); domL[n] = c + 1; }
+                sb.AppendLine("[blockhands]   LEFT  thumb verts are driven by: " + string.Join(", ", DictStr(domL)));
+            }
+            return sets;
+        }
+
+        private static Vector3Int Cell(Vector3 p, float eps) => new Vector3Int(
+            Mathf.FloorToInt(p.x / eps), Mathf.FloorToInt(p.y / eps), Mathf.FloorToInt(p.z / eps));
+
+        private static int DistinctPositions(Vector3[] verts, HashSet<int> idx, float eps)
+        {
+            var seen = new HashSet<Vector3Int>();
+            foreach (int v in idx) seen.Add(Cell(verts[v], eps));
+            return seen.Count;
+        }
+
+        // Instantiate v4, tick the LIVE Animator to the shipped idle pose, then apply the shipped drivers exactly
+        // as they run at runtime — so every number is measured on the pose the SPONSOR ACTUALLY SEES, not on the
+        // bind pose (procedural-animation-verbs.md: only the rendered skeleton is what the player sees). The order
+        // is the shipped chain's order: CastawayFingerCurl (60) BEFORE CastawayHandPose (65).
+        private static GameObject PoseShipped(string path, RuntimeAnimatorController ctrl, StringBuilder sb, bool gripping)
         {
             var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (fbx == null) { sb.AppendLine($"[blockhands] v4 fbx missing at {path}"); return null; }
@@ -979,12 +1154,21 @@ namespace FarHorizon.EditorTools
                 anim.SetBool("Grounded", true);
                 for (int i = 0; i < 12; i++) anim.Update(0.1f);
             }
-            // CastawayHandPose (order 65) composition, replicated: bone.localRotation *= Euler(offset).
+            // CastawayFingerCurl (order 60) — RIGHT hand only, gated on a held-visual weapon being selected.
+            if (gripping)
+            {
+                foreach (var tok in MovementCameraScene.RightFingerCurlTokens)
+                    ApplyEuler(FindBone(go.transform, tok), new Vector3(26f, 0f, 0f));
+                foreach (var tok in MovementCameraScene.RightThumbCurlTokens)
+                    ApplyEuler(FindBone(go.transform, tok), new Vector3(14f, 0f, 0f));
+            }
+            // CastawayHandPose (order 65).
             ApplyEuler(FindBone(go.transform, "righthand"), MovementCameraScene.CastawayV4RightWristEuler);
             ApplyEuler(FindBone(go.transform, "lefthand"), MovementCameraScene.CastawayV4LeftWristEuler);
             ApplyEuler(FindBone(go.transform, "righthandthumb1"), MovementCameraScene.CastawayV4RightThumbEuler);
             ApplyEuler(FindBone(go.transform, "lefthandthumb1"), MovementCameraScene.CastawayV4LeftThumbEuler);
-            sb.AppendLine($"[blockhands] posed at shipped dial-7: rightWrist={NormE(MovementCameraScene.CastawayV4RightWristEuler)} " +
+            sb.AppendLine($"[blockhands] posed at shipped dial-7 (gripping={gripping}): " +
+                          $"rightWrist={NormE(MovementCameraScene.CastawayV4RightWristEuler)} " +
                           $"leftWrist={NormE(MovementCameraScene.CastawayV4LeftWristEuler)} " +
                           $"rightThumb={NormE(MovementCameraScene.CastawayV4RightThumbEuler)} " +
                           $"leftThumb={NormE(MovementCameraScene.CastawayV4LeftThumbEuler)}");
@@ -997,9 +1181,74 @@ namespace FarHorizon.EditorTools
             bone.localRotation = bone.localRotation * Quaternion.Euler(euler);
         }
 
-        // PROTRUSION — the anchor metric. Build the axis-aligned box of the hand BLOCK verts in the HAND BONE's
-        // own frame, then measure how far each THUMB vert sits OUTSIDE that box. max = the worst protruding
-        // corner (what the eye catches as "a thumb"); frac = share of thumb verts outside the block at all.
+        // STANDOFF — the headline metric, and the only frame-free one. For each thumb vert, the distance in world
+        // millimetres to the NEAREST vert of the rest of the hand. A thumb tucked flush against/into the block has
+        // a small max; a lump sticking out has a large one, because its tip verts have no block vert near them.
+        // No hull, no axes, no reference pose — nothing for a wrong frame to corrupt.
+        private static (float max, float mean) Standoff(SkinnedMeshRenderer smr, List<int> thumbIdx, List<int> blockIdx)
+        {
+            var prof = StandoffProfile(smr, thumbIdx, blockIdx);
+            if (prof.Length == 0) return (0f, 0f);
+            float max = 0f, sum = 0f;
+            foreach (float d in prof) { sum += d; if (d > max) max = d; }
+            return (max, sum / prof.Length);
+        }
+
+        // The per-vert standoff distances, SORTED ascending — the shape of the thumb lump as a distribution.
+        private static float[] StandoffProfile(SkinnedMeshRenderer smr, List<int> thumbIdx, List<int> blockIdx)
+        {
+            if (thumbIdx.Count == 0 || blockIdx.Count == 0) return new float[0];
+            var baked = new Mesh(); smr.BakeMesh(baked, true);
+            var bv = baked.vertices;
+            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
+            var blockW = new List<Vector3>(blockIdx.Count);
+            foreach (int v in blockIdx) blockW.Add(l2w.MultiplyPoint3x4(bv[v]));
+            var outp = new float[thumbIdx.Count];
+            for (int i = 0; i < thumbIdx.Count; i++)
+            {
+                Vector3 p = l2w.MultiplyPoint3x4(bv[thumbIdx[i]]);
+                float best = float.MaxValue;
+                foreach (var b in blockW) { float d = (b - p).sqrMagnitude; if (d < best) best = d; }
+                outp[i] = Mathf.Sqrt(best) * 1000f;
+            }
+            Object.DestroyImmediate(baked);
+            System.Array.Sort(outp);
+            return outp;
+        }
+
+        // "Is one hand the same as the other?" as ONE frame-free number: compare the two hands' sorted standoff
+        // profiles (resampled to a common length, since the two vert counts can differ) and take the mean absolute
+        // difference in millimetres. Deliberately NOT a hand-bone-local mirror comparison — the v4 RightHand bind
+        // roll is ~176deg off mirror, so any own-bone-frame comparison inherits that error.
+        private static float ProfileAsymmetry(SkinnedMeshRenderer smr, HandSets sets)
+            => CompareProfiles(StandoffProfile(smr, sets.lThumb, sets.lBlock),
+                               StandoffProfile(smr, sets.rThumb, sets.rBlock));
+
+        private static float CompareProfiles(float[] a, float[] b)
+        {
+            if (a.Length == 0 || b.Length == 0) return -1f;
+            int n = Mathf.Max(a.Length, b.Length);
+            float sum = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float u = n == 1 ? 0f : (float)i / (n - 1);
+                sum += Mathf.Abs(Sample(a, u) - Sample(b, u));
+            }
+            return sum / n;
+        }
+
+        private static float Sample(float[] sorted, float u)
+        {
+            if (sorted.Length == 1) return sorted[0];
+            float f = u * (sorted.Length - 1);
+            int i = Mathf.Clamp(Mathf.FloorToInt(f), 0, sorted.Length - 2);
+            return Mathf.Lerp(sorted[i], sorted[i + 1], f - i);
+        }
+
+        // PROTRUSION — corroborator only. The axis-aligned box of the hand BLOCK verts in the HAND BONE's own
+        // frame, and how far each THUMB vert sits OUTSIDE it. Kept because it answers "past the side of the block"
+        // literally, but it is a LOOSE hull (a diagonal thumb can sit inside the box) AND it is expressed in a
+        // per-side bone frame, so it is never the deciding number here.
         private static (float max, float mean, float frac) Protrusion(
             SkinnedMeshRenderer smr, Transform handBone, List<int> thumbIdx, List<int> blockIdx)
         {
@@ -1013,14 +1262,11 @@ namespace FarHorizon.EditorTools
             foreach (int v in blockIdx) { Vector3 p = HandLocal(v); mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p); }
 
             float max = 0f, sum = 0f; int outside = 0;
-            // Scale factor: hand-bone local units -> millimetres (the bone carries the avatar's lossy scale).
             float u2mm = handBone.lossyScale.magnitude / Mathf.Sqrt(3f) * 1000f;
             foreach (int v in thumbIdx)
             {
                 Vector3 p = HandLocal(v);
-                // Distance outside the AABB (0 when inside).
-                Vector3 d = Vector3.Max(mn - p, p - mx);
-                d = Vector3.Max(d, Vector3.zero);
+                Vector3 d = Vector3.Max(Vector3.Max(mn - p, p - mx), Vector3.zero);
                 float mm = d.magnitude * u2mm;
                 sum += mm; if (mm > max) max = mm; if (mm > 0.05f) outside++;
             }
@@ -1028,73 +1274,7 @@ namespace FarHorizon.EditorTools
             return (max, sum / thumbIdx.Count, (float)outside / thumbIdx.Count);
         }
 
-        // STANDOFF — hull-free companion to Protrusion. For each thumb vert, the distance to the NEAREST block
-        // vert, in world millimetres. A thumb tucked flush against/into the block has a small max; a lump
-        // sticking out has a large one (its tip verts have no block vert near them). No hull assumption at all.
-        private static (float max, float mean) Standoff(SkinnedMeshRenderer smr, List<int> thumbIdx, List<int> blockIdx)
-        {
-            if (thumbIdx.Count == 0 || blockIdx.Count == 0) return (0f, 0f);
-            var baked = new Mesh(); smr.BakeMesh(baked, true);
-            var bv = baked.vertices;
-            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
-            var blockW = new List<Vector3>(blockIdx.Count);
-            foreach (int v in blockIdx) blockW.Add(l2w.MultiplyPoint3x4(bv[v]));
-            float max = 0f, sum = 0f;
-            foreach (int v in thumbIdx)
-            {
-                Vector3 p = l2w.MultiplyPoint3x4(bv[v]);
-                float best = float.MaxValue;
-                foreach (var b in blockW) { float d = (b - p).sqrMagnitude; if (d < best) best = d; }
-                float mm = Mathf.Sqrt(best) * 1000f;
-                sum += mm; if (mm > max) max = mm;
-            }
-            Object.DestroyImmediate(baked);
-            return (max, sum / thumbIdx.Count);
-        }
-
-        // SHAPE-ASYMMETRY — "is one hand the same as the other?" as a single number. Each hand's thumb verts are
-        // expressed in ITS OWN hand-bone local frame (so arm placement/orientation cancels out), the left set is
-        // mirrored across local X, and each right vert is nearest-matched to it. Mean distance in mm: ~0 means
-        // the two hands present the SAME thumb shape; large means they differ, which is exactly the defect.
-        private static float ShapeAsymmetry(SkinnedMeshRenderer smr, Transform lHand, Transform rHand,
-                                            List<int> lThumb, List<int> rThumb)
-        {
-            if (lThumb.Count == 0 || rThumb.Count == 0) return -1f;
-            var baked = new Mesh(); smr.BakeMesh(baked, true);
-            var bv = baked.vertices;
-            Matrix4x4 l2w = smr.transform.localToWorldMatrix;
-            float u2mm = rHand.lossyScale.magnitude / Mathf.Sqrt(3f) * 1000f;
-            var lSet = new List<Vector3>(lThumb.Count);
-            foreach (int v in lThumb)
-            {
-                Vector3 p = lHand.InverseTransformPoint(l2w.MultiplyPoint3x4(bv[v]));
-                lSet.Add(new Vector3(-p.x, p.y, p.z)); // mirror the left hand's own frame across X
-            }
-            float sum = 0f;
-            foreach (int v in rThumb)
-            {
-                Vector3 p = rHand.InverseTransformPoint(l2w.MultiplyPoint3x4(bv[v]));
-                float best = float.MaxValue;
-                foreach (var l in lSet) { float d = (l - p).sqrMagnitude; if (d < best) best = d; }
-                sum += Mathf.Sqrt(best) * u2mm;
-            }
-            Object.DestroyImmediate(baked);
-            return sum / rThumb.Count;
-        }
-
-        // Protrusion measured WHILE a candidate bone rotation is applied (restores the bone afterwards).
-        private static (float max, float mean, float frac) ProtrusionWith(
-            SkinnedMeshRenderer smr, Transform bone, char axis, float deg,
-            Transform handBone, List<int> thumbIdx, List<int> blockIdx)
-        {
-            Quaternion saved = bone.localRotation;
-            bone.localRotation = saved * Quaternion.Euler(AxisEuler(axis, deg));
-            var r = Protrusion(smr, handBone, thumbIdx, blockIdx);
-            bone.localRotation = saved;
-            return r;
-        }
-
-        // Displacement of a NAMED vert set (mm) when one bone is rotated — the scoping round-9's whole-mesh
+        // Displacement of a NAMED vert set (world mm) when one bone is rotated — the scoping round-9's whole-mesh
         // average lacked. Restores the bone afterwards.
         private static (float mean, float max) ScopedDisp(
             SkinnedMeshRenderer smr, Transform bone, char axis, float deg, List<int> idx)
