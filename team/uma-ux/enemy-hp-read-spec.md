@@ -51,7 +51,7 @@ per `quality-bars.md` § Bar 10's *"Cite the SYMBOL, never the line number"* rul
 > a quoted run; no test exists on a doc-only PR, so `TESTING_BAR.md`'s demonstrated-red requirement is
 > unsatisfiable here and its **Red A / Red B obligation is inherited by the implementing PR**, not spent (§9).
 > **(N8)** §1.4's **4.0 px is a pip WIDTH**, stated once and used width-against-width thereafter (§1.4, §11 Q8).
-> **Cross-doc mirror (not a review item):** `enemy-hit-feedback-spec.md` **§16.5 / §16.8** (PR #413) withdraw this
+> **Cross-doc mirror (not a review item):** `enemy-hit-feedback-spec.md` **§16.5 / §16.8 at `29bbc50`** (PR #413, merged) withdraw this
 > spec's **§15.4 three-domain credit** for the body and its ***"body-read-only-forever is bar-#10-legal"*** claim —
 > all three body channels fire from one gated `Health.Changed` dispatch its AC1 mandates ⇒ **the body is ONE
 > failure domain**. That withdrawal is **mirrored here** (§15.3(iii), §15.4, §11 Q10, §10(b), §13.1) rather than
@@ -141,7 +141,7 @@ hue in the element at all**.
 > **🔴 And §15.4 itself was corrected once more, on 2026-08-01, in the OTHER direction.** A draft credited the
 > **body** with three independent failure domains, making the composed cue *"≥2 with margin."* **The body is ONE
 > domain** — all three of its channels fire from the single gated `Health.Changed` dispatch its own AC1 mandates
-> (`enemy-hit-feedback-spec.md` §16.5 / §16.8, PR #413, mirrored here rather than left to merge order). **The
+> (`enemy-hit-feedback-spec.md` §16.5 / §16.8 at `29bbc50`, mirrored here rather than left to merge order). **The
 > composed count is EXACTLY 2**, resting on the two elements' **different triggers**: this row arms from the
 > **strike seam** (§3.1), the body fires from `Health.Changed`. **That makes §3.1 load-bearing for the bar, not
 > just for the feel** (§13.1). Withdrawn with it: *"body-read-only-forever is a bar-#10-legal outcome"* (§11 Q10).
@@ -444,9 +444,18 @@ that names nothing — pure noise, and tonally the worst thing this element can 
   the guard exists so a row can never outlive its fight and become an orphan plate at the back of the frame.
   A `const`, not a dial (§8). **This bullet means what it says: the guard is SUPPOSED to drop some armed rows** —
   a player who sprints clear of his own fight has ended it, and the row should not follow him to the horizon
-  (§14.3's player-motion case: `sp.z` reaches **42.58 m** at the default pitch, **53.97 m** at `minPitch`, on a
-  full-speed disengage). What the guard must never do is drop a row on a player **standing his ground**, and that
-  is the bounded invariant §9 asserts — not an unconditional one.
+  (§14.3's player-motion case: **at max zoom `d = 26 u`**, `sp.z` reaches **42.58 m** at the default pitch 55° and
+  **53.97 m** at `minPitch` 8° on a full-speed disengage — **both axes named, always**; at the **default
+  14 u × 55°** camera the same sprint peaks at **30.58 m** and the guard correctly never fires at all, §10(b2)).
+  What the guard must never do is drop a row on a player **standing his ground**, and that is the bounded
+  invariant §9 asserts — not an unconditional one.
+  > **The *"his fight is over"* premise is MEASURED, not narrative.** Solve `sp.z = 40` for the ground offset: at
+  > the **earliest-firing** camera in the whole band (26 u × `minPitch` 8°) the row dies at a camera-forward
+  > ground separation of **14.06 m**, and that is the band's minimum — every other camera kills it later. Against
+  > `BoarAI.deaggroRadius = 11f` (`BoarAI.cs:74`, read at `bf33b65`), **the guard can only ever fire after the
+  > boar has already given up the chase**, by at least **3.06 m**. The margin is a floor twice over: 14.06 m is
+  > the camera-forward *component*, so true separation at death is ≥ that. So the guard drops rows on fights the
+  > AI has already ended — it is not the guard deciding the fight is over (Devon, PR #406 review N9).
   > **⚠ The reference frame is load-bearing and this bullet previously did not state it.** The pure predicate
   > below takes `sp` and nothing else, and `sp.z` is *"distance in front of the camera"*
   > (`LootPrompt.cs:174-176`, quoted verbatim in §1.1) — there is no player transform in the signature, so the
@@ -863,7 +872,7 @@ word), **#10** — **see the corrected claim below**. Bars **NOT tested**: **#1*
 > `86caxjwb3`'s three channels are unimplemented at `bf33b65`. So C2 converges the pip-row's own count and nothing
 > about the composed cue's.
 > **⚠ And the composed count itself is now known to be EXACTLY 2, not "≥2 with margin"** — the body is **one**
-> failure domain, not three (`enemy-hit-feedback-spec.md` §16.5 / §16.8, PR #413; §15.4's table is struck). The 2
+> failure domain, not three (`enemy-hit-feedback-spec.md` §16.5 / §16.8 at `29bbc50`; §15.4's table is struck). The 2
 > rests on the two elements' **different triggers** — this spec's §3.1 strike-arm vs the body's gated
 > `Health.Changed`. **Any soak or review that reads a #10 PASS off "the body has three channels" is reading a
 > withdrawn claim.**
@@ -871,13 +880,40 @@ word), **#10** — **see the corrected claim below**. Bars **NOT tested**: **#1*
 > composed pip-row-plus-body cue — and converges NOTHING for the pip-row in isolation, which is a known
 > one-channel element by design.** Do not quote a #10 PASS from this soak without that qualifier.
 
-**(b2) One EXPECTED behaviour that will look like a bug if it is not written down first.** **Hit an animal, then
-sprint away from it at full speed.** The row will vanish **before** its hold expires. That is `MaxDrawDistance`
-doing its stated job (§4.2 — *"a row can never outlive its fight"*): at `runSpeed 9.5f` against the boar's
-`chaseSpeed 3.2f`, a 3.9 s disengage puts the anchor at **42.58 m** camera-frame at the default pitch and
-**53.97 m** at `minPitch` 8°, both past the `40f` cap (§14.3). **Do not file it as a defect.** The *soakable*
-question, if any, is tonal rather than mechanical — does the row **cut** or does it fade? §3.2's 0.4 s fade-out
-should own the exit either way; a hard pop at the cap boundary **would** be a finding.
+**(b2) One EXPECTED behaviour that will look like a bug if it is not written down first — and it reproduces only
+over PART of the framing band, so SET THE CAMERA FIRST.** **Scroll the camera all the way out (`maxDistance`
+26 u — scroll back until it stops), leave pitch at the default 55°, then hit an animal and sprint away from it at
+full speed.** The row will vanish **before** its hold expires. That is `MaxDrawDistance` doing its stated job
+(§4.2 — *"a row can never outlive its fight"*).
+
+> **⚠ Every figure in this bullet is quoted at a NAMED camera — pitch AND distance, both axes.** `sp.z` is
+> `d − (h − offsetY)·sinθ + z_e·cosθ` (§14.3), so it moves with **zoom** exactly as strongly as the zoom itself:
+> 1 m of `distance` is 1 m of `sp.z`. **A previous draft of this bullet named only the pitch axis and silently
+> pinned the distance axis at `d = 26 u`** (Devon, PR #406 review N9) — at the default camera those figures are
+> unreachable, so a soak run at out-of-the-box framing would have observed the row *surviving* while checking it
+> against arithmetic computed at a camera the run never used. Same defect class as M4, arriving in the one
+> section that hands a number to a human.
+
+At `runSpeed 9.5f` against the boar's `chaseSpeed 3.2f`, a 3.9 s disengage leaves the animal **28.17 m** of
+ground behind the player (`SpearReach` 3.6 + 6.3 × 3.9). Where that lands relative to the `40f` cap **depends on
+the camera he is holding when he does it**:
+
+| camera (distance × pitch) | `sp.z` at the end of the 3.9 s window | row vanishes BEFORE its hold expires? |
+|---|---|---|
+| **26 u × 55°** — zoom out, default pitch | **42.58 m** | **YES — this is the repro to run** |
+| **26 u × 8°** — `minPitch`, worst case | **53.97 m** | **yes**, clearing the cap by ~14 m |
+| **14 u × 8°** — default zoom, tilted down | **41.97 m** | yes, but only by 1.97 m |
+| **14 u × 55°** — **the DEFAULT camera, out of the box** | **30.58 m** | **NO — and that is CORRECT** |
+| **26 u × 70°** — `maxPitch` | **36.12 m** | **NO, at any reachable zoom** — clearing 40 would need `d = 29.88 u`, past `maxDistance 26f` |
+
+**Both outcomes are correct behaviour.** Which one he sees is decided entirely by the camera, and at the
+out-of-the-box camera the row **survives the whole disengage**. Boundary, if he wants to walk it: at the default
+pitch 55° the vanish needs **`d ≥ 23.42 u`**; at the default zoom 14 u it needs **pitch ≤ 23.72°**. **Do not file
+EITHER outcome as a defect** — not the vanish at wide zoom, and not the survival at default framing.
+
+The *soakable* question, if any, is tonal rather than mechanical — does the row **cut** or does it fade? §3.2's
+0.4 s fade-out should own the exit either way; a hard pop at the cap boundary **would** be a finding. **Judge
+that only on a run where the row actually vanished** — one of the first three rows above.
 
 **(c) The exists-at-all question is NOT judged here.** It is settled at `86caxjwb3`'s soak (its AC6(c)). This
 soak judges execution: hold timing, form, colour, arbitration, and whether the row stays quieter than the body.
@@ -982,16 +1018,18 @@ defensible outcome.
   const moves **up**, not down. *(That threshold was written as **~33 m** in a draft of this revision, off the
   since-corrected 32.8 m worst case — Devon, PR #406 review M4.)* Either way §14.3's snake finding is untouched —
   the cap never fixed it, which is exactly the confusion that produced the withdrawn 12 m.
-  > **One thing that IS a Sponsor-visible behaviour and is deliberately not a question:** sprint far enough away
-  > from a fight you started and the row disappears before its hold expires (§14.3's 42.58 m / 53.97 m cases). That
-  > is §4.2's intent, not a bug, and it is written into §10's soak checklist as expected behaviour so a soak report
-  > does not file it as one.
+  > **One thing that IS a Sponsor-visible behaviour and is deliberately not a question:** **at a zoomed-out camera
+  > (`d ≥ 23.42 u` at the default pitch 55°)**, sprint away from a fight you started and the row disappears before
+  > its hold expires (§14.3's 42.58 m / 53.97 m cases, both at **`d = 26 u`**). That is §4.2's intent, not a bug,
+  > and it is written into §10(b2)'s soak checklist as expected behaviour so a soak report does not file it as one.
+  > **At the default 14 u × 55° camera it does NOT happen** — `sp.z` peaks at 30.58 m inside the 3.9 s hold — and
+  > **that is equally correct**; §10(b2) carries the per-camera table so neither outcome gets filed as a defect.
 - **🔴 Q10 — the one-channel verdict (§15.4). CORRECTED 2026-08-01, and the correction reverses its direction.**
   Not a request for a decision; an FYI he may want to weigh at `86caxjwb3`'s soak. **A draft of this item said
   *"body-read-only-forever is a bar-#10-legal outcome … closing this ticket is now the better-supported outcome of
   the two."* That is WITHDRAWN** — it rested on crediting the body with three independent failure domains, and the
   body has **one**: all three of its channels fire from the single gated `Health.Changed` dispatch its own AC1
-  mandates (`enemy-hit-feedback-spec.md` §16.5 / §16.8, PR #413). The corrected FYI:
+  mandates (`enemy-hit-feedback-spec.md` §16.5 / §16.8 at `29bbc50`). The corrected FYI:
   - **"No, still want the row"** — bar-legal exactly as things stand. The composed cue counts **2**, on the two
     elements' different triggers (strike seam vs `Health.Changed`), not on body-side margin.
   - **"Yes, close it"** — bar-legal **only if** something gives the body a **second failure domain**, and **no such
@@ -1104,13 +1142,28 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   >
   > **And the floor is BOUNDED, not unconditional.** It holds *while the player holds position, under enemy
   > recession only*. The player is the fastest mover in the game (`runSpeed 9.5f` vs boar `chaseSpeed 3.2f`), and a
-  > full-speed 3.9 s disengage puts `sp.z` at **42.58 m** (pitch 55°) / **53.97 m** (pitch 8°) — past the const, so
-  > the row **is** suppressed. That is §4.2's stated purpose (*"a row can never outlive its fight"*), **not** a
-  > defect: record the bound with the number, never *"it never suppresses an armed row"* unqualified.
+  > full-speed 3.9 s disengage puts `sp.z` at **42.58 m** (**`d = 26 u`** × pitch 55°) / **53.97 m** (**`d = 26 u`**
+  > × pitch 8°) — past the const, so the row **is** suppressed. That is §4.2's stated purpose (*"a row can never
+  > outlive its fight"*), **not** a defect: record the bound with the number, never *"it never suppresses an armed
+  > row"* unqualified. **⚠ Those two figures require max zoom and a draft of this entry named only their pitch**
+  > (Devon, PR #406 review N9) — at the **default 14 u × 55°** camera the same disengage peaks at **30.58 m** and
+  > the guard does not fire at all. **Both axes, on every quoted figure, including in this log.**
 
   The old *"a fleeing bleeder should not leave a pill dancing on the horizon"* rationale is **retired**: it is a
   subordination claim the cap cannot deliver at any value, and there is no flee state for it to describe.
-  (`enemy-hp-read-spec.md` §14.3 / §4.2 / §8 / §9; Devon, PR #406 review M1 + M4.)
+
+  > **🔴 The rule extends past DERIVATION to every QUOTED figure — and the instruction a human acts on is where it
+  > costs most.** This defect class was caught **four times on one PR**: M1 (frame unstated), M4 (band unswept),
+  > N9 (§10(b2)'s soak instruction), and once more inside this very entry (above). The last two are the instructive
+  > pair, because in both the *arithmetic was already correct* — only the population it was quoted over went
+  > unnamed. **§10(b2) told the Sponsor a row would vanish, using figures that require `d = 26 u`, while the
+  > out-of-the-box camera is 14 u — where the row correctly does NOT vanish.** He would have run the instruction at
+  > default framing, seen correct behaviour, and filed it as a defect: **the exact false-defect report that bullet
+  > exists to prevent, produced by the bullet itself.** Generalised: **a figure handed to a human to act on must
+  > name every axis of the state it was computed at, and must say what the OTHER outcome looks like and that it is
+  > also correct.** A soak instruction that can only be run wrong is a worse artefact than no instruction.
+
+  (`enemy-hp-read-spec.md` §14.3 / §4.2 / §8 / §9 / §10(b2); Devon, PR #406 review M1 + M4 + N9.)
 - **Decision draft (process, generalisable beyond this element):** **A guard const gets a two-sided test — assert
   it suppresses far AND assert it never suppresses the case the feature exists for — and the "never" side must
   sweep EVERY player-driven axis its worst case depends on, or it is one-sided in a hidden dimension.** The `12f`
@@ -1136,7 +1189,7 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   > **🔴 A draft of this entry credited the body with THREE independent failure domains** (`_HitFlash` material
   > property / flinch part transforms / dust particle system). **Withdrawn** — those are LEAF names, the exact
   > granularity C2's tie-breaker forbids; all three fire from one dispatch that `86caxjwb3`'s AC1 **mandates**, so
-  > the body is **one** domain (`enemy-hit-feedback-spec.md` §16.5, PR #413). Do not record "with margin".
+  > the body is **one** domain (`enemy-hit-feedback-spec.md` §16.5 at `29bbc50`). Do not record "with margin".
   > **Consequence to carry into `DECISIONS.md`: §3.1's strike-armed trigger is load-bearing for the composed
   > count.** Re-plumbing the pip row's ARM onto `Health.Changed` would look like a harmless refactor and would
   > collapse the composed cue to **1**. Comment the arm site with that reason.
@@ -1166,7 +1219,7 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   naming it over-proves (nulling `Health` removes damage entirely). **Therefore:** the arm site carries a comment
   naming the bar-#10 reason, and any future refactor that moves ARM to a `Health` subscription is a bar-#10
   regression requiring a re-audit, not a tidy-up. (`enemy-hp-read-spec.md` §3.1 / §15.4;
-  `enemy-hit-feedback-spec.md` §16.5 / §16.8, PR #413.)
+  `enemy-hit-feedback-spec.md` §16.5 / §16.8 at `29bbc50`.)
 - **Decision draft (process, generalisable):** **When two sibling specs audit the same composed cue against the
   same bar, a withdrawal in one must be mirrored into the other BEFORE either merges — a finding filed against a
   sibling doc is not a fix to it.** `enemy-hit-feedback-spec.md` §16.5/§16.8 withdrew this spec's §15.4
@@ -1179,6 +1232,22 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   which states the finding and correctly declines to make the edit: *"this is a finding against it, not an edit to
   it — I do not edit a sibling doc from this branch. Whoever lands second reconciles."* **This spec lands the
   reconciliation from its own branch, so merge order no longer decides whether the contradiction ships.**)
+- **Decision draft (process, NEW — the mirror rule's own failure mode, hit twice in one PR):** **A cross-doc mirror
+  must cite the sibling's SHA, not just its section number — and the mirror obligation is RE-INCURRED whenever the
+  originating finding is RE-FRAMED, not only when its verdict changes.** `dc1fea5` mirrored
+  `enemy-hit-feedback-spec.md` §16.5 faithfully **at `f4982a0`** and was verified faithful by review. Four hours
+  later `29bbc50` **withdrew the framing** — same count, different reasoning — and three clauses in this file went
+  stale, one of them (*"so the two documents agree"*) turning **actively false** while every number in it stayed
+  correct. **Neither doc's own gate could see it:** both are doc-only, `docs-markup` is the only check, and the
+  count — the thing the mirror rule was written to protect — never moved. Two rules come out of it: **(a)
+  SHA-PIN.** *"§16.5 (PR #413)"* cannot go stale visibly; *"§16.5 at `29bbc50`"* can, and a reviewer diffing two
+  shas sees it in seconds instead of waiting for the sibling's author to notice (Devon, PR #406 review N10). Every
+  sibling citation in this file now carries the sha. **(b) MIRROR THE RE-FRAME, and mirror it at the width you can
+  defend.** A re-framed finding is a new finding. But mirroring an argument whose blast radius into your own
+  evidence sentences has not been assessed is **the merge-order trap one level in** — so the correct minimum is:
+  state the sibling's position, pin the sha, adopt only what is reading-agnostic (here: the **count**), and record
+  the residue with its trigger (§15.4's *"Owed ONCE"* note). **Two documents that visibly decline to restate each
+  other are honest; two that claim agreement they no longer have are not.**
 
 ---
 
@@ -1611,12 +1680,22 @@ counted as coverage**. It is written down so whichever ticket lands second inher
 re-deriving it.
 
 > **🔴 The prediction is CONFIRMED — and it does NOT mean the body has three failure domains.** The sibling audit
-> (`enemy-hit-feedback-spec.md` §16.5, PR #413) ran exactly this procedure and the **resource enumeration returns
-> 3**, which is what (iii) is for: it demonstrates (ii)'s output space is not a singleton. **But C2's
-> *tie-breaker* — nearest common dependency, never a leaf property — returns 1** on the body, because all three
-> channels fire from the one gated `Health.Changed` dispatch that `86caxjwb3`'s AC1 mandates. **This is the first
-> case in the project where C2's two halves diverge, the bar does not say which governs, and §16.5 adopts 1** and
-> escalates the gap as a `/name-the-bar` candidate. **This spec adopts the same reading.**
+> (`enemy-hit-feedback-spec.md` §16.5, **at `29bbc50`** — PR #413, merged) ran **(ii)'s procedure** on the body and
+> the **resource enumeration returns 3**, which is what (iii) is for: it demonstrates (ii)'s output space is not a
+> singleton. **But C2's *tie-breaker* — nearest common dependency, never a leaf property — returns 1** on the body,
+> because all three channels fire from the one gated `Health.Changed` dispatch that `86caxjwb3`'s AC1 mandates.
+> **§16.5 adopts 1, and this spec adopts the same COUNT.**
+>
+> ⚠ **The REASONING for that adoption is #413's to state, it is stated in full at `29bbc50` §16.5, and this file
+> deliberately does not carry it.** An earlier version of this blockquote said the case was *"the first in the
+> project where C2's two halves diverge"* and that *"the bar does not say which governs."* **`29bbc50` WITHDREW
+> that framing as under-stated** (merged; independently re-reviewed **APPROVE** 2026-08-01), and its replacement
+> argument reaches back into **(ii) above** — so restating it here would be an edit to this spec's own evidence
+> sentences, not a mirror. **This file pins the sha and takes the count only.** See §15.4's mirror note for what
+> the fuller reconciliation would take and when it is owed. **Nothing downstream moves either way: for the pip row
+> this spec establishes 1 TWICE INDEPENDENTLY** — by the tie-breaker at the *"named dependency is the row RECORD"*
+> paragraph above, and by (ii)'s enumeration — **so no verdict in §15 rests on which procedure C2 owns.**
+>
 > So read (iii) narrowly, as what it actually is: **a control on the PROCEDURE, not a domain count for the body.**
 > §15.4's composed-cue count is corrected accordingly, and the withdrawn three-domain table is struck there.
 
@@ -1644,18 +1723,34 @@ channel count. §9 labels it as such.
 > mandates** that they do (*"fire from `Health.Changed` on a damage delta, never from the attacker. One shared
 > path for every enemy… No `BoarEnemy` / `SnakeEnemy` branches"*), with a magnitude gate and a refractory on top of
 > it. That is literally one of the four shared-domain forms C2 enumerates. ⇒ **the body read is count = 1.**
-> **Source: `enemy-hit-feedback-spec.md` §16.5 / §16.8 (PR #413), the sibling audit of the same bar.** The
+> **Source: `enemy-hit-feedback-spec.md` §16.5 / §16.8 at `29bbc50` (PR #413, merged), the sibling audit of the same bar.** The
 > withdrawal is mirrored here rather than left to merge order, because a three-domain credit in this file and a
 > one-domain finding in that one would be a live contradiction the moment either lands.
 >
-> **⚠ C2's two halves genuinely DISAGREE on the body, and that gap is escalated, not resolved here.** §15.3(ii)'s
-> **resource enumeration** run on the body returns **three** resources each killing exactly one channel — which
-> **confirms** §15.3(iii)'s control prediction. C2's **tie-breaker** returns **one**. For the pip-row both
-> returned 1, so §15 never had to choose; the body is the first case in this project where they diverge.
-> **§16.5 adopts 1** (the tie-breaker's *"never a leaf property"* is unambiguous; the shared dispatch is
-> architectural because AC1 requires it; and when a bar is silent, taking the reading that makes one's own spec
-> pass is the bar-gaming its history section warns against) and files the gap as a `/name-the-bar` candidate.
-> **This spec adopts the same reading, for the same reasons, so the two documents agree.**
+> **⚠ Two procedures, two answers on the body — and this spec pins the sibling's SHA rather than restating its
+> argument.** §15.3(ii)'s **resource enumeration** run on the body returns **three** resources each killing exactly
+> one channel — which **confirms** §15.3(iii)'s control prediction. C2's **tie-breaker** returns **one**. For the
+> pip-row both return 1, so §15 never had to choose. **`enemy-hit-feedback-spec.md` §16.5 at `29bbc50` adopts 1.
+> This spec adopts the same COUNT — and does not adopt, restate, or contradict its reasoning.**
+>
+> **Why the mirror is deliberately PARTIAL, and what is still owed.** `dc1fea5` mirrored §16.5 at **`f4982a0`**,
+> which framed this as *"C2's two halves diverge and the bar is silent."* At **`29bbc50`** (merged; independently
+> re-reviewed **APPROVE** 2026-08-01) §16.5 **withdrew that framing as UNDER-stated** and replaced it with a
+> stronger claim: that the enumeration procedure is **§15.3(ii)'s own construction rather than something C2's text
+> defines**, so the two halves never diverged — *"one of them is not C2."* **That claim has a blast radius into
+> THIS file that no reviewer has yet assessed:** §15.3(ii) attributes its procedure to C2, and **§9's
+> per-resource-null assert** and **§10(b)'s *"what converges C2 is §9's per-resource null assert"*** both rest on
+> that attribution. Re-anchoring those onto the tie-breaker is a real edit to this spec's evidence sentences, not a
+> two-clause mirror — and mirroring it inside this PR would import an argument whose consequences here nobody has
+> checked. **So this file states the sibling's position, pins the sha, and stops.** The two documents agree on
+> every **count** and are visibly not restating each other's **reasoning**; that disagreement is now on the page
+> instead of hidden behind a claim of agreement.
+>
+> **Owed ONCE, and only on a stated trigger:** `29bbc50` §16.5 names its own overturning condition — *the bar
+> **ADOPTING** the resource enumeration as a defined C2 procedure, which would be an **amendment**, not a
+> clarification, and §16 does not propose it.* **If `quality-bars.md` Bar 10 is ever amended that way**, re-anchor
+> §15.3(ii) / §9 / §10(b)'s C2 attributions in one pass. Filed at §13.1. **Nothing in this spec's verdict waits on
+> it — the pip row counts 1 under both procedures and the composed cue counts 2 under both.**
 
 **The corrected composed count.** The composed enemy-damage cue still passes ≥2 — but on a **different and much
 tighter** basis than the withdrawn table gave:
@@ -1785,7 +1880,7 @@ what the bar asks for; not hidden inside a count of three.**
   `.claude/docs/unity6-mastery.md` §2 (GRD / no MPB) / §5-§6 (no alloc or Find in hot paths).
 - **Uma specs:** **`enemy-hit-feedback-spec.md`** (the sibling body read — `86caxjwb3`; its **§1.3 amends this
   spec's §3.2** extinguish rule, its **§10** owns `enemy_hit_flash_seconds`, and its §13 extinguish draft is the
-  same entry as this doc's — **and its §16.5 / §16.8 (PR #413) WITHDRAW this spec's §15.4 three-domain credit and
+  same entry as this doc's — **and its §16.5 / §16.8 at `29bbc50` (PR #413, merged) WITHDRAW this spec's §15.4 three-domain credit and
   its "body-read-only-forever is bar-#10-legal" claim; that withdrawal is MIRRORED here** at §15.3(iii), §15.4,
   §11 Q10, §10(b) and §13.1, so the two docs cannot merge contradicting each other on the bar-#10 count) · `hp-hud-polish-spec.md` §6 (the merged parent this implements + corrects) ·
   `§2.3`/`§2.4` (the player-side wince + DoT debounce the enemy side deliberately does NOT copy) ·
