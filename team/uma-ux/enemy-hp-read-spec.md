@@ -4,6 +4,24 @@
 **Owner (impl):** Drew · **Reviewer:** Devon · **Spec author:** Uma · **Lane:** Unity-build, `needs-soak`.
 **Work-type:** spec (design-only; no code in this PR).
 
+**📌 Every source claim, diff range and px figure in this doc is pinned to `bf33b655e4953478549f4f74c5a692c39ee3c8f9`**
+(the tip of `origin/main` when this revision was authored, 2026-08-01) — **never to the moving ref `origin/main`**.
+A magnitude claim written against a moving ref self-falsifies the moment the ref advances, which is the failure this
+pin exists to prevent. Re-resolve before relying on any figure after that SHA. Where this doc cites a `file.cs:NN`
+line number it was **re-verified at that SHA**; for anything ADDED in this revision the citation is the **symbol**,
+per `quality-bars.md` § Bar 10's *"Cite the SYMBOL, never the line number"* rule.
+
+> **🔄 REVISION 2026-08-01 — what changed and why.** Bar #10 moved under this spec after it merged (PR #371,
+> `59a6e53`): **PR #380** `90d024b` added the variance clause, **PR #386** `0f14b4f` added checks **C1–C4**, and
+> **PR #395** `aeeafa0` moved the standard out of the Bars-table row into its own section (the cell went
+> **2,523 → 423 characters**). This revision re-audits the spec against the amended standard and adds two sections:
+> **§14** (readability at the canonical gameplay framing — the px figures the spec previously asserted only as
+> *"reads at orbit distance"*) and **§15** (the bar #10 C1–C4 audit). It **withdraws** §0's *"satisfied three times
+> over"* claim and corrects §10(b). **No design decision in §1–§13 is reversed by this revision** — §14 tightens one
+> const (`MaxDrawDistance`) and surfaces one new Sponsor question (the snake's size relative to the pill); §15
+> reframes what the element can claim on its own. The §2 balance arithmetic, the §3 state machine, the §4
+> arbitration and the §5 amplitude budget all stand unchanged.
+
 > **⛔ This doc does NOT un-defer the ticket.** `86caxhfg2` is sequenced behind **`86caxjwb3`** (enemy body-level
 > hit feedback — `_HitFlash` + flinch + the pooled dust puff) by Sponsor decision 2026-07-27, and the
 > *exists-at-all* question is settled at **that** ticket's soak (its AC6(c)), not here. This spec answers the
@@ -34,12 +52,18 @@ above) · [`combat-cluster-design-brief.md`](combat-cluster-design-brief.md) §1
 this spec extends to enemy heads) · [`style-guide-v2.md`](style-guide-v2.md) §6 (the bone anchor `#CFC6AD`,
 sub-1.0 palette, the HUD-plate-over-saturated-green watch item) · [`hud-three-bar-spec.md`](hud-three-bar-spec.md)
 (the segment/plate grammar) · `.claude/docs/game-juice.md` §0/§1/§2 (every amplitude cap here) ·
-`team/quality-bars.md` **#2 / #7 / #9 / #10**.
+`team/quality-bars.md` **#2 / #7 / #9 / #10** — specifically § ***"Bar 10 — the standard in full, and the four
+checks (`86caz5na6` + `86cazhjw4`, 2026-07-31)"*** and its sub-§ ***"The default gameplay framing — the one framing
+a magnitude claim may be stated against"***, which supplies **every** px-per-metre figure in §14 (**cited, never
+re-derived** — see §14.1).
 
 **Board (looked at the images, not the prose):** `inspiration/2026-06-12_21h16_13.png` and
 `inspiration/2026-06-12_21h13_31.png`. Both confirm the value story this spec rests on — the world is **high-key**:
-bright saturated grass (near-white in the sun), mid-value canopies, bright blue sky. There is almost **no dark
-value anywhere in frame**. That is why the dark plate is the load-bearing element: it is the rarest value in the
+bright saturated grass (near-white in the sun), mid-value canopies, bright blue sky. **Nothing in either frame
+approaches near-black** *(⚠ this sentence previously read "there is almost **no dark value anywhere in frame**" —
+corrected 2026-08-01 on a re-look: the frames carry a LOT of mid-dark tree/mountain shadow, and shadow is the
+plate's real competitor. See **§14.5**, which keeps the conclusion and fixes the reasoning.)* That is why the dark
+plate is the load-bearing element: it is the rarest value in the
 world, so a small dark chip reads instantly as *"this is UI, and it belongs to that body"* against grass, canopy
 AND sky, and a pale bone pip on it holds at orbit distance where any mid-value hue would be eaten by the green.
 It is also why the plate must stay **small** — a dark rectangle is the most alien thing this world can show.
@@ -60,16 +84,36 @@ itself. The body answers *"did I connect?"*; the pip-row answers *"is it nearly 
 question earns UI. **If a beat makes the pip-row the brightest or fastest thing in the frame on an impact, cut
 the beat, not the body.**
 
-**The load-bearing call of this spec:** the row reads on **FORM + POSITION + VALUE**, never on hue or motion —
-five discrete blocks (form), locked to that creature's own head (position), pale-on-dark (value). Quality-bar #10
-is satisfied three times over and the desaturation check passes by construction, because **there is no hue in the
-element at all**.
+**The load-bearing call of this spec:** the row reads on **FORM + VALUE**, never on hue or motion — five discrete
+blocks (form) that are pale-on-dark (value). The desaturation check passes by construction, because **there is no
+hue in the element at all**.
+
+> **🔴 CORRECTED 2026-08-01 (`86caxhfg2` revision) — this paragraph previously read "FORM + POSITION + VALUE …
+> quality-bar #10 is satisfied three times over," and that claim is WITHDRAWN.** It was written against bar #10 as
+> it stood at PR #339 / `e13a51e`; the bar has since been amended twice (**PR #380 `90d024b`** added the variance
+> clause, **PR #386 `0f14b4f`** added checks C1–C4, **PR #395 `aeeafa0`** dieted the row into
+> `team/quality-bars.md` § *"Bar 10 — the standard in full, and the four checks (`86caz5na6` + `86cazhjw4`,
+> 2026-07-31)"*). Re-audited against the amended standard in **§15**, the count is **not three**:
+> **POSITION does not vary with the read this element delivers** (a nearly-dead enemy's row sits in exactly the
+> same place as a barely-scratched one's — Δ = **0.00 px**), so it is struck by the bar's own variance clause; and
+> **FORM and VALUE share one failure domain**, so C2 collapses them to **one counted channel**. The honest verdict
+> is in **§15.4**: *the pip-row alone does not meet ≥2 — the enemy-damage cue meets it only as pip-row + body
+> read.* That is a structural ratification of the Sponsor's sequencing decision, not an argument against the
+> element. **Read §15 before quoting any channel count from this doc.**
 
 ---
 
-## 1. Ground truth (read from `origin/main`, quoted not inferred)
+## 1. Ground truth (read at `bf33b65`, quoted not inferred)
 
-Every value below was read during this spec's authoring. Four of them change what the ticket assumes.
+Every value below was read during this spec's authoring and **re-verified at
+`bf33b655e4953478549f4f74c5a692c39ee3c8f9`** on 2026-08-01. Four of them change what the ticket assumes.
+
+> **The heading previously read *"read from `origin/main`"* — corrected 2026-08-01.** `origin/main` is a **moving
+> ref**: a claim written against it is true only until the next merge and cannot be re-checked afterwards, because
+> the reader has no way to know which tree the author saw. Every `file.cs:NN` in §1.1/§1.2 still resolves at the
+> pinned SHA (spot-checked: `LootPrompt` `:62` `:65` `:69` `:70` `:72` `:174` `:191-192`; `SurvivalHud` `:44` `:83`
+> `:84` `:343` `:361`), but **line numbers drift** — bar #10's own history records four citations shifting when
+> PR #379 merged. For anything added after this date, **cite the symbol**.
 
 ### 1.1 The anchor path (verified)
 
@@ -348,8 +392,13 @@ that names nothing — pure noise, and tonally the worst thing this element can 
 - hide when `sp.z <= 0` (behind camera — AC2/AC5, verbatim from `LootPrompt.cs:176`);
 - hide when the **anchor** projects outside `[0, Screen.width] × [0, Screen.height]`;
 - otherwise **clamp the pill RECT** inside `ScreenMargin = 8f` so it never spills (AC5's clamp test).
-- Cheap robustness guard: hide beyond `MaxDrawDistance = 40 m` — a fleeing bleeder should not leave a pill
+- Cheap robustness guard: hide beyond **`MaxDrawDistance = 12 m`** — a fleeing bleeder should not leave a pill
   dancing on the horizon. A `const`, not a dial (§8).
+  > **🔴 CORRECTED 2026-08-01: was `40 m`, which did not achieve what it was written for.** At 40 m the 64 px pill
+  > is **5.7× the boar's on-screen height and 22.3× the snake's** — the dancing pill, not its prevention. **12 m**
+  > is the snake's binding subordination distance (`8.19 px × 14 / 10 px = 11.47 m`) rounded up, and it covers
+  > every distance combat happens at (camera orbits at 14 u; longest melee reach is the spear's 3.6 m). Full
+  > arithmetic and the two crossover rules: **§14.3**. Sponsor veto path: **§11 Q9**.
 
 Express as one pure static predicate so AC5 asserts it with no scene rig:
 `bool TryResolveRowRect(Vector3 sp, float screenW, float screenH, float rowW, float rowH, float gapPx, float extraUpPx, out Rect rect)`.
@@ -519,6 +568,11 @@ otherwise have to compute, published so two implementations cannot disagree.
 **Fixed pixel size at every distance** — no distance scaling. A distance-scaled row is unreadable far away and
 oversized in close melee; a fixed 64 × 10 chip is a stable, learnable object.
 
+> **⚠ This rule has a measured cost, quantified 2026-08-01 in §14.3: the pill does not shrink with its subject, so
+> over a SNAKE it is 1.22× the animal's on-screen height at the default framing.** The rule is NOT changed here —
+> the mitigation is `MaxDrawDistance` (§4.2) — but option **(C)** in **§11 Q8** would overturn it, and that is the
+> Sponsor's call to make, not this doc's. If he takes (C), this paragraph is what gets rewritten.
+
 **Primitive discipline (cite when implementing):** pure IMGUI `GUI.DrawTexture(rect, Texture2D.whiteTexture)`
 with `GUI.color`, explicit `Rect`s only, `useGUILayout = false` — the `BootHud`/`SurvivalHud`/`LootPrompt` idiom.
 **No** world-space Canvas, **no** UI-Toolkit panel, **no** billboard mesh, **no** second projection helper, **no**
@@ -576,7 +630,8 @@ extinguish-suppression window (§7). This spec **mints nothing for it**, so the 
 that id does not ship, use the code const `BodyFlashSuppressSeconds = 0.08f` (§7) — never a third registry id.
 
 **Do NOT mint further ids.** These are **code consts**, deliberately: `MaxRows = 3`, `DrainMinAlpha = 0.35f`,
-`HeadClearance = 0.25f`, `StatusBandH = 26f`, `MaxDrawDistance = 40f`, `FadeInSeconds = 0.12f`,
+`HeadClearance = 0.25f`, `StatusBandH = 26f`, **`MaxDrawDistance = 12f`** (⚠ **was `40f`** — corrected 2026-08-01,
+derivation in **§14.3**, comment the const with it), `FadeInSeconds = 0.12f`,
 `FadeOutSeconds = 0.4f`, and the §7 fallback `BodyFlashSuppressSeconds = 0.08f` (used only if
 `enemy_hit_flash_seconds` is absent). Rationale: the ticket's two-id budget is part of its M-sizing, and every one of these is
 a structural constant the Sponsor has no reason to dial — the two things he *will* want to dial (how long it
@@ -613,8 +668,42 @@ lingers, whether it exists) are exactly the two ids above.
 - **Never displaces the interaction pill.** With a loot prompt and a pip-row both eligible, the pill's rect is
   byte-identical to its no-pip-row rect.
 
+**Added by the 2026-08-01 revision (§14 + §15):**
+
+- **C2 injection — the one-channel verdict must be DEMONSTRATED, not asserted (§15.3).** Setting
+  `enemy_hp_pips_enabled = false` (and, separately, forcing `TryResolveRowRect` to return `false`) must remove
+  **both** the lit-pip count **and** the draining-pip alpha in one step. Per C2, *"where a count is contested,
+  settle it by INJECTION, not by naming"* — this assert **is** the evidence for §15.3's `count = 1`, and a future
+  reviewer who wants to contest it has a test to point at.
+- **CH1's degenerate case and CH2's coverage of it (§15.2), as a pure-function assert.** At `Current01` 0.399 and
+  0.201 the lit-pip count is **identical** — `FloorToInt(0.399 × 5) = FloorToInt(1.995) = 1` and
+  `FloorToInt(0.201 × 5) = FloorToInt(1.005) = 1`, so FORM Δ = 0 — while `rem` runs **0.995 → 0.005**, so `drainA`
+  differs by **0.65 × 0.99 = 0.6435**. *(Note the ×5: `rem = f × 5 − whole`, so a 0.198 swing in `Current01` is a
+  **0.99** swing in `rem`, not 0.198. The pip bucket is 20 % of max HP wide, which is the whole reason CH2 has room
+  to work in.)* Assert both halves in one test: `filled` equal, `drainA` strictly different.
+  *(This is the test that pins WHY the draining pip is not optional — delete it and §2.3's whole argument becomes
+  unenforced.)*
+- **Pill/pip geometry is arithmetic, so pin it as arithmetic.** `5 × PipW + 4 × Gap == 58` and
+  `(PillW − 58) / 2 == 3` — a pure assert that fails loudly if anyone later re-tunes `PillW` without re-deriving
+  the padding (§15.2 / §7).
+- **`MaxDrawDistance` (§14.3).** Assert the const is **12 m**, and that a target beyond it resolves to no row.
+  A comment on the const must carry the derivation (`8.19 px × 14 / 10 px = 11.47 m`, the snake's binding case) so
+  a future tuner sees WHY before moving it — the bar's *"express the floor as an expression over the framing table,
+  not a bare literal"* discipline applied to a const.
+
 **Shipped-build capture (windowed)** — ticket AC5's list, plus one: **(f)** two damaged enemies on screen at once
 showing two non-overlapping rows, each visually attributable to its own body.
+
+> **Capture (f) is doing triple duty — say so in the Self-Test Report (§15.1 / §15.5).** It is the AC5 multi-row
+> evidence **and** bar #10's **C3 step-1 comparison pair** **and** **C4's `cue_pair.png`**. Two conditions it must
+> meet that the original one-line wording did not state: the two enemies must be at **visibly different HP levels**
+> (a pair at the same HP evidences attribution but not the read), and the capture must be at the **stated default
+> gameplay framing** — 55° / 14 u / FOV 45 / 1280 × 720 — with both bodies inside the frustum. C4's production half
+> is mechanically gateable even though its verdict is human; a capture at a favourable framing is the
+> `-verifyPond`-green-on-a-mound failure applied to the instrument. **Include at least one SNAKE row in the capture
+> set** — §14.3's finding is snake-specific and a boar-only capture cannot show it. **And include one row over an animal standing in TREE
+SHADOW** — §14.5: the plate's competitor is shadow, not sunlit grass, and a sunlit-only capture evidences the easy
+case only.
 
 ---
 
@@ -631,9 +720,20 @@ a red bar, or anything hovering over a creature I have not engaged."*
 **(b) Bounded convergence claim.** Bars **tested**: **#7** (per-tier hold, three tiers), **#2** (eased fade,
 never linear), **#9** (matchup legibility — the element must not become a substitute for the emergent reach /
 weakness read; §2.3's proportional drain should *strengthen* it by making "the spear does more" visible without a
-word), **#10** (≥2 hue-independent channels — form + position + value; desaturate the capture and the read must
-survive intact). Bars **NOT tested**: **#1**, **#3**, **#4**, **#5**, **#6**, **#8** — no world, mesh, material,
-weapon-sizing or nudge-tool surface is touched.
+word), **#10** — **see the corrected claim below**. Bars **NOT tested**: **#1**, **#3**, **#4**, **#5**, **#6**,
+**#8** — no world, mesh, material, weapon-sizing or nudge-tool surface is touched.
+
+> **🔴 CORRECTED 2026-08-01 — the bar-#10 line above previously read "≥2 hue-independent channels — form + position
+> + value; desaturate the capture and the read must survive intact," and that is now bounded three ways by §15.**
+> **(i)** POSITION is **struck** for the HP read (Δ = 0.00 px — it does not vary with HP). **(ii)** FORM and VALUE
+> share one failure domain, so C2 counts them as **one** — **the pip-row alone does NOT meet ≥2**; the enemy-damage
+> cue meets it only as **pip-row + body read** (§15.4). **(iii)** Of the bar's four checks, this soak exercises
+> **C1** (magnitudes stated, §15.2), **C2** (by the injection assert in §9) and **C3** (step-1 pair, capture (f));
+> **C4 is unbuilt project-wide** and its human half (*"point at the animal that's closest to going down"*) is owed,
+> not delivered. **Desaturate** stays required and passes by construction (no hue in the element).
+> **The bounded claim is therefore: this soak converges #2, #7, #9, and #10's C1/C2/C3 + desaturate for the
+> composed pip-row-plus-body cue — and converges NOTHING for the pip-row in isolation, which is a known
+> one-channel element by design.** Do not quote a #10 PASS from this soak without that qualifier.
 
 **(c) The exists-at-all question is NOT judged here.** It is settled at `86caxjwb3`'s soak (its AC6(c)). This
 soak judges execution: hold timing, form, colour, arbitration, and whether the row stays quieter than the body.
@@ -666,6 +766,37 @@ defensible outcome.
   cap fine because natural concurrency is 1–2?
 - **Q7 — 5 pips while the player's own bar is still 10 (§1.4).** Only relevant if this ships before
   `86cah7z2q`. Reads as hierarchy (recommended interpretation) or as an inconsistency?
+
+**Added by the 2026-08-01 revision:**
+
+- **🔴 Q8 — THE SNAKE. The pill is bigger than the animal, at the framing you fight it (§14.3).** Measured: the
+  snake's whole on-screen body is **8.19 px** tall at the default framing; the pill is **10 px** tall and **64 px**
+  wide — **1.22× the snake's height and 7.81× it in width.** The boar is fine (0.31× / 2.00×). **This is a look
+  call and I am deliberately not making it.** Three options, trade-offs stated, **no recommendation**:
+  - **(A) Ship it as spec'd, one size for every enemy.** *For:* one learnable object, zero new code, AC2's
+    "no per-enemy branch" untouched, and the row is transient so the oversize moment is ≤2.5 s. *Against:* over a
+    snake the UI is visibly the larger object — the exact inversion of §0's *"smaller than the body it sits above"*
+    gate, on the enemy the player meets first.
+  - **(B) Shrink the pill for everyone** — e.g. `48 × 8` with `7 × 5` pips (run `5×7 + 4×2 = 43`, 2.5 px padding).
+    *For:* fixes the snake by making the element quieter everywhere, which is tonally the direction §0 already
+    points. *Against:* the pip drops 10 → 7 px wide and 6 → 5 px tall; §15.2's smallest FORM delta falls from
+    **10 px to 7 px**, still above every candidate floor but with less margin, and §14.4's "a 4 px pip is not a
+    block" argument gets closer to biting.
+  - **(C) Scale the pill to the body's on-screen size** (one multiplier from the cached §4.1 bounds, computed once
+    per arm — no per-enemy branch, so AC2 survives). *For:* the row is always subordinate to its own animal, at
+    every distance, by construction; it would also retire `MaxDrawDistance` entirely. *Against:* it breaks §7's
+    **"fixed pixel size at every distance"** rule, which exists so the element is a stable learnable object; a
+    snake's row would be visibly smaller than a boar's, and at the low end the pips approach the 4 px unreadable
+    figure §1.4 rejected. **This one contradicts a rule this spec already made, so it needs his explicit call, not
+    mine.**
+- **Q9 — `MaxDrawDistance` 40 m → 12 m (§14.3).** The arithmetic is not a taste question (at 40 m the pill is
+  5.7× the boar's on-screen height and 22.3× the snake's), so this is spec'd rather than asked. Surfaced only so he
+  can veto: **is there any moment he wants to see an HP row on an animal 12–40 m away** — a fleeing wounded boar,
+  say? If yes, the cap moves and Q8(C) becomes the only way to keep it subordinate.
+- **Q10 — the one-channel verdict (§15.4).** Not a request for a decision, an FYI he may want to weigh at
+  `86caxjwb3`'s soak: **"body-read-only-forever" is a bar-#10-legal outcome; "pip-row-only" never was.** If the body
+  read alone answers *"is it nearly down?"*, closing this ticket is now the better-supported outcome of the two,
+  not merely an acceptable one.
 
 ---
 
@@ -745,6 +876,344 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   not, 5-vs-10 reads as correct hierarchy (yours detailed, theirs coarse). The count is geometry-forced
   regardless. (`enemy-hp-read-spec.md` §1.4.)
 
+### 13.1 Decision drafts ADDED by the 2026-08-01 revision (§14 + §15)
+
+- **Decision draft:** The pip-row's **`MaxDrawDistance` moves 40 m → 12 m** (a code const, still not a registry
+  id). At 40 m the 64 px pill is **5.7× the boar's on-screen height and 22.3× the snake's** — an orphan plate that
+  dominates the animal it is supposed to be subordinate to, which contradicts §0's own *"smaller than the body it
+  sits above"* gate. The binding figure is the **snake at 11.47 m** (§14.3): beyond that the 10 px pill is taller
+  than the snake's whole on-screen body. 12 m is the rounded value; it comfortably covers melee reach (spear 3.6 m
+  from a player the camera orbits at 14 u). The old 40 m was justified only as *"a fleeing bleeder should not leave
+  a pill dancing on the horizon"* — true, but unquantified, and 40 m does not achieve it.
+  (`enemy-hp-read-spec.md` §14.3.)
+- **Decision draft:** **The pip-row is a SINGLE counted channel under bar #10's C2**, not three and not two. FORM
+  (lit-pip count) and VALUE (draining-pip alpha) are different axes and genuinely complementary — VALUE carries
+  exactly the sub-pip hits where FORM's delta is **0.00 px** — but they are written by the same `OnGUI` draw loop
+  over the same row record behind the same resolve predicate and the same `enemy_hp_pips_enabled` gate, so C2's
+  nearest-common-dependency rule counts them as **one**. POSITION is struck separately, by the variance clause:
+  it does not differ between a nearly-dead and a barely-scratched enemy. **The enemy-damage cue meets ≥2 only as
+  pip-row + body read** (`86caxjwb3`), whose `_HitFlash` (material property), flinch (part transforms) and dust
+  (particle system) are three further independent failure domains. **This makes the Sponsor's 2026-07-27 sequencing
+  decision a bar-#10 requirement, not only a tonal preference:** shipping the pip-row first would have made the
+  game's entire enemy-damage read a single-failure-domain cue, which bar #10 forbids.
+  (`enemy-hp-read-spec.md` §15; supersedes the *"satisfied three times over"* claim in the merged §0 at `59a6e53`.)
+- **Decision draft (cross-doc correction, for whoever owns `86caxjwb3`):**
+  `enemy-hit-feedback-spec.md` §1.1's division-of-labour table lists the pip row's channels as
+  *"form (block count) + position + value"*. **`position` should be struck from that cell** for the same reason it
+  is struck here — it is invariant with respect to the HP read. **Not edited by this PR** (that doc belongs to
+  `86caxjwb3`); filed so the correction lands with that ticket rather than being silently inconsistent.
+
+---
+
+## 14. Readability at the DEFAULT GAMEPLAY FRAMING (added 2026-08-01)
+
+Everywhere above, this spec justifies a size with the phrase *"at orbit distance"* — **"a 4 px chip is not a
+readable block at orbit distance"**, **"a pale bone pip … holds at orbit distance"**, **"a continuous fill at orbit
+distance is a dash"**. Those are the right instincts and **none of them carried a number**. This section supplies
+the numbers, and one of them contradicts §0's own gate.
+
+### 14.1 The framing figure is CITED, not re-derived
+
+The canonical framing and its scale live in **`team/quality-bars.md` § *"Bar 10 — the standard in full, and the
+four checks (`86caz5na6` + `86cazhjw4`, 2026-07-31)"* → *"The default gameplay framing — the one framing a
+magnitude claim may be stated against"*** (at `bf33b655e4953478549f4f74c5a692c39ee3c8f9`). Quoting it rather than
+rebuilding it is deliberate: **the ruler is not this doc's to re-derive**, and re-deriving it is how a spec ends up
+contradicting the bar it is being audited against.
+
+| Quantity | Value | Symbol |
+|---|---|---|
+| Orbit pitch | **55°** | `OrbitCamera.defaultPitch` (LOCKED; band `minPitch` 8° → `maxPitch` 70°) |
+| Orbit distance | **14 u** | `OrbitCamera.distance` (band `minDistance` **6 u** → `maxDistance` **26 u**) |
+| Vertical FOV | **45°** | the gameplay `cam.fieldOfView` set in `MovementCameraScene` |
+| Capture size | **1280 × 720** | `CaptureGate.captureWidth` / `.captureHeight` |
+| **Frame-plane scale** | **62.0798 px per world metre** | `720 / (2 × 14 × tan 22.5°)` — the bar's arithmetic |
+| **Foreshortened scale** (a world-VERTICAL extent, at pitch 55) | **35.6075 px per world metre** | `62.0798 × cos 55°` |
+
+**Quote the PAIR, never one number** — the bar's own rule. A body's *height* is a world-vertical extent and reads
+at **35.6075 px/m**; a body's *broadside length* is in the frame plane and reads at **62.0798 px/m** as an upper
+bound. Both appear below, labelled.
+
+> **One thing this section does NOT do: set C1's pixel floor.** The bar states plainly that the floor is unset and
+> lists three inputs that must be reconciled first (`frames_differ.py`'s `DEFAULT_MIN_FRAC` is an
+> area-fraction-of-subsampled-pixels, **≥ 26 samples of 51,360**, not a linear px floor; an area fraction *inverts*
+> C1's own scale rule; and any floor above **1.7804 px** reds `game-juice.md` §1's prescribed ±0.05 u float-bob
+> under at least one reading). **This spec does not pick a number.** It states its own magnitudes so a reviewer can
+> recompute them against whatever floor is eventually set — and notes in §15.2 that every channel here clears
+> **every** candidate floor discussed in the bar (1, 1.7804, 4 and 6.2080 px) by a wide margin, so the verdict does
+> not turn on the choice.
+
+### 14.2 The bodies, measured from source at `bf33b65`
+
+**Not inferred — read from the build constants.** Boar (`MovementCameraScene`, the `BuildBoar` const block):
+`BoarGroundClearance = 0.62f` (root pivot above ground) + `BoarBodyRadius = 0.28f` (body half-extent, body part
+authored at local zero) ⇒ **top of back 0.90 m**. Nose at `BoarHeadLength/2` beyond the head part's local
+`z = 0.72`, tail part at `z = −0.58` ⇒ **≈ 1.51 m** nose-to-tail. Snake: `SnakeNeckRadius = 0.115f` half-extent
+⇒ **0.23 m** tall lying on the ground; `SnakeHeadLength = 0.26f + SnakeLinkSpacing 0.14f × SnakeBodyLinks 12`
+⇒ **1.94 m** long *(that expression is the source's own log line, not this doc's arithmetic)*.
+
+| Body | Height on screen (foreshortened) | Height (frame-plane, upper bound) | Broadside length (frame-plane) |
+|---|---|---|---|
+| **Boar** (0.90 m tall, 1.51 m long) | **32.05 px** | 55.87 px | **93.74 px** |
+| **Snake** (0.23 m tall, 1.94 m long) | **8.19 px** | 14.28 px | **120.43 px** |
+
+*Arithmetic, shown: boar height `0.90 × 35.6075 = 32.047`; boar length `1.51 × 62.0798 = 93.74`; snake height
+`0.23 × 35.6075 = 8.190`; snake length `1.94 × 62.0798 = 120.43`.*
+
+> **Sanity anchor, with the bar's own caveat attached.** `OrbitCamera.cs:158` comments that this framing renders
+> the castaway at *"roughly 55x95 px in a 1280x720 frame."* The bar explicitly **withdraws** that comment as a
+> validation of the px/m model (95 px implies 1.5303 m frame-plane and 2.6680 m foreshortened; the second is
+> implausible, so the comment is evidence of how rough a source comment is, not a cross-check). It is quoted here
+> for the same limited purpose the bar allows: **a 64 px pill is wider than the player character's own ~55 px
+> on-screen width.** That is a rough comparison and is labelled as one — it is not load-bearing for anything below.
+
+### 14.3 🔴 The finding: the pill is NOT subordinate to the body at the distance the player fights
+
+§0's gate says the row must be *"dimmer, **smaller**, and slower to change than"* the body. Against the measured
+bodies, "smaller" does not hold:
+
+| | Pill W (64 px) ÷ body length | Pill H (10 px) ÷ body height | Pill W ÷ body height |
+|---|---|---|---|
+| **Boar** | 0.68× | 0.31× | **2.00×** |
+| **Snake** | 0.53× | **1.22×** | **7.81×** |
+
+**The snake is the hard case, and it fails at the framing the player actually plays at.** The 10 px pill is
+**1.22× taller than the snake's entire on-screen body** (10 ÷ 8.19). This is not a draw-distance problem that a cap
+can fix — it is true at 14 u, in melee, on the default camera. **A UI plate that is bigger than the animal it
+labels cannot read as belonging to that animal**; it reads as the animal belonging to it. Flagged to the Sponsor as
+**§11 Q8** with three options and **no recommendation made here** — this is a look call.
+
+**The boar is fine on height (0.31×) and fine on length (0.68×), but the pill is 2.00× the boar's on-screen
+height.** That is acceptable for a horizontal readout above a low quadruped and is *not* flagged as a defect — it
+is stated so nobody later "discovers" it and treats it as one.
+
+**Where the pill stops being subordinate at all** — scale falls as `14/d`, so the crossover distances are:
+
+| Body | Pill W = body on-screen length | Pill H = body on-screen height | **Binding** |
+|---|---|---|---|
+| **Boar** | 20.51 m | 44.87 m | **20.51 m** |
+| **Snake** | 26.35 m | **11.47 m** | **11.47 m** |
+
+*Arithmetic, shown (boar width rule): `93.74 px × 14 / 64 px = 20.51 m`. (Snake height rule):
+`8.19 px × 14 / 10 px = 11.47 m`.*
+
+**⇒ `MaxDrawDistance = 40f` (§4.2, §8) is far too generous and is corrected to `12f`.** At the old 40 m the pill is
+**5.7× the boar's on-screen height and 22.3× the snake's** (boar `0.90 × 35.6075 × 14/40 = 11.22 px`, so
+`64 / 11.22 = 5.70`; snake `0.23 × 35.6075 × 14/40 = 2.87 px`, so `64 / 2.87 = 22.3`) — precisely the *"pill dancing
+on the horizon"* the const was written to prevent, which it does not prevent. **12 m** is the snake's binding
+11.47 m rounded up, and it comfortably covers every distance at which combat happens: the camera orbits the player
+at 14 u and the longest melee reach is the spear's 3.6 m, so a struck enemy is never near the cap. **Still a code
+const, not a registry id** — §8's two-id budget is unchanged.
+
+### 14.4 What the numbers CONFIRM (so the revision is not read as only bad news)
+
+- **The 5-pip count is vindicated with a real figure.** §1.4 rejected 10 pips because they would be `4.0 px` each.
+  A 10 px pip at 1280 × 720 is a real block; a 4 px pip is 2.5× smaller than the *smallest* candidate floor the bar
+  discusses that would still red the house float-bob value. **Five is right, and now it is right with arithmetic.**
+- **Fixed-px sizing is vindicated.** §7's *"no distance scaling"* is what keeps the pip at a readable 10 × 6 px at
+  every distance; a world-scaled row would be `10 × 14/26 = 5.4 px` wide at `OrbitCamera.maxDistance`. The cost of
+  fixed-px is exactly the §14.3 finding — the pill does not shrink with its subject — and the cap is the mitigation.
+- **The dark plate call is vindicated by the board** — with one correction to the header's wording, in §14.5.
+
+### 14.5 Board re-look — the plate's contrast is real, but the header overstates it (corrected 2026-08-01)
+
+**Looked at `inspiration/2026-06-12_21h13_31.png` and `2026-06-12_21h16_13.png` again for this revision**, because
+§14 makes a size-and-contrast call and the images are the ground truth. The header's claim that there is
+*"almost **no dark value anywhere** in frame"* is **too strong, and the overstatement matters at this element's
+size.** What the images actually show:
+
+- **Nothing approaches near-black.** The darkest values in both frames are the shaded faces of the mountains
+  (`21h16_13`) and the tree trunks — mid-dark warm greys and browns. Charcoal `#2E2A2B` (L = 0.1686) and a 0.55-α
+  black plate are still darker than anything the world contains. **The core call stands: the plate is the rarest
+  value in this world, and that is what makes a 640 px² chip legible.**
+- **But the frames are FULL of mid-dark shadow, and it is the largest dark shape in either image.** `21h13_31`'s
+  ground is roughly half in soft tree-shadow; `21h16_13` has broad shadow bands under every pine and across the
+  left mountain. The plate does not compete with *the sky or the sunlit grass* — those are the easy cases. **It
+  competes with SHADOW**, and shadow is where animals stand.
+
+**Consequence, and it is a soak watch-item rather than a spec change:** at 0.55 alpha the plate is
+semi-transparent, so **a pip-row over an animal standing in tree shadow composites against an already-dark
+background and loses plate/world separation** — exactly where the *pip* contrast (bone L 0.7792 vs charcoal
+L 0.1686, §15.2) has to carry the whole read on its own. The pips are strong enough for that (the bone-charcoal
+span is 0.6106, the largest value step available in the palette), so **no geometry or alpha change is proposed
+here**. What is proposed: **the shipped-build capture set must include one row over an animal in tree shadow**,
+not only over sunlit grass. A sunlit-only capture would evidence the easy case and miss the one the board says is
+common — the presence-not-discrimination failure, applied to lighting.
+
+---
+
+## 15. Bar #10 audit under the AMENDED standard (added 2026-08-01)
+
+**What this section audits against.** `team/quality-bars.md` § *"Bar 10 — the standard in full, and the four checks
+(`86caz5na6` + `86cazhjw4`, 2026-07-31)"*, at `bf33b655e4953478549f4f74c5a692c39ee3c8f9`. The merged version of
+this spec (`59a6e53`) was audited against the **pre-amendment** bar and claimed three channels; that claim is
+withdrawn in §0 and re-adjudicated here.
+
+### 15.1 First: name the CUE, because the count depends on which question is being asked
+
+The merged spec counted three channels without stating which cue they serve, and that is the whole error — **the
+element answers two different questions and they do not have the same channel set.**
+
+| Cue | The player's question | The comparison (C3) |
+|---|---|---|
+| **Cue A — the READ** | *"Is **this** animal nearly down?"* | a second damaged enemy at a **different HP level**, same frame |
+| **Cue B — ATTRIBUTION** | *"**Whose** row is that?"* | a second row over a **different body**, same frame |
+
+**C3 is satisfiable at step 1 for both, which is the strong case** — a non-cued instance of the same kind is
+visible in the same frame. It is available by construction, not by luck: §4.3b caps concurrency at `MaxRows = 3`
+and §9's shipped-build capture **(f)** already requires *"two damaged enemies on screen at once showing two
+non-overlapping rows."* **That capture IS C3's step-1 pair and C4's `cue_pair.png`** — the spec had already
+specified the artifact the bar needs, before the bar asked for it. No step-2 neighbour-naming is required, and the
+world-object empty-set problem the bar spends C3 on does not arise for a HUD surface.
+
+### 15.2 Cue A — the READ. Channels, axes, and the cued-vs-non-cued DELTA
+
+**The magnitudes below are the DELTA between the cued and non-cued state, never one instance's own extent.** This
+element is screen-space IMGUI at fixed px (§7, *"no distance scaling"*), so at the canonical 1280 × 720 capture the
+pill's px **are** px — no world-to-screen conversion enters Cue A's magnitudes at all. Geometry check:
+`5 × 10 + 4 × 2 = 58` px run in a 64 px pill ⇒ 3 px padding each side (matches §7). Pip pitch 12 px; pip area
+60 px²; pill area 640 px².
+
+| Channel | Axis | Non-cued state | Cued state | **Δ (C1 magnitude)** | Δ as fraction of the pill |
+|---|---|---|---|---|---|
+| **CH1 — lit-pip COUNT** | **FORM** | 4/5 lit | 1/5 lit | **3 pips repainted = 180 px²**; linear span **34 px** | 28.1 % of area, **53.1 % of width** |
+| **CH1 worst case** (adjacent buckets) | FORM | 4/5 | 3/5 | **1 pip = 60 px²**; linear **10 px** | 9.4 % of area, 15.6 % of width |
+| **CH1 degenerate case** (same bucket) | FORM | `Current01` 0.399 | `Current01` 0.201 | **0 px² / 0.00 px** | **0 % — FORM is blind here** |
+| **CH2 — draining-pip ALPHA** | **colour → VALUE** (hue-independent) | `rem` 0.005, α 0.3532 | `rem` 0.995, α 0.9968 | **1 pip repainted = 60 px²**; linear **10 px** | 9.4 % of area |
+
+**CH2's value depth, stated in its own units and NOT traded against the px figure** (the bar forbids quoting an
+area/luminance claim as though it were the displacement figure). Rec.709 luminance on the authored sub-1.0 colours:
+bone `#CFC6AD` **L = 0.7792**, charcoal `#2E2A2B` **L = 0.1686** ⇒ the bone-vs-charcoal span is **0.6106**. The
+draining pip composited over charcoal moves **L 0.3842 → 0.7772** across the same-bucket extremes, i.e.
+**ΔL = 0.3929** on that 60 px² block. The living-floor pip (α 0.35) sits at **L 0.3823**, still **0.2137** above
+charcoal — so *"alive but nearly out"* is visibly distinct from *"spent"*, which is what §2.3's living-floor rule
+promises.
+
+**CH2's own worst case — the delta on a single sub-pip hit, which is the case this element exists for.** On a
+non-boundary-crossing hit, `Δα = 0.65 × Δrem` and `ΔL = Δα × 0.6106`:
+
+| Weapon (effective) | Enemy | Δrem per hit | Δα | **ΔL per hit** |
+|---|---|---|---|---|
+| `dagger_wood` (4.5) | boar **medium** (40) | 0.5625 | 0.3656 | **0.2233** |
+| `dagger_wood` (4.5) | boar **hard** (50) | 0.4500 | 0.2925 | **0.1786** |
+| `dagger_stone` (6.0) | boar hard (50) | 0.6000 | 0.3900 | 0.2381 |
+| `axe_wood` (7.5) | boar medium (40) | 0.9375 | 0.6094 | 0.3721 |
+
+**⇒ the weakest weapon on the hardest tier still moves the leading pip by ΔL 0.1786 on a 60 px² block** — on the
+~55 % of hits where §2.3 shows FORM cannot move at all. That is the quantitative form of §2.3's promise, and it is
+the single most important number in this audit: **CH2 is not a refinement of CH1, it is the only channel with a
+non-zero delta on more than half of a `dagger_wood` fight.**
+
+**Against C1's floor:** the smallest linear delta any channel here produces is **10 px** (one pip). That clears
+**every** candidate floor the bar discusses — 1 px, the 1.7804 px game-juice collision figure, a 4 px reading, and
+the 6.2080 px p2p frame-plane reading — by ≥1.6×. **The verdict below therefore does not depend on which floor is
+eventually chosen**, which is the only honest way to state a magnitude against an unset floor.
+
+**❌ CH3 candidate — POSITION: STRUCK, delta = 0.00 px.** The row's screen position is derived from the target's own
+head anchor (§4.1). Between a nearly-dead enemy and a barely-scratched one, **that position is identical** — the
+row does not move as HP falls. Per the bar's variance clause (*"a property present on every instance is style, not
+a cue … it answers 'what KIND of thing is this', never 'WHICH one is cued'"*), position answers *whose* HP this is,
+never *how much* — a different cue, counted separately as Cue B below. **The free invariance pre-filter kills it at
+dispatch time with no build**, which is exactly what that pre-filter is for.
+
+**❌ MOTION — deliberately empty, and that costs a channel.** §5.1 forbids every translation, scale-pop and shake on
+this element, and §5.2's whole allowed set is *"alpha or colour-value."* That is the correct tone call
+(`game-juice.md` §0/§2) and this revision does not disturb it — but it must be recorded as a **trade**, not a free
+win: the element gives up the bar's third-ranked channel on purpose. Cue A's count is FORM + VALUE **only** because
+MOTION was spent on tone.
+
+### 15.3 C2 — FAILURE INDEPENDENCE: the two surviving channels collapse to ONE
+
+**Name the thing whose absence kills each channel, at the nearest common dependency on the code path both actually
+traverse — never a leaf property** (C2's tie-breaker, added precisely because author-naming has unbounded
+granularity).
+
+| Channel | Leaf-granularity name (the tempting, WRONG answer) | Nearest common dependency on the shared path |
+|---|---|---|
+| CH1 FORM | the per-pip `GUI.color` write in the lit branch | **the row record + `TryResolveRowRect` returning true + `enemy_hp_pips_enabled`** |
+| CH2 VALUE | the `drainA` field on the row record | **the same three** |
+
+Both are written by **one `OnGUI` draw loop over one row record** (§7's architecture: *"`OnGUI` draws ≤ 3 rows from
+cached state"*). Retire the row record, return `false` from `TryResolveRowRect`, or set `enemy_hp_pips_enabled`
+false, and **both channels stop together**. ⇒ **count = 1. The pip-row alone does NOT meet bar #10's ≥2.**
+
+**This is #351's shape exactly**, and naming the resemblance is the point: `WorldWeaponFind`'s float-bob and sway
+were called *"TWO independent transform-only channels"* and were **independent in kind, identical in failure
+domain** (both die on one `if (visual == null) return;`). CH1 and CH2 here are independent in *axis* (form vs
+value) and identical in failure domain. **Different kind of independence, same failure.**
+
+**Settle it by INJECTION, not by naming** — C2's own rule, and it is cheap here: §9 gains an assert that setting
+`enemy_hp_pips_enabled = false` (or forcing the resolve predicate false) removes **both** the pip count and the
+draining alpha in one step. The injection is the evidence; the table above is only the claim.
+
+### 15.4 🔴 The verdict, and why it ratifies the sequencing decision rather than arguing with it
+
+> **The pip-row is a ONE-channel cue. The enemy-damage read meets bar #10's ≥2 only as pip-row + body read.**
+
+The body read (`86caxjwb3`, `enemy-hit-feedback-spec.md`) contributes channels in **three further, genuinely
+independent failure domains** — the exact shapes C2's own list enumerates:
+
+| Element | Channel | The thing whose absence kills it | Domain class (C2's list) |
+|---|---|---|---|
+| Pip-row | FORM + VALUE (one, per §15.3) | the row record / resolve predicate / `enemy_hp_pips_enabled` | a guarded code path |
+| `_HitFlash` | value-step on the creature itself | the **material instance + the shader property** | *"a material or shader property"* — PR #349's documented silent-no-op class |
+| Flinch | form-displacement of the creature's own parts | the **part `Transform[]`** on `BoarBodyRig` / `SnakeBodyChain` | *"a transform reference"* |
+| Dust puff | added silhouette | the **pooled `ParticleSystem`** | *"a GameObject/prefab reference"* |
+
+Null any one and the other three survive. **So the composed cue passes ≥2 with margin, and the pip-row alone does
+not.** Three consequences worth writing down:
+
+1. **The Sponsor's 2026-07-27 sequencing decision was structurally required, not merely tasteful.** His stated
+   reason was tonal — *"shipping it first would make it the ONLY enemy-damage feedback in the game and the soak
+   would judge it in exactly the distorted state it was not designed for."* Under the amended bar there is a second,
+   independent reason: **pip-row-first would have made the game's whole enemy-damage cue single-failure-domain**,
+   which bar #10 forbids outright. The decision needs no revisiting; it now has two justifications instead of one.
+2. **It sharpens `86caxjwb3`'s AC6(c) question rather than pre-empting it.** *"Is 'is it nearly down?' already
+   answered by the body?"* stays genuinely open and stays the Sponsor's to answer at that soak. What §15 adds is
+   that **"body-read-only-forever" is a bar-#10-legal outcome** (three independent domains on the body alone) while
+   **"pip-row-only" never was**. That is information for the decision, not the decision.
+3. **Nothing here is a reason to change the element's design.** No channel is added to chase a count — adding a
+   motion or hue channel to reach ≥2 in isolation would break §5's amplitude budget and §0's tonal anchor, and
+   would be the bar-gaming the bar's own history section warns about. **The right response to a one-channel verdict
+   is to state it, not to paper over it.**
+
+### 15.5 C4 — the two-sided artifact: what this element owes, and what it already has
+
+**C4 is SPECIFIED, not built** (build-lane, sequenced against the single Unity build slot; feasibility in
+`team/erik-consult/two-sided-capture-feasibility.md`). Its verdict is human, not mechanical. Two notes specific to
+this element:
+
+- **The artifact is nearly free here, unlike for a world prop.** The bar observes that #351 needs a purpose-built
+  two-instance scene because *"no cued/non-cued pair occurs anywhere in the live world at any dial setting."*
+  **This element has the opposite property:** a cued/non-cued pair occurs in **ordinary gameplay** the moment the
+  player hits two enemies — and §9's capture **(f)** already requires it. **Do not build a purpose-built rig for
+  this surface**; capture (f), taken at the stated framing, is `cue_pair.png`.
+- **The human half still applies and is not waivable.** `cue_pair.png` goes to someone who has not read the PR,
+  with one question asked **before** they see any number — for this element the question is
+  ***"point at the animal that's closest to going down."*** Right **first try, no second look** is the pass;
+  hesitation or a wrong point is a FAIL. Record who was asked and the answer in the Self-Test Report.
+- **The motion-extremes pair (`cue_ext_a` / `cue_ext_b`) is N/A** — this element has no motion channel (§15.2), so
+  C1's rendered backstop has no live frame pair to measure. Geometry is the whole mechanical story here, which is
+  exactly the case the bar describes for FORM/POSITION/colour channels.
+- **Desaturate stays REQUIRED and passes by construction.** The element has no hue at all (bone / charcoal / cream
+  are all near-neutral warm greys), so hue-independence is structural rather than tested-and-hoped. This is the one
+  bar-#10 clause this element satisfies trivially, and it is worth saying that it is the *only* one it satisfies
+  trivially.
+
+### 15.6 Cue B — ATTRIBUTION: also one channel, and that is acceptable; state it rather than assume it
+
+*"Whose row is that?"* rests on **POSITION** — the row's horizontal centre over its owner's head, which §4.3b
+protects deliberately (*"displacement is vertical only, so the horizontal centre still points at its owner"*).
+Delta: two enemies 3 m apart laterally put their rows **186.24 px** apart at the canonical framing
+(`3 × 62.0798`) — enormous relative to any floor.
+
+**But it is one channel.** Two enemies at the *same* HP produce pixel-identical rows differing only in position; the
+per-body anchor height from §4.1 (boar `0.90 + 0.25 = 1.15 m`, snake `0.23 + 0.25 = 0.48 m`) is a real difference
+between *kinds* but is still the POSITION axis and still the same failure domain. **Verdict: Cue B is
+single-channel, and this spec accepts it** — POSITION is the bar's second-ranked channel, the delta is two orders
+of magnitude above any candidate floor, and the alternative (making rows differ by form or hue per body) would mint
+a per-enemy vocabulary that AC2 forbids. **Recorded as an accepted single-channel case with its reasoning, which is
+what the bar asks for; not hidden inside a count of three.**
+
 ---
 
 ## Cross-references
@@ -754,6 +1223,15 @@ no bus exists (verified 2026-07-27: zero `.ogg`/`.wav`/`.mp3` under `Assets`, ze
   `86cah7yuh` (status effects — shares the enemy head; §4.3a arbitrates) · `86cah7xxp` (POC — `Health`) ·
   `86cah7ydt` (boar) · `86caaz4vn` (snake — the flat-HP balance item in §6) · `86cabcdpn` (combat design lock) ·
   `86caffwv5` (per-class swings — owns hit-stop / Impulse).
+- **Code added by the 2026-08-01 revision (§14 — cited by SYMBOL, per bar #10's rule):**
+  `Assets/Scripts/Editor/MovementCameraScene.cs` — the `BuildBoar` const block (`BoarGroundClearance`,
+  `BoarBodyRadius`, `BoarBodyLength`, `BoarHeadLength`) and the `BuildSnake` const block (`SnakeNeckRadius`,
+  `SnakeHeadLength`, `SnakeLinkSpacing`, `SnakeBodyLinks`) — the measured body sizes behind §14.2 ·
+  `Assets/Scripts/Runtime/OrbitCamera.cs` — `defaultPitch`, `distance`, `minDistance`, `maxDistance`, and the
+  `55x95 px` framing comment quoted **with the bar's own withdrawal caveat** (§14.2) ·
+  `Assets/Scripts/Runtime/Combat/BoarBodyRig.cs` / `SnakeBodyChain.cs` — the `Transform[]` part arrays that are the
+  flinch channel's failure domain in §15.4 · `Assets/Scripts/Runtime/VerifyCaptureFraming.cs`
+  (`public static class VerifyCaptureFraming`) — where bar #10 places the world→px geometry assert.
 - **Code (ground truth, read during authoring):** `Assets/Scripts/Runtime/LootPrompt.cs`
   (`:62` anchor height, `:65-72` plate/margin consts, `:112` **player** transform, `:174-176` projection + `z<=0`,
   `:191-192` clamp, `:212-220` the pure priority seam) · `Combat/Health.cs` (`:80-97` read surface, `:146-161`
