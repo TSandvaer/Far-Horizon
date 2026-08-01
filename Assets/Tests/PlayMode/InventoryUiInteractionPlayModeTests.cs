@@ -33,17 +33,29 @@ namespace FarHorizon.PlayTests
     ///   • RefreshAllMidDrag_PreservesTheSourceDimClass (NIT 4) — a mid-drag Inventory.Changed repaint must
     ///     not clear slot--dragging-source.
     /// </summary>
-    // 86cajk7vb — QUARANTINED (headless-env). Every test in this class rides a LIVE UI Toolkit panel
-    // (UIDocument.rootVisualElement + PanelSettings) and asserts on the CLONED TREE + real LAID-OUT geometry
-    // (Grid()/worldBound). Under -batchmode -nographics the runtime panel is not built/laid out, so
-    // rootVisualElement.Q("inv-grid") returns null → every test fails with either a NullReferenceException in
-    // the Children() helper or an "inv-grid container must exist / must be laid out" assert — NOT a game defect
-    // (the panel renders correctly in the shipped exe with a screen). The interaction is MULTI-COVERED: the
-    // slot/belt/drag MODEL is env-independent EditMode coverage (InventoryModel* suites), and the live drag/
-    // dim/ghost PERCEPT rides the shipped -verify captures (InventoryVerifyCapture / InventoryDragSourceDim /
-    // InventoryDragGhostPos), which run in the BUILT exe with a real panel. Re-fold once the advisory playmode
-    // job gains a real-panel render context (follow-up FH-PMTRIAGE-INVUI). See the disposition table on the PR.
-    [Ignore("86cajk7vb: live UI Toolkit panel does not build/lay out under -batchmode -nographics; multi-covered by InventoryModel EditMode + shipped -verify captures. Re-fold when the playmode job has a real-panel render context.")]
+    // 86cajt6k4 — RE-FOLDED. The 86cajk7vb quarantine premise was WRONG and is retained here only so the
+    // wrong claim is not re-derived. It read: "under -batchmode -nographics the runtime panel is not built/
+    // laid out, so rootVisualElement.Q('inv-grid') returns null." That is REFUTED, two ways:
+    //
+    //   (a) COUNTER-EXAMPLE. Under `-batchmode -nographics` (log: "Forcing GfxDevice: Null" / "NullGfxDevice:
+    //       Renderer: Null Device", Screen 640x480) the shipped panel clones AND lays out: root childCount=1,
+    //       inv-grid 20 cells, belt-dock 5, belt-bar-strip 5, drag-ghost present, gridCell0 worldBound
+    //       (x:22 y:19 64x64), gridCell5 (x:22 y:91 64x64), the wood icon sprite baked, and
+    //       resolvedStyle.visibility resolving to Visible. UI Toolkit layout does NOT need a graphics device.
+    //   (b) A/B CONTROL. The same 13 tests, run on this machine WITH a real device (log: "Direct3D 12
+    //       [level 12.2] / NVIDIA RTX PRO 500 Blackwell"), failed 13/13 IDENTICALLY ("the inv-grid container
+    //       must exist — Expected: not null, But was: null"). The graphics device was never the variable.
+    //
+    // The real blocker was a TEST-RIG LIFECYCLE DEFECT in this class's own SetUp — see the SetUp comment:
+    // InventoryUI.BuildView() is one-shot (`_built`, InventoryUI.cs:143/:166) and runs inside
+    // AddComponent<InventoryUI>() on an already-active GameObject, i.e. BEFORE panelUxml could be assigned.
+    // Building the GameObject inactive and activating it after wiring fixes all of it.
+    //
+    // NOTE for future triage: "headless cannot X" is not one claim. PR #411 separately established, as
+    // executed fact, that headless advances the Animator state machine but does NOT pose SKINNED-MESH BONES
+    // (a headless run reds with SWING NEVER POSED). Both hold: UI Toolkit LAYOUT resolves headless; bone
+    // POSING does not. Nothing in this class depends on posed bones — it is all UI Toolkit layout + model
+    // state — which is why all 13 re-fold. Do not generalise either finding to the other layer.
     public class InventoryUiInteractionPlayModeTests
     {
         private GameObject _invGo;
@@ -58,7 +70,24 @@ namespace FarHorizon.PlayTests
             _invGo = new GameObject("Inventory");
             _inv = _invGo.AddComponent<Inventory>();
 
+            // ---------------------------------------------------------------------------------------------
+            // INACTIVE-THEN-WIRE-THEN-ACTIVATE (86cajt6k4). This ordering is LOAD-BEARING, not stylistic.
+            //
+            // InventoryUI.BuildView() is one-shot: it early-returns on `_built` (InventoryUI.cs:143) and sets
+            // `_built = true` (:166) the first time it runs. It is called from OnEnable(). Unity fires
+            // Awake+OnEnable SYNCHRONOUSLY inside AddComponent<T>() when the GameObject is already active — so
+            // on an ACTIVE GameObject, BuildView() runs during `AddComponent<InventoryUI>()`, i.e. BEFORE the
+            // next line can assign `panelUxml`. With panelUxml still null it skips the CloneTree, latches
+            // `_built`, and every later field assignment is a permanent no-op: rootVisualElement stays at
+            // childCount=0, Q("inv-grid") returns null, and all 13 tests fail on "the inv-grid container must
+            // exist". Re-toggling `enabled` does NOT recover it — `_built` is already latched.
+            //
+            // Creating the GameObject INACTIVE defers Awake/OnEnable until SetActive(true), so BuildView() runs
+            // exactly once with document + panelUxml + USS already wired, and clones the real shipped tree.
+            // ---------------------------------------------------------------------------------------------
             _uiGo = new GameObject("InventoryUI");
+            _uiGo.SetActive(false);
+
             var doc = _uiGo.AddComponent<UIDocument>();
             _panel = ScriptableObject.CreateInstance<PanelSettings>();
             _panel.themeStyleSheet = ScriptableObject.CreateInstance<ThemeStyleSheet>();
@@ -77,6 +106,45 @@ namespace FarHorizon.PlayTests
             _ui.paletteUss = LoadUss("Assets/UI/InventoryPalette.uss");
             _ui.panelUss = LoadUss("Assets/UI/InventoryPanel.uss");
             Assert.IsNotNull(_ui.panelUxml, "the shipped InventoryPanel.uxml must load for the UI test");
+
+            _uiGo.SetActive(true);   // Awake -> OnEnable -> BuildView(), now fully wired.
+        }
+
+        /// <summary>
+        /// RIG SELF-GUARD (86cajt6k4). If the SetUp ordering ever regresses to wiring-after-activate, the 13
+        /// tests below fail on a null Q() rather than on the defect they exist to catch — a false RED that
+        /// reads like a product bug (that misread is exactly what quarantined this class). Asserts the rig
+        /// itself stood up: the shipped UXML cloned AND laid out to real geometry.
+        /// </summary>
+        private void AssertRigStoodUp()
+        {
+            var grid = Grid();
+            Assert.IsNotNull(grid,
+                "RIG: the shipped InventoryPanel.uxml must be cloned into rootVisualElement. A null grid means " +
+                "the SetUp ordering regressed (BuildView latched _built before panelUxml was assigned) — this " +
+                "is a TEST-RIG defect, NOT a product defect. See the SetUp comment (86cajt6k4).");
+            Assert.Greater(grid.childCount, 0, "RIG: the grid must have its slot cells");
+            Assert.Greater(First(grid).worldBound.width, 0f,
+                "RIG: the grid cells must be LAID OUT (non-degenerate worldBound) before any geometry assert");
+        }
+
+        // RIG REGRESSION GUARD (86cajt6k4) — a standing, dedicated check that the live UI Toolkit panel builds
+        // and LAYS OUT in the PlayMode test context. This is the test that would have refuted the original
+        // quarantine premise ("headless can't build/lay out a UI Toolkit panel") in one run: it passes under
+        // -batchmode -nographics with a Null graphics device. If it goes RED, fix the RIG before believing any
+        // of the 13 interaction failures below.
+        [UnityTest]
+        public IEnumerator RigStandsUp_ShippedPanelClonesAndLaysOut_EvenHeadless()
+        {
+            yield return WaitFrames(4);
+            _ui.SetOpen(true);
+            yield return WaitFrames(8);
+
+            AssertRigStoodUp();
+            Assert.IsNotNull(DockBelt(), "RIG: the docked belt row exists in the cloned tree");
+            Assert.IsNotNull(StripBelt(), "RIG: the bottom hotbar strip exists in the cloned tree");
+            Assert.Greater(Children(Grid()).Count, 5,
+                "RIG: the grid has at least 6 cells (the drop-target index the BUG 1 tests use)");
         }
 
         [TearDown]
@@ -181,6 +249,11 @@ namespace FarHorizon.PlayTests
             _inv.Model.SelectBelt(0);
             _ui.SetOpen(true);
             yield return WaitFrames(8);
+
+            // This test's own assertion is NEGATIVE ("selection did not change"), so it would pass on an
+            // ABSENCE — a missing tree, an unbound handler, a click that landed nowhere. Guard the rig first;
+            // the paired positive control (ClickingBottomBeltStrip_DoesSelect) proves the click path is live.
+            AssertRigStoodUp();
 
             int before = _inv.Model.SelectedBeltIndex;
             Assert.AreEqual(0, before, "selection starts at slot 1");
@@ -347,11 +420,22 @@ namespace FarHorizon.PlayTests
                 "the source icon resolves back to Visible once the drag ends (the dim is not permanent)");
         }
 
-        // NIT 2 (86cabugc3) — the dim must PRESERVE the source slot's layout box. visibility:hidden keeps the
-        // cell laid out (worldBound stays valid); display:none would collapse it. The BUG 1 cursor-resolved
+        // NIT 2 (86cabugc3) — the dim must PRESERVE the source slot's layout box. The BUG 1 cursor-resolved
         // drop hit-tests the source slot's worldBound, so a collapsed box would silently break drop resolution
         // ON the source (e.g. a drag that ends back on the source, or a hover preview over it). Assert the
         // dragged source's worldBound is unchanged across BeginDrag (same rect → layout preserved).
+        //
+        // WHAT THIS ACTUALLY DISCRIMINATES (86cajt6k4 mutation matrix — the original comment here claimed
+        // something FALSE, so it is corrected rather than restated). The old wording said "visibility:hidden
+        // keeps the cell laid out; display:none would collapse it", implying this test guards the
+        // .slot--dragging-source rule's hidden-vs-none choice. It does NOT: that rule targets the slot's
+        // CHILDREN (.slot__icon/.slot__chip/.slot__badge) and `.slot` is a FIXED 64x64 box
+        // (InventoryPanel.uss:76-78), so no child display change can collapse the cell. Swapping the child
+        // rule to display:none (mutation M10) left THIS test GREEN and red only the NIT 1 test — NIT 1 is the
+        // real guard for that swap. This test's demonstrated RED is a SLOT-LEVEL layout collapse: adding
+        // `.slot--dragging-source { display: none }` (M13) or `{ width:0; height:0 }` (M14) reds this test and
+        // ONLY this test (1/14 each), while NIT 1 stays green. So the two NITs are complementary, not
+        // overlapping: NIT 1 owns "the content is actually hidden", NIT 2 owns "the cell keeps its box".
         [UnityTest]
         public IEnumerator DraggingASlot_PreservesSourceWorldBound_LayoutNotCollapsed()
         {
@@ -471,8 +555,18 @@ namespace FarHorizon.PlayTests
         // This rides the live laid-out panel (the layer the EditMode pure-math test can't), asserting the
         // production seam puts the ghost on the cursor end-to-end. The non-1080p panel-SCALE divergence is
         // pinned by the EditMode unit test + the shipped-build -verifyInvDragGhostPos capture (which forces a
-        // 2560x1440 window); here scale may resolve to 1 headlessly, but actual≈expected (both via the same
-        // ScreenToPanel) is the invariant that proves the ghost tracks the cursor.
+        // 2560x1440 window); here scale resolves to 1, but actual≈expected (both via the same ScreenToPanel)
+        // is the invariant that proves the ghost tracks the cursor.
+        //
+        // DRIVEN VIA ShowGhostForVerification, NOT BeginDrag — deliberately, and this is load-bearing. While
+        // `_dragging` is armed, InventoryUI.Update() calls PositionGhostAtMouse() EVERY FRAME, overwriting any
+        // synthetic cursor with Input.mousePosition. There is no OS cursor in a batchmode run, so
+        // Input.mousePosition reads (0,0) and the read-back reflects (0,0) rather than the driven point — a
+        // FALSE divergence of exactly sqrt(224^2 + 264^2) = 346.23px at Screen 640x480. That is the same
+        // false-divergence class ticket 86cajrtr1 already diagnosed for the shipped capture, which is why
+        // ShowGhostForVerification exists: it raises the ghost WITHOUT arming the drag, so the synthetic
+        // cursor survives the wait-frames. This test now drives the seam the shipped -verifyInvDragGhostPos
+        // gate drives, by the same method. BeginDrag's own ghost-raise is covered by the drag tests above.
         [UnityTest]
         public IEnumerator DraggingASlot_GhostCenterTracksTheCursor()
         {
@@ -480,8 +574,10 @@ namespace FarHorizon.PlayTests
             _inv.AddWood(3);              // wood in inventory slot 0
             _ui.SetOpen(true);
             yield return WaitFrames(8);
+            AssertRigStoodUp();
 
-            _ui.BeginDrag(SlotRef.Inventory(0));
+            // Raise the ghost deterministically (no armed drag -> no per-frame mouse overwrite).
+            _ui.ShowGhostForVerification(_inv.Catalog.ById(ItemCatalog.WoodId));
             yield return WaitFrames(2);
 
             // Drive a KNOWN cursor (screen px, Y-up) through the production positioning, then let layout settle.
@@ -493,13 +589,20 @@ namespace FarHorizon.PlayTests
             Vector2? expected = _ui.ExpectedGhostPanelCenter(cursor);
             Assert.IsTrue(actual.HasValue && expected.HasValue,
                 "the ghost + panel must be laid out so the center read-back is valid");
+
+            // Positive control — the ghost must actually have MOVED to the driven cursor, not merely agree with
+            // `expected` by both being some default. A ghost parked at its raise-time position (panel 0,480 in
+            // a cursor-less batchmode run) would satisfy a naive |actual-expected| check only if `expected`
+            // were equally degenerate; pin the driven point to a real, non-origin, in-panel location.
+            Assert.Greater(expected.Value.x, 1f, "the driven cursor resolves to a non-degenerate panel X");
+            Assert.Greater(expected.Value.y, 1f, "the driven cursor resolves to a non-degenerate panel Y");
+
             float err = Vector2.Distance(actual.Value, expected.Value);
             Assert.LessOrEqual(err, 2f,
                 "the drag-ghost CENTER must land on the cursor's panel point (flip-then-ScreenToPanel) — " +
                 "86caffw9h: a scale-less convert would diverge by the panel scale (the recurring misposition)");
 
-            _ui.EndDrag(new Vector2(10000, 10000));   // cancel — no move, just tear down the drag
-            yield return null;
+            // No ghost teardown needed: no drag was armed, and TearDown destroys the UI GameObject.
         }
 
         // ---- helpers ----
