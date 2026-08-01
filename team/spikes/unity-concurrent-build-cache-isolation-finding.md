@@ -139,7 +139,11 @@ require it to RED… a threshold nothing fails is not a threshold."*
 
 The detector is `unity_concurrency_trial.sh:189` —
 `grep -qE "EPERM: operation not permitted, rename"`. Run verbatim against a fixture built from the
-real EPERM text quoted in `bootstrap_with_retry.sh:11-13`, and against a genuinely clean spike log:
+real EPERM text quoted in `bootstrap_with_retry.sh:9-11`, and against a genuinely clean spike log.
+⚠ **Cut the fixture from `:9` specifically** — the grep is LINE-based and the whole matching phrase
+`EPERM: operation not permitted, rename` lives on `:9`; `:10-11` are the two path lines and contain
+no `EPERM` token, so a fixture built from them alone leaves the detector SILENT — a false-green
+that reads as "the negative control passed" while proving nothing:
 
 ```
 === POSITIVE CONTROL (known-bad fixture) ===
