@@ -3010,10 +3010,12 @@ namespace FarHorizon.EditorTools
         // REAL-WORLD ANCHOR (lowpoly-quality.md §0 — the plain sentence the build must satisfy): an IRON SWORD
         // LEFT BEHIND BY SOMEONE WHO CAME BEFORE, driven POINT-DOWN INTO a weathered stump — blade buried in the
         // wood, grip UP at the top where a hand would close on it. You pull it UP and OUT. It is NOT lying flat
-        // on the grass and NOT hovering above the ground. The attract bob is far smaller than the embed depth, so
-        // the tip NEVER leaves the wood; the stump STAYS after the loot with an empty slot in it. Up-vs-down is
-        // invisible from above and at player-eye and obvious side-on, so the -verifyWeaponFind gate shoots a
-        // SIDE-PROFILE frame and the author eyeballs it before review (the PR #130 pond→mound lesson).
+        // on the grass and NOT hovering above the ground; the stump STAYS after the loot with an empty slot in
+        // it. And because it is DRIVEN IN, it is STILL — see FindPlacement: the 2026-08-02 soak rejected the
+        // moving version verbatim as "the sword is floating, moving in the stump", and no amplitude fixes that,
+        // because a rigid blade cannot move relative to the rigid wood it is buried in. Up-vs-down is invisible
+        // from above and at player-eye and obvious side-on, so the -verifyWeaponFind gate shoots a SIDE-PROFILE
+        // frame and the author eyeballs it before review (the PR #130 pond→mound lesson).
 
         // The authored candidate SITES. A DISCRETE scene-author ADD placed by a deterministic seeded scatter
         // OUTSIDE the seeded LowPolyZoneGen stream — exactly the BuildOreNodes / BuildBoulders idiom — so it
@@ -3249,12 +3251,22 @@ namespace FarHorizon.EditorTools
             find.itemId = ItemCatalog.SwordIronId;      // the Sponsor's 2026-07-27 decision — DATA, not a class
             find.displayName = FarHorizon.Combat.WorldWeaponFind.DefaultDisplayName;
             find.lootRadius = FarHorizon.Combat.WorldWeaponFind.DefaultLootRadius;
-            // ATTRACT CUE — CH1 float-bob (local Y). A cue must not rest on a SINGLE channel, so CH2 below.
+            // === PLACEMENT (AC7) — this site is a sword DRIVEN INTO a stump, so it is STILL ===
+            // The Sponsor's rule from the 2026-08-02 soak, stated general: "motion cues are a property of
+            // PLACEMENT. An item driven into or resting on something is STILL. An item lying loose may bob."
+            // The soak verdict on the moving version was verbatim "the sword is floating, moving in the stump" —
+            // a blade that translates and rotates relative to the solid wood it is buried in cannot read as
+            // driven INTO it at any amplitude, so the fix is the placement kind, not a smaller number.
+            // Serialized EXPLICITLY even though Embedded is the enum's zero value: this line is what the
+            // scene-side guard measures the geometry against, and an author reading this file should see the
+            // claim stated, not inferred from a default.
+            find.placement = FarHorizon.Combat.FindPlacement.Embedded;
+            // ATTRACT CUE — the tuned CH1 bob + CH2 sway values, INERT on this find because of the placement
+            // above. Kept non-zero rather than zeroed here on purpose: zeroing would move the rule out of the
+            // code and into one scene's serialized data, where the next author retypes an amplitude and the
+            // floating-sword defect returns silently. See WorldWeaponFind's cue section.
             find.bobAmplitude = FarHorizon.Combat.WorldWeaponFind.DefaultBobAmplitude;
             find.bobHz = FarHorizon.Combat.WorldWeaponFind.DefaultBobHz;
-            // CH2 sway (local yaw) — a few degrees of slow play in the split, at a NON-HARMONIC frequency so
-            // the two channels never fuse into one perceived motion. Serialized EXPLICITLY rather than left to
-            // the field initializer, so the shipped scene states the values the -verifyWeaponFind gate samples.
             find.swayDegrees = FarHorizon.Combat.WorldWeaponFind.DefaultSwayDegrees;
             find.swayHz = FarHorizon.Combat.WorldWeaponFind.DefaultSwayHz;
             // PER-INSTANCE SEEDED PHASE (game-juice.md §1.5) shared by BOTH channels, so a pool of finds

@@ -3,6 +3,48 @@ using UnityEngine;
 namespace FarHorizon.Combat
 {
     /// <summary>
+    /// HOW a find SITS IN THE WORLD — and therefore whether it is allowed to MOVE.
+    ///
+    /// === The Sponsor's rule (2026-08-02 soak of PR #351), stated general, not per-item ===
+    /// "Motion cues are a property of PLACEMENT. An item DRIVEN INTO or RESTING ON something is STILL. An item
+    /// LYING LOOSE may bob."
+    ///
+    /// Why it is a rule and not a tuning value: a rigid object embedded in a rigid host CANNOT translate or
+    /// rotate relative to that host. When it does, the only reading the eye can construct is that the two are
+    /// not connected — so the piece reads as HOVERING INSIDE the host rather than DRIVEN INTO it, and the whole
+    /// real-world anchor collapses. That is a PHYSICAL-PLAUSIBILITY failure, not an intensity one: no amplitude
+    /// is small enough to fix it, because the defect is the EXISTENCE of relative motion, not its size.
+    ///
+    /// MEASURED, not assumed — the shipped soak build's own gate log
+    /// (`[WeaponFindVerifyCapture] REST: bladeTipY=-0.072 gripTopY=1.019 stumpTopY=0.475 peakBob=+/-0.050`)
+    /// shows the bob never came close to lifting the blade clear of the wood: at the top of the bob the tip was
+    /// still 0.497u BELOW the stump's top face. The pre-soak prediction's two failure modes were "too quiet" and
+    /// "beacon-like"; the real one was neither. It was a bobbing sword inside solid wood.
+    ///
+    /// So the gate is on the PLACEMENT KIND, applied to the whole find-in-world attract cue rather than patched
+    /// onto `sword_iron`: any future find authored <see cref="Embedded"/> or <see cref="RestingOn"/> is STILL
+    /// for free, and only a <see cref="Loose"/> one is allowed the game-juice.md §1.5 collectible float-bob.
+    /// </summary>
+    public enum FindPlacement
+    {
+        /// <summary>DRIVEN INTO a host — the iron sword in the weathered stump, an axe buried in a log, a spear
+        /// through a crate. The blade/head is INSIDE solid matter. <b>STILL.</b> This is deliberately the ZERO
+        /// value so it is also the SAFE default: a find whose placement someone forgot to author is quiet, which
+        /// is never physically wrong, whereas a defaulted-to-bobbing embedded find IS wrong and ships a defect.</summary>
+        Embedded = 0,
+
+        /// <summary>SET DOWN ON a surface that supports it — laid across a rock, propped on a crate, on a table.
+        /// Not buried, but held by contact and gravity. <b>STILL</b>: a resting object that drifts up off its
+        /// support and back reads exactly as broken as an embedded one that does.</summary>
+        RestingOn = 1,
+
+        /// <summary>LYING LOOSE, unattached — dropped in the grass, spilled from a wreck, with nothing holding
+        /// it in a fixed relationship to anything. <b>MAY bob and sway</b> (the game-juice.md §1.5 collectible
+        /// float-bob): there is no host for the motion to contradict, so the cue costs no plausibility.</summary>
+        Loose = 2,
+    }
+
+    /// <summary>
     /// A WEAPON RESTING IN THE WORLD, waiting to be FOUND (ticket 86cah7y5b — the SECOND acquisition route;
     /// Combat/HP/Death LOCKED design 86cabcdpn decision 4 "acquisition = BOTH craft AND find"; Uma
     /// `team/uma-ux/combat-cluster-design-brief.md` §3.4).
@@ -34,16 +76,31 @@ namespace FarHorizon.Combat
     /// <see cref="FarHorizon.Inventory.PickUpWeapon"/> → <c>AddToolToBelt</c> belt seam, so it selects, seats
     /// and swings through the shipped weapon vocabulary. Changing the find to a dagger is a const, not a class.
     ///
-    /// === The attract cue (AC3) — TWO transform channels, and why the rim half is absent ===
-    /// The cue rides on TWO independent channels, both transform-only, both on the weapon child:
+    /// === The attract cue (AC3/AC7) — GATED ON PLACEMENT, and why the rim half is absent ===
+    /// ⚠ THE CUE ONLY RUNS ON A <see cref="FindPlacement.Loose"/> FIND. See <see cref="FindPlacement"/> for the
+    /// Sponsor's rule and the soak that produced it: an item driven into or resting on something is STILL. The
+    /// shipped `sword_iron` find is <see cref="FindPlacement.Embedded"/>, so it does NOT move — the motion the
+    /// 2026-08-02 soak rejected ("the sword is floating, moving in the stump") is gone at the source rather than
+    /// dialled down, because relative motion between an embedded object and its rigid host is wrong at ANY
+    /// amplitude. <see cref="CueMoves"/> is the single switch; <see cref="EffectiveBobAmplitude"/> /
+    /// <see cref="EffectiveSwayDegrees"/> are what the frame actually uses.
+    ///
+    /// When placement DOES permit motion, the cue rides TWO independent channels, both transform-only, both on
+    /// the weapon child:
     ///   CH1 FLOAT-BOB — local Y translation, ±<see cref="bobAmplitude"/> at <see cref="bobHz"/>;
     ///   CH2 SWAY      — local YAW rotation,  ±<see cref="swayDegrees"/> at <see cref="swayHz"/>,
     ///                   deliberately NON-HARMONIC against CH1 so the two never fuse into one pulse.
     /// Both share the PER-INSTANCE SEEDED PHASE so a pool of finds never pulses in sync (game-juice.md §1.5).
     /// Two channels rather than one because a cue resting on a SINGLE channel dies the moment that channel is
-    /// masked — a pure vertical bob is nearly invisible when the camera sits level with it or when the sword
-    /// reads against busy scatter. The sway is also anchor-HONEST: a blade with a little play in the split is
-    /// precisely the "you can pull this out" affordance.
+    /// masked — a pure vertical bob is nearly invisible when the camera sits level with it or when the piece
+    /// reads against busy scatter.
+    ///
+    /// The authored <see cref="bobAmplitude"/> / <see cref="swayDegrees"/> values are deliberately LEFT
+    /// non-zero on the embedded find rather than zeroed in the scene. Zeroing the fields would hide the rule
+    /// inside one scene's serialized data, where the next author re-types a non-zero amplitude and the defect
+    /// returns silently. Keeping the tuned values and gating on PLACEMENT keeps the rule in the code, makes the
+    /// placement field the whole knob, and means flipping a find to <see cref="FindPlacement.Loose"/> restores a
+    /// cue that was already tuned.
     ///
     /// No light beam, no post-process Volume, no particle loop, no emissive, no second material, and no
     /// <c>MaterialPropertyBlock</c> — this component touches TRANSFORMS ONLY, so the world MeshRenderer stays
@@ -117,10 +174,17 @@ namespace FarHorizon.Combat
                  "clearing. default - Sponsor-soak tunes.")]
         public float lootRadius = DefaultLootRadius;
 
-        [Header("Attract cue (AC3) — float-bob ONLY; no rim, no beam, no volume, no particles, no MPB")]
+        [Header("Placement (AC7) — HOW it sits in the world, which decides whether it may MOVE")]
+        [Tooltip("The Sponsor's rule (2026-08-02 soak): motion cues are a property of PLACEMENT. Embedded " +
+                 "(driven into) and RestingOn (set down on) are STILL; only Loose may bob and sway. Embedded " +
+                 "is the zero value, so it is also the safe default — a forgotten placement is quiet, never a " +
+                 "sword hovering inside solid wood. This field is the WHOLE motion knob for the attract cue.")]
+        public FindPlacement placement = FindPlacement.Embedded;
+
+        [Header("Attract cue (AC3) — LOOSE placements only; no rim, no beam, no volume, no particles, no MPB")]
         [Tooltip("Bob amplitude in world units (+/-). 0.05 default (game-juice.md §1.5 collectible float-bob). " +
-                 "MUST stay well under the authored embed depth so the blade tip never leaves the stump — a " +
-                 "sword that lifts clear of the wood breaks the real-world anchor. default - Sponsor-soak tunes.")]
+                 "IGNORED unless `placement` is Loose. On a Loose find it must still stay well under any " +
+                 "authored embed depth. default - Sponsor-soak tunes.")]
         public float bobAmplitude = DefaultBobAmplitude;
 
         [Tooltip("Bob frequency in Hz. 0.8 default — a slow breath, not a videogame pulse.")]
@@ -130,9 +194,9 @@ namespace FarHorizon.Combat
                  "stagger game-juice.md §1.5 calls for; extends the seeded-scatter pattern). Set by the scatter.")]
         public float bobPhase;
 
-        [Tooltip("CHANNEL 2 — sway amplitude in DEGREES of yaw (+/-). A few degrees of slow rock about the " +
-                 "embed axis: the blade has a little play in the split, which is exactly the affordance 'you " +
-                 "can pull this out'. Transform-only like the bob. default - Sponsor-soak tunes.")]
+        [Tooltip("CHANNEL 2 — sway amplitude in DEGREES of yaw (+/-). A slow rock about the piece's own axis. " +
+                 "Transform-only like the bob, and gated by the SAME `placement` field: IGNORED unless the " +
+                 "find is Loose. default - Sponsor-soak tunes.")]
         public float swayDegrees = DefaultSwayDegrees;
 
         [Tooltip("Sway frequency in Hz. DELIBERATELY NON-HARMONIC against bobHz (0.53 vs 0.8) so the two " +
@@ -181,9 +245,44 @@ namespace FarHorizon.Combat
         private Quaternion _visualBaseLocalRot;
         private bool _tracedFirstLoot;
         private bool _tracedFirstDeclined;
+        private bool _stillPoseSettled;
 
         /// <summary>True until this find has been looted. PlayMode tests + the capture gate read it.</summary>
         public bool IsAvailable => !_looted;
+
+        // ============================================================================================
+        // THE PLACEMENT → MOTION GATE (AC7). See FindPlacement for the Sponsor's rule and the soak behind it.
+        // PURE statics so the EditMode guards assert the gate with no scene, no Time and no frame loop.
+        // ============================================================================================
+
+        /// <summary>
+        /// THE RULE, as one pure function: an item DRIVEN INTO or RESTING ON something is STILL; an item LYING
+        /// LOOSE may bob. Everything else in this file's cue path reads through here, so there is exactly ONE
+        /// place the rule lives and exactly one place to change it.
+        /// </summary>
+        public static bool MotionAllowedFor(FindPlacement placement) => placement == FindPlacement.Loose;
+
+        /// <summary>The bob amplitude the FRAME actually uses — the authored value on a Loose find, exactly 0
+        /// on a still one. Pure, so a test can assert the gate for every placement without a scene.</summary>
+        public static float EffectiveBobAmplitudeFor(FindPlacement placement, float authoredAmplitude)
+            => MotionAllowedFor(placement) ? authoredAmplitude : 0f;
+
+        /// <summary>The sway amplitude the FRAME actually uses — authored on Loose, exactly 0 otherwise.</summary>
+        public static float EffectiveSwayDegreesFor(FindPlacement placement, float authoredDegrees)
+            => MotionAllowedFor(placement) ? authoredDegrees : 0f;
+
+        /// <summary>Whether THIS find's attract cue is permitted to move at all. The shipped sword-in-a-stump
+        /// answers FALSE. The capture gate and the PlayMode guard branch on this rather than on the item id, so
+        /// the rule holds for every future find rather than for `sword_iron` alone.</summary>
+        public bool CueMoves => MotionAllowedFor(placement);
+
+        /// <summary>This find's live bob amplitude after the placement gate. 0 on an embedded/resting find —
+        /// which is also what the anchor checks must use as their "peak bob", or they measure a motion that
+        /// cannot happen.</summary>
+        public float EffectiveBobAmplitude => EffectiveBobAmplitudeFor(placement, bobAmplitude);
+
+        /// <summary>This find's live sway amplitude after the placement gate. 0 on an embedded/resting find.</summary>
+        public float EffectiveSwayDegrees => EffectiveSwayDegreesFor(placement, swayDegrees);
 
         /// <summary>True while the eased pickup arc is still flying (the weapon has left the stump but has not
         /// yet reached the belt). Exposed so a test/capture can wait the beat out deterministically.</summary>
@@ -278,22 +377,40 @@ namespace FarHorizon.Combat
             if (_arcing) { StepArc(); return; }
             if (_looted) return;
 
-            // Resting attract cue — TWO independent transform-only channels on the weapon child only. The stump
-            // does not move; the site root does not move (so LootPosition + the prompt stay rock steady).
-            //   CH1 float-bob  — LOCAL Y translation, ±bobAmplitude @ bobHz
-            //   CH2 sway       — LOCAL yaw rotation,  ±swayDegrees  @ swayHz (non-harmonic vs bobHz)
+            // === THE PLACEMENT GATE (AC7) — the Sponsor's rule, enforced before any motion is composed ===
+            // An item DRIVEN INTO or RESTING ON something is STILL. The shipped sword-in-a-stump takes this
+            // branch: it is pinned to its authored seat and NEVER written again. Restoring the base pose exactly
+            // once (rather than re-writing it every frame) also keeps the transform CLEAN for the rest of the
+            // session — a still find dirties no transform, allocates nothing and costs one bool test per frame,
+            // which is strictly better for the instanced/batched draw path than the per-frame writes the moving
+            // branch performs (unity6-mastery.md §2/§5).
+            if (!CueMoves)
+            {
+                if (_stillPoseSettled) return;
+                _stillPoseSettled = true;
+                visual.localPosition = _visualBaseLocal;
+                visual.localRotation = _visualBaseLocalRot;
+                return;
+            }
+
+            // Resting attract cue — TWO independent transform-only channels on the weapon child only. The site
+            // root does not move (so LootPosition + the prompt stay rock steady).
+            //   CH1 float-bob  — LOCAL Y translation, ±EffectiveBobAmplitude @ bobHz
+            //   CH2 sway       — LOCAL yaw rotation,  ±EffectiveSwayDegrees  @ swayHz (non-harmonic vs bobHz)
             // Two channels, not one, because a cue resting on a SINGLE channel dies whenever that channel is
-            // masked — a bob alone is invisible when the player's eye is level with it, or when the sword is
+            // masked — a bob alone is invisible when the player's eye is level with it, or when the piece is
             // read against a busy scatter silhouette. Neither channel touches a material, so there is no
             // MaterialPropertyBlock and the world MeshRenderer stays in the GPU Resident Drawer instanced path
-            // (unity6-mastery.md §2). Both are verified LIVE frame-by-frame in the shipped build by the
-            // -verifyWeaponFind gate, not assumed.
+            // (unity6-mastery.md §2). The channels are read through the EFFECTIVE accessors, never the raw
+            // serialized fields, so the placement gate cannot be bypassed by a future edit here.
+            _stillPoseSettled = false;   // placement could be flipped live (inspector / a future authoring tool)
+
             var p = _visualBaseLocal;
-            p.y += BobOffset(Time.time, bobAmplitude, bobHz, bobPhase);
+            p.y += BobOffset(Time.time, EffectiveBobAmplitude, bobHz, bobPhase);
             visual.localPosition = p;
 
             visual.localRotation = _visualBaseLocalRot *
-                Quaternion.Euler(0f, SwayOffset(Time.time, swayDegrees, swayHz, bobPhase), 0f);
+                Quaternion.Euler(0f, SwayOffset(Time.time, EffectiveSwayDegrees, swayHz, bobPhase), 0f);
         }
 
         // Snapshot the departure pose + hand the weapon to the arc. Reparenting is avoided (the visual keeps its

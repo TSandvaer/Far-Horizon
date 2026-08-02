@@ -189,21 +189,93 @@ namespace FarHorizon.PlayTests
                 "ownership, drives the held visual)");
         }
 
+        // ============================================================================================
+        // AC7 — THE PLACEMENT → MOTION GATE, over REAL FRAMES.
+        //
+        // The Sponsor's rule (2026-08-02 soak of PR #351): "motion cues are a property of PLACEMENT. An item
+        // driven into or resting on something is STILL. An item lying loose may bob."
+        //
+        // These two tests are a PAIR and must stay one: a still-only test would also pass if the cue were
+        // deleted outright, and a moves-only test is what shipped the defect. Together they pin the gate as a
+        // gate — the SAME rig, the SAME frames, the SAME assertions, differing only in the placement field.
+        // ============================================================================================
+
         [UnityTest]
-        public IEnumerator TheAttractBob_MovesTheWeaponChild_AndNeverTheSiteRootOrTheLootPosition()
+        public IEnumerator AnEMBEDDEDFind_DoesNotMoveAtAll_TheSponsorsFloatingSwordDefect()
+        {
+            // THE REGRESSION GUARD for the soak rejection, verbatim: "the sword is floating, moving in the
+            // stump." Note what this test does NOT rely on: it never reads `placement`, `bobAmplitude` or
+            // `CueMoves`. It samples the transform the player actually sees, across frames, so it reds no matter
+            // HOW the motion comes back — a re-enabled channel, an Update path that bypasses the Effective*
+            // accessors, or some future component writing the same transform.
+            _find.placement = FindPlacement.Embedded;
+            Assert.Greater(_find.bobAmplitude, 0f,
+                "PRECONDITION: the authored amplitude is NON-ZERO, so a green below proves the PLACEMENT " +
+                "suppressed the motion — not that the test rig quietly had nothing to suppress");
+            Assert.Greater(_find.swayDegrees, 0f);
+
+            Vector3 restPos = _find.visual.localPosition;
+            Quaternion restRot = _find.visual.localRotation;
+            yield return null;   // let Update settle the still pose once
+
+            float maxDrift = 0f, maxTwist = 0f;
+            for (int i = 0; i < 60; i++)   // ~1s of real frames, past a full period of BOTH authored channels
+            {
+                yield return null;
+                maxDrift = Mathf.Max(maxDrift, Mathf.Abs(_find.visual.localPosition.y - restPos.y));
+                maxTwist = Mathf.Max(maxTwist, Quaternion.Angle(_find.visual.localRotation, restRot));
+            }
+
+            Assert.Less(maxDrift, 1e-4f,
+                $"an EMBEDDED find must not translate at all (max drift {maxDrift:F6}u over 60 frames). A blade " +
+                "buried in solid wood cannot rise and fall relative to it; when it does, the only reading left " +
+                "is that it is hovering INSIDE the host — which is exactly what the soak rejected");
+            Assert.Less(maxTwist, 1e-2f,
+                $"…and must not rotate either (max {maxTwist:F4} deg). Suppressing one channel and leaving the " +
+                "other still leaves a sword wobbling in a stump");
+        }
+
+        [UnityTest]
+        public IEnumerator ALOOSEFind_STILLBobs_TheRuleIsAGateNotADeletion()
+        {
+            // The other side of the gate. Without this, "make the sword still" could be satisfied by deleting
+            // the attract cue entirely — and the rule the Sponsor stated is explicitly not that: "an item lying
+            // loose MAY bob." A loose find keeps the game-juice.md §1.5 collectible float-bob.
+            _find.placement = FindPlacement.Loose;
+
+            Vector3 startPos = _find.visual.localPosition;
+            Quaternion startRot = _find.visual.localRotation;
+            yield return null;
+
+            float maxDrift = 0f, maxTwist = 0f;
+            for (int i = 0; i < 60; i++)
+            {
+                yield return null;
+                maxDrift = Mathf.Max(maxDrift, Mathf.Abs(_find.visual.localPosition.y - startPos.y));
+                maxTwist = Mathf.Max(maxTwist, Quaternion.Angle(_find.visual.localRotation, startRot));
+            }
+
+            Assert.Greater(maxDrift, 1e-4f,
+                "a LOOSE find still bobs — the placement rule GATES the cue on how the item sits, it does not " +
+                "delete the cue from the codebase");
+            Assert.Greater(maxTwist, 1e-2f, "…and still sways; both channels survive on a loose find");
+        }
+
+        [UnityTest]
+        public IEnumerator TheCue_NeverDragsTheSiteRootOrTheLootPosition_OnEitherPlacement()
         {
             // AC3: the cue must not drag the loot reach around with it, or the prompt flickers at the boundary.
+            // Asserted on the MOVING placement, because that is the only one where a bug could exist — a still
+            // find trivially satisfies it, so testing it there would prove nothing.
+            _find.placement = FindPlacement.Loose;
             Vector3 rootBefore = _findGo.transform.position;
             Vector3 lootPosBefore = ((IPickable)_find).LootPosition;
-            Vector3 visualBefore = _find.visual.localPosition;
 
             for (int i = 0; i < 30; i++) yield return null;
 
             Assert.AreEqual(rootBefore, _findGo.transform.position, "the site ROOT never moves");
             Assert.AreEqual(lootPosBefore, ((IPickable)_find).LootPosition,
                 "LootPosition is the stationary root — the loot reach does NOT wobble with the cue");
-            Assert.AreNotEqual(visualBefore.y, _find.visual.localPosition.y,
-                "…while the WEAPON child is actually bobbing (a live attract cue, not a dead field)");
         }
 
         [UnityTest]

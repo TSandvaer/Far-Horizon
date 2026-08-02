@@ -159,7 +159,10 @@ namespace FarHorizon.EditTests
                 var stump = find.transform.Find("FindStump");
                 foreach (var r in stump.GetComponentsInChildren<Renderer>(true))
                     stumpTopY = Mathf.Max(stumpTopY, r.bounds.max.y);
-                float bob = Mathf.Abs(find.bobAmplitude);
+                // The EFFECTIVE amplitude — what the frame can actually do. On the shipped Embedded find the
+                // placement gate makes this 0, so the anchor is checked against a seat that genuinely never
+                // moves rather than against a bob that no longer exists.
+                float bob = Mathf.Abs(find.EffectiveBobAmplitude);
 
                 Assert.Less(lowY + bob, stumpTopY,
                     $"(a) the BLADE must stay INSIDE the stump even at peak bob (tip={lowY:F3} + bob={bob:F3} " +
@@ -169,6 +172,64 @@ namespace FarHorizon.EditTests
                     $"- bob={bob:F3} vs stumpTop={stumpTopY:F3}) — THIS is the half whose absence let a fully " +
                     "BURIED sword ship to the first capture as a bare stump with nothing in it");
             }
+        }
+
+        [Test]
+        public void BootScene_AFindWhoseBladeIsInsideItsHost_IsSTILL_ThePlacementRule()
+        {
+            // AC7 — the Sponsor's rule enforced on the SHIPPED scene: "an item driven into or resting on
+            // something is STILL. An item lying loose may bob."
+            //
+            // ⚠ THE OPERAND CHOICE IS THE POINT (unity-conventions.md §tautological-assert). Asserting
+            // `find.placement == Embedded` would be TAUTOLOGICAL: Embedded is the enum's zero value, so a scene
+            // in which BuildWeaponFindSite never assigns placement at all still serializes it and the assert
+            // still passes. It would detect nothing.
+            //
+            // So the "is this thing embedded?" half is MEASURED FROM THE GEOMETRY — blade tip below the host's
+            // top face AND the weapon planar-centred inside the host's footprint (the same two facts the shipped
+            // capture gate checks) — and only the "is it still?" half is read off the component. The two operands
+            // now come from independent sources, so flipping the shipped find to Loose, or re-enabling its cue
+            // by any other route, turns this RED. Deleting the placement assignment does NOT red it — that case
+            // is safe by construction, because the default is the still one.
+            EditorSceneManager.OpenScene(BootScenePath, OpenSceneMode.Single);
+            int checkedSites = 0;
+            foreach (var find in AllFinds())
+            {
+                var stump = find.transform.Find("FindStump");
+                if (stump == null || find.visual == null) continue;
+
+                bool haveW = false, haveS = false;
+                Bounds wb = new Bounds(), sb = new Bounds();
+                foreach (var r in find.visual.GetComponentsInChildren<Renderer>(true))
+                { if (!haveW) { wb = r.bounds; haveW = true; } else wb.Encapsulate(r.bounds); }
+                foreach (var r in stump.GetComponentsInChildren<Renderer>(true))
+                { if (!haveS) { sb = r.bounds; haveS = true; } else sb.Encapsulate(r.bounds); }
+                if (!haveW || !haveS) continue;
+
+                float planar = Vector2.Distance(new Vector2(wb.center.x, wb.center.z),
+                                                new Vector2(sb.center.x, sb.center.z));
+                bool tipInsideHost = wb.min.y < sb.max.y;
+                bool overTheHost = planar <= Mathf.Max(sb.extents.x, sb.extents.z);
+                if (!(tipInsideHost && overTheHost)) continue;   // not physically embedded — the rule is silent
+
+                checkedSites++;
+                Assert.IsFalse(find.CueMoves,
+                    $"this find's blade is MEASURABLY inside its host (tip={wb.min.y:F3} < hostTop={sb.max.y:F3}, " +
+                    $"planar={planar:F3}u inside reach) — so it is DRIVEN IN, and a driven-in item is STILL. " +
+                    "The 2026-08-02 soak rejected the moving version verbatim: \"the sword is floating, moving " +
+                    "in the stump\". Amplitude cannot fix it; only placement can");
+                Assert.AreEqual(0f, find.EffectiveBobAmplitude,
+                    "…so its live bob amplitude is exactly 0 (the authored value stays non-zero and inert — the " +
+                    "gate is in the code, not in this scene's serialized data)");
+                Assert.AreEqual(0f, find.EffectiveSwayDegrees,
+                    "…and its live sway is exactly 0. Both channels or the sword still wobbles in the wood");
+            }
+
+            // Staleness guard: if the scene stops authoring embedded finds, this test must not silently pass on
+            // an empty loop and go on reporting the rule as enforced.
+            Assert.Greater(checkedSites, 0,
+                "at least one authored find is geometrically embedded in its host — otherwise this guard " +
+                "measured nothing and its green is meaningless");
         }
 
         [Test]

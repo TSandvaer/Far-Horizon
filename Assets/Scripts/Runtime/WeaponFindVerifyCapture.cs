@@ -24,7 +24,9 @@ namespace FarHorizon
     /// grip up, a thing you pull UP and OUT. Blade-down-vs-blade-up is invisible from above and at player-eye
     /// and OBVIOUS side-on, so this gate shoots a dedicated SIDE-PROFILE frame (weaponfind_side.png) alongside
     /// the gameplay one, and asserts the geometric fact behind the anchor: the weapon's lowest point sits BELOW
-    /// the stump's top face (it really is IN the wood) at the TOP of its attract bob, not merely at rest.
+    /// the stump's top face (it really is IN the wood) at the worst point of whatever motion its placement
+    /// permits — which, for the shipped Embedded find, is none at all. "Driven into" is a claim about a FIXED
+    /// relationship, so the anchor now has a motion half as well as a geometric one (self-assert 1b).
     ///
     /// THE DRIVE (no input device in the shipped exe — teleport into range, then drive the seams):
     ///   • find the active <see cref="FarHorizon.Combat.WorldWeaponFind"/>, the player's <see cref="PickableLooter"/>
@@ -36,6 +38,12 @@ namespace FarHorizon
     /// SELF-ASSERTS (guard the deliverable, not a proxy):
     ///   1. RESTING + EMBEDDED: a find is active in the seeded scene, CanLoot, and its blade is BELOW the stump
     ///      top even at peak bob (the real-world anchor, checked geometrically — not by eye alone);
+    ///   1b. THE PLACEMENT → MOTION GATE (AC7): the weapon transform is SAMPLED over ~90 frames and must match
+    ///      what its <see cref="FarHorizon.Combat.FindPlacement"/> demands — DEAD STILL for an Embedded /
+    ///      RestingOn find, both channels LIVE for a Loose one. The STILL half is the regression guard for the
+    ///      2026-08-02 soak rejection ("the sword is floating, moving in the stump"); it is measured from the
+    ///      frame rather than read off the placement field precisely so that a bypass of the gate in
+    ///      <c>Update</c>, or any other component writing that transform, still reds it;
     ///   2. PROMPT: looter.NearestInRange() resolves the FIND and the shared LootPrompt label reads
     ///      "Press E to pick up an iron sword" (the existing widget, no second prompt);
     ///   3. E-LOOT: RequestLoot() → exactly ONE sword_iron entered the inventory; a SECOND RequestLoot adds
@@ -162,12 +170,26 @@ namespace FarHorizon
                       planarOff.ToString("F3") + "u stumpReach=" + stumpReach.ToString("F3") + "u)" +
                       " => anchorHolds=" + embedded);
 
-            // === SELF-ASSERT 1b — BOTH ATTRACT-CUE CHANNELS ARE LIVE IN THE SHIPPED FRAME ===
-            // Quality bar: a cue must not rest on a SINGLE channel. This ticket's cue rides CH1 float-bob
-            // (local Y) + CH2 sway (local yaw). "The code for it exists" is NOT evidence it moves in the built
-            // exe — a component disabled by a pool re-apply, a zeroed serialized amplitude, or a visual ref
-            // pointing at the wrong transform all leave the code intact and the frame dead. So SAMPLE the real
-            // transform over real frames and require BOTH channels to actually vary.
+            // === SELF-ASSERT 1b — THE PLACEMENT → MOTION GATE, MEASURED IN THE SHIPPED FRAME (AC7) ===
+            // The Sponsor's rule (2026-08-02 soak): an item DRIVEN INTO or RESTING ON something is STILL; an
+            // item LYING LOOSE may bob. This assert samples the REAL transform over real frames and requires
+            // whichever behaviour the find's placement demands — so it is a two-sided gate, not a one-sided one:
+            //
+            //   STILL placement (Embedded / RestingOn) → BOTH channels must be DEAD, exactly.
+            //     This is the direct regression guard for the defect the soak rejected verbatim: "the sword is
+            //     floating, moving in the stump". It reds if anyone re-enables the cue on an embedded find, by
+            //     any route — flipping the placement, bypassing the Effective* accessors in Update, or a future
+            //     component writing the same transform. A `placement == Embedded` field read could NOT catch the
+            //     last two; sampling the frame can.
+            //
+            //   LOOSE placement → BOTH channels must be LIVE (the original bar: a cue must not rest on a SINGLE
+            //     channel, and "the code for it exists" is not evidence the frame moves — a pool re-apply, a
+            //     zeroed amplitude or a visual ref on the wrong transform all leave the code intact and the
+            //     frame dead).
+            //
+            // The shipped `sword_iron` find takes the STILL branch. The LOOSE branch has no shipped instance
+            // today and is kept because the rule is general: the first Loose find authored gets its cue gated by
+            // the same measurement rather than by a fresh promise.
             var cueT = find.visual != null ? find.visual : find.transform;
             float minY = float.MaxValue, maxY = float.MinValue, minYaw = float.MaxValue, maxYaw = float.MinValue;
             for (int i = 0; i < 90; i++)   // ~1.5s at 60fps — over a full period of the slower (sway) channel
@@ -182,15 +204,37 @@ namespace FarHorizon
             float bobSpan = maxY - minY;
             float swaySpan = Mathf.DeltaAngle(minYaw, maxYaw);
             if (swaySpan < 0f) swaySpan = -swaySpan;
-            // Thresholds are a fraction of the authored amplitude, so a channel that is merely SMALL still
-            // passes while a channel that is DEAD (exactly 0, or clamped off) fails.
-            bool ch1Live = bobSpan > Mathf.Abs(find.bobAmplitude) * 0.5f && bobSpan > 0.001f;
-            bool ch2Live = swaySpan > Mathf.Abs(find.swayDegrees) * 0.5f && swaySpan > 0.1f;
-            Debug.Log("[WeaponFindVerifyCapture] CUE: CH1 bob span=" + bobSpan.ToString("F4") + "u (amp=" +
-                      find.bobAmplitude.ToString("F3") + " hz=" + find.bobHz.ToString("F2") + ") live=" + ch1Live +
-                      " | CH2 sway span=" + swaySpan.ToString("F2") + "deg (amp=" +
-                      find.swayDegrees.ToString("F2") + " hz=" + find.swayHz.ToString("F2") + ") live=" + ch2Live +
-                      " => twoChannelCue=" + (ch1Live && ch2Live));
+
+            bool cueShouldMove = find.CueMoves;
+            bool cueGateOk;
+            if (cueShouldMove)
+            {
+                // Thresholds are a fraction of the EFFECTIVE amplitude, so a channel that is merely SMALL still
+                // passes while a channel that is DEAD (exactly 0, or clamped off) fails.
+                bool ch1Live = bobSpan > Mathf.Abs(find.EffectiveBobAmplitude) * 0.5f && bobSpan > 0.001f;
+                bool ch2Live = swaySpan > Mathf.Abs(find.EffectiveSwayDegrees) * 0.5f && swaySpan > 0.1f;
+                cueGateOk = ch1Live && ch2Live;
+                Debug.Log("[WeaponFindVerifyCapture] CUE(placement=" + find.placement + " -> may move): CH1 bob span=" +
+                          bobSpan.ToString("F4") + "u live=" + ch1Live + " | CH2 sway span=" +
+                          swaySpan.ToString("F2") + "deg live=" + ch2Live + " => twoChannelCue=" + cueGateOk);
+            }
+            else
+            {
+                // STILL means STILL. The tolerances are float-noise-tight rather than "small": the Update path
+                // writes the base pose exactly once and never touches the transform again, so the sampled span
+                // must be ZERO, not merely subtle. A 0.05u bob is 9% of this sword's visible length and reads as
+                // hovering — anything a loose tolerance would wave through is the defect itself.
+                bool ch1Still = bobSpan <= 1e-4f;
+                bool ch2Still = swaySpan <= 1e-2f;
+                cueGateOk = ch1Still && ch2Still;
+                Debug.Log("[WeaponFindVerifyCapture] CUE(placement=" + find.placement + " -> MUST BE STILL): CH1 bob span=" +
+                          bobSpan.ToString("F5") + "u still=" + ch1Still + " | CH2 sway span=" +
+                          swaySpan.ToString("F4") + "deg still=" + ch2Still + " => stillInItsHost=" + cueGateOk +
+                          " (authored-but-inert amp=" + find.bobAmplitude.ToString("F3") + "u / " +
+                          find.swayDegrees.ToString("F2") + "deg; effective=" +
+                          find.EffectiveBobAmplitude.ToString("F3") + "u / " +
+                          find.EffectiveSwayDegrees.ToString("F2") + "deg)");
+            }
 
             // Frame + shoot the RESTING weapon at gameplay framing (AC6 capture a).
             Vector3 findPos = findPick.LootPosition;
@@ -289,10 +333,11 @@ namespace FarHorizon
             yield return new WaitForEndOfFrame();
             yield return new WaitForSeconds(0.5f);
 
-            bool pass = restingCanLoot && embedded && ch1Live && ch2Live && resolvedFind && labelOk && gotOne
+            bool pass = restingCanLoot && embedded && cueGateOk && resolvedFind && labelOk && gotOne
                         && secondIsNoOp && selected && seatEnabled && meshIsSwordIron && boundsReal && onScreen;
             Debug.Log("[WeaponFindVerifyCapture] verification complete (canLoot=" + restingCanLoot +
-                      " embedded=" + embedded + " cueCh1Bob=" + ch1Live + " cueCh2Sway=" + ch2Live +
+                      " embedded=" + embedded + " placement=" + find.placement +
+                      " cueGate(" + (cueShouldMove ? "mustMove" : "mustBeStill") + ")=" + cueGateOk +
                       " resolvedFind=" + resolvedFind + " label=" + labelOk +
                       " gotOne=" + gotOne + " secondNoOp=" + secondIsNoOp + " selected=" + selected +
                       " seatEnabled=" + seatEnabled + " swordIronMesh=" + meshIsSwordIron +
@@ -337,7 +382,10 @@ namespace FarHorizon
                                                out float planarDist, out float stumpReach)
         {
             weaponLowY = float.MaxValue; weaponHighY = float.MinValue; stumpTopY = float.MinValue;
-            peakBob = Mathf.Abs(find.bobAmplitude);
+            // The EFFECTIVE amplitude, not the authored one: on an embedded find the placement gate makes the
+            // real peak bob 0, and measuring against a motion that cannot happen would hold the seat to a
+            // margin it does not need — and, worse, would let a reader think the shipped sword still bobs.
+            peakBob = Mathf.Abs(find.EffectiveBobAmplitude);
             planarDist = float.MaxValue; stumpReach = 0f;
 
             var weaponT = find.visual != null ? find.visual : find.transform;

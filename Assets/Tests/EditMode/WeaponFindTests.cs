@@ -407,12 +407,17 @@ namespace FarHorizon.EditTests
         }
 
         [Test]
-        public void SwayAmplitude_IsSmallEnoughToKeepTheDrivenIntoTheStumpAnchor()
+        public void SwayAmplitude_StaysInTheCalmToneBand_ForWhicheverFindIsAuthoredLOOSE()
         {
-            Assert.Greater(WorldWeaponFind.DefaultSwayDegrees, 0f, "channel 2 ships ON by default");
+            // ⚠ This is a TONE cap (game-juice.md §0 — amplitude is the whole tuning variable), NOT the thing
+            // that protects the driven-into-a-stump anchor. The earlier version of this test claimed it was, and
+            // the 2026-08-02 soak refuted that: 4 degrees on an EMBEDDED sword still read as floating, because
+            // the anchor is broken by the EXISTENCE of relative motion, not by its size. The anchor is protected
+            // by the placement gate above; this only keeps a LOOSE find's cue calm rather than spinning.
+            Assert.Greater(WorldWeaponFind.DefaultSwayDegrees, 0f, "channel 2 ships ON for a Loose find");
             Assert.LessOrEqual(WorldWeaponFind.DefaultSwayDegrees, 10f,
-                "a sword DRIVEN INTO a stump has a little play, not a swivel. Beyond ~10 degrees it reads as a " +
-                "spinning pickup and the real-world anchor (lowpoly-quality.md §0) breaks");
+                "beyond ~10 degrees a loose collectible reads as a spinning videogame pickup — wrong for the " +
+                "calm north-star even where the motion is physically permitted");
         }
 
         [Test]
@@ -447,16 +452,117 @@ namespace FarHorizon.EditTests
                 "pull a buried blade UP first, you do not slide it sideways out of a stump)");
         }
 
+        // ============================================================================================
+        // AC7 — THE PLACEMENT → MOTION GATE. The Sponsor's rule from the 2026-08-02 soak of PR #351, stated
+        // general: "motion cues are a property of PLACEMENT. An item driven into or resting on something is
+        // STILL. An item lying loose may bob."
+        //
+        // Why these guards are worth their lines: the defect they lock out was invisible to EVERY existing
+        // check. The cue maths above were correct, the amplitude was small, the anchor geometry was green (the
+        // shipped gate log measured bladeTip -0.072 vs stumpTop 0.475 at peakBob 0.050 — the blade never came
+        // within 0.49u of leaving the wood), and the shipped-build gate asserted BOTH channels were LIVE, which
+        // was precisely the wrong bar. Nothing was out of range; the motion simply should not have existed.
+        // ============================================================================================
+
         [Test]
-        public void BobAmplitude_IsFarSmallerThanTheAuthoredEmbedDepth()
+        public void MotionAllowedFor_IsTheWholeRule_StillWhenHeldByAHost_MayMoveWhenLoose()
         {
-            // The real-world anchor as a NUMBER: the bob must not be able to lift the blade clear of the stump.
-            // (The scene's authored embed depth is 0.26u — MovementCameraScene.FindBladeEmbedDepth. The shipped
-            // frame proof is the -verifyWeaponFind geometric assert + the side-profile capture; this is the
-            // cheap early warning if someone dials the cue up without thinking about the wood.)
-            Assert.Less(WorldWeaponFind.DefaultBobAmplitude, 0.26f * 0.5f,
-                "the default bob is less than half the embed depth — the tip NEVER leaves the wood, so the find " +
-                "reads as a sword stuck in a stump, not a hovering pickup");
+            // The rule itself, one row per placement kind. If someone later decides a resting item may bob,
+            // THIS is the line they have to change and argue for — not a scattered set of if-statements.
+            Assert.IsFalse(WorldWeaponFind.MotionAllowedFor(FindPlacement.Embedded),
+                "DRIVEN INTO something -> STILL. A rigid blade cannot translate or rotate relative to the rigid " +
+                "wood it is buried in; when it does, the only available reading is that the two are not " +
+                "connected — 'floating, moving in the stump' (Sponsor, 2026-08-02)");
+            Assert.IsFalse(WorldWeaponFind.MotionAllowedFor(FindPlacement.RestingOn),
+                "SET DOWN ON something -> STILL. An object that drifts up off its support and back reads exactly " +
+                "as broken as an embedded one that does");
+            Assert.IsTrue(WorldWeaponFind.MotionAllowedFor(FindPlacement.Loose),
+                "LYING LOOSE -> may bob. Nothing holds it in a fixed relationship to anything, so the cue " +
+                "contradicts no physical claim (game-juice.md §1.5 collectible float-bob)");
+        }
+
+        [Test]
+        public void Placement_ZeroValueIsTheSTILLOne_SoAForgottenPlacementIsQuietNotBroken()
+        {
+            // A serialized enum defaults to 0, so the zero value is what a find gets when nobody thinks about
+            // it. That slot is given to the STILL kind on purpose: a quiet loose item is a missed cue, while a
+            // bobbing embedded item is a shipped defect. Asserting the numeric value is not a tautology — it
+            // pins the DECLARATION ORDER, so reordering the enum (the realistic way this protection is lost)
+            // turns this red.
+            Assert.AreEqual(0, (int)FindPlacement.Embedded,
+                "Embedded must stay the enum's ZERO value — it is the default a forgotten placement gets");
+            Assert.IsFalse(WorldWeaponFind.MotionAllowedFor(default),
+                "…so the default placement does NOT move: the failure mode of forgetting to author placement is " +
+                "a missing cue, never a sword hovering inside solid wood");
+        }
+
+        [Test]
+        public void EffectiveAmplitudes_AreZeroedByPlacement_WithTheAUTHOREDValuesLeftINTACT()
+        {
+            // The mechanism check, and the reason the shipped scene does NOT simply zero the fields: the gate
+            // must live in the code. A future author who retypes an amplitude on an embedded find must still
+            // get a still sword.
+            const float amp = 0.05f, deg = 4f;
+
+            Assert.AreEqual(0f, WorldWeaponFind.EffectiveBobAmplitudeFor(FindPlacement.Embedded, amp),
+                "a non-zero authored bob on an EMBEDDED find is inert — exactly 0, not merely reduced");
+            Assert.AreEqual(0f, WorldWeaponFind.EffectiveSwayDegreesFor(FindPlacement.Embedded, deg),
+                "…and so is the sway; the placement gate takes BOTH channels or the piece still wobbles");
+            Assert.AreEqual(0f, WorldWeaponFind.EffectiveBobAmplitudeFor(FindPlacement.RestingOn, amp));
+            Assert.AreEqual(0f, WorldWeaponFind.EffectiveSwayDegreesFor(FindPlacement.RestingOn, deg));
+
+            Assert.AreEqual(amp, WorldWeaponFind.EffectiveBobAmplitudeFor(FindPlacement.Loose, amp),
+                "a LOOSE find gets its authored amplitude back UNCHANGED — the gate suppresses the cue, it does " +
+                "not re-tune it, so a find flipped to Loose ships the cue that was already tuned");
+            Assert.AreEqual(deg, WorldWeaponFind.EffectiveSwayDegreesFor(FindPlacement.Loose, deg));
+
+            // And the composed offsets go dead through the SAME seam the frame uses (0 amplitude -> exactly 0).
+            for (int i = 0; i <= 40; i++)
+            {
+                float t = i * 0.05f;
+                Assert.AreEqual(0f, WorldWeaponFind.BobOffset(
+                        t, WorldWeaponFind.EffectiveBobAmplitudeFor(FindPlacement.Embedded, amp), 0.8f, 1.1f),
+                    "the embedded find's bob is flat at EVERY sampled time, not just at t=0");
+                Assert.AreEqual(0f, WorldWeaponFind.SwayOffset(
+                        t, WorldWeaponFind.EffectiveSwayDegreesFor(FindPlacement.Embedded, deg), 0.53f, 1.1f));
+            }
+        }
+
+        [Test]
+        public void AFind_DefaultsToStill_AndItsInstanceAccessorsAgreeWithThePureRule()
+        {
+            var find = NewFind(out var go, out _, out var invGo);
+            try
+            {
+                // A bare AddComponent'd find (the shape any new authoring code starts from).
+                Assert.IsFalse(find.CueMoves, "a find is STILL until someone deliberately declares it Loose");
+                Assert.AreEqual(0f, find.EffectiveBobAmplitude);
+                Assert.AreEqual(0f, find.EffectiveSwayDegrees);
+                Assert.Greater(find.bobAmplitude, 0f,
+                    "…and it is the PLACEMENT doing that, not a zeroed field — the authored amplitude is still " +
+                    "sitting there non-zero, which is exactly the state a scene-side zeroing would have hidden");
+                Assert.Greater(find.swayDegrees, 0f);
+
+                find.placement = FindPlacement.Loose;
+                Assert.IsTrue(find.CueMoves, "flipping the placement is the whole knob");
+                Assert.AreEqual(find.bobAmplitude, find.EffectiveBobAmplitude);
+                Assert.AreEqual(find.swayDegrees, find.EffectiveSwayDegrees);
+            }
+            finally { Object.DestroyImmediate(go); Object.DestroyImmediate(invGo); }
+        }
+
+        [Test]
+        public void BobAmplitude_StaysInTheGameJuiceCollectibleBand_ForWhicheverFindIsAuthoredLOOSE()
+        {
+            // ⚠ Same correction as the sway cap above. This USED to claim that keeping the bob under the embed
+            // depth is what makes the find read as stuck in a stump. It is not, and the soak proved it: the
+            // shipped gate measured bladeTip -0.072 vs stumpTop 0.475 at peakBob 0.050, so the tip stayed 0.497u
+            // inside the wood at the top of every bob — and the Sponsor still reported "the sword is floating,
+            // moving in the stump". A margin against leaving the host was never the mechanism. The placement
+            // gate is. What survives here is the game-juice.md §1.5 amplitude band for a LOOSE collectible.
+            Assert.Greater(WorldWeaponFind.DefaultBobAmplitude, 0f, "a loose find's cue actually moves");
+            Assert.LessOrEqual(WorldWeaponFind.DefaultBobAmplitude, 0.05f,
+                "±0.05u is game-juice.md §1.5's collectible float-bob figure — the calm-tone cap, tunable DOWN");
         }
 
         // ============================================================================================
