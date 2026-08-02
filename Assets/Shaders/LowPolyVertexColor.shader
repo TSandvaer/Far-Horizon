@@ -109,6 +109,35 @@ Shader "FarHorizon/LowPolyVertexColor"
         _MeadowPatchAmp ("Meadow Patch Amp (0 = off; live A/B)", Range(0, 1.5)) = 0
         _MeadowLime ("Meadow Lime (sunlit patch)", Color) = (0.52, 0.66, 0.28, 1)
         _MeadowDeep ("Meadow Deep (shadow patch)", Color) = (0.22, 0.40, 0.17, 1)
+        // ENEMY HIT-FLASH (ticket 86caxjwb3 AC2). A brief warm-white tint pulse across a struck creature's body
+        // so a landed hit READS on its chunky low-poly silhouette at orbit distance. Driven on the per-enemy
+        // MATERIAL INSTANCE (the boar's 7 + the snake's 13 already-unique inline materials) — NOT a
+        // MaterialPropertyBlock, which would break BOTH the SRP Batcher and GPU-Resident-Drawer eligibility
+        // (unity-conventions.md §SRP-Batcher; distinct material instances break neither).
+        //
+        // ⚠ THE SHAPE THAT SHIPPED: _HitFlash is a plain 0..1 AMPLITUDE written per frame from C#
+        // (EnemyHitFeedback.LateUpdate), already carrying the eased decay AND the Sponsor's peak-intensity dial.
+        // There is NO shader-side clock here — the shader reads NO _Time for this term. That is deliberate and
+        // it is what makes the ticket's [DFC-1] BLOCKING trap structurally unreachable: _Time.y is
+        // Time.timeSinceLevelLoad, NOT Time.time (URP UnityInput.hlsl `float4 _Time; // (t/20, t, t*2, t*3)`,
+        // t = time since level load), so a C#-written `Time.time` stamp differenced against _Time.y yields a
+        // CONSTANT NEGATIVE numerator and saturate()s to 1.0 FOREVER — a permanently white enemy from the first
+        // hit, green in EditMode, only visible in the shipped exe. With no clock in the shader there is no
+        // stamp to get wrong, and the decay is directly observable from C# (GetFloat) + assertable in PlayMode.
+        //
+        // NO KEYWORD, and the DEFAULT IS 0 — the term is exactly `lerp(finalCol, flash, 0) == finalCol`, i.e.
+        // BYTE-IDENTICAL to before this property existed on EVERY other consumer of this shared world shader
+        // (terrain, canopy, trunk, water, rock, grass, every prop). The default-0-is-a-no-op rule is correct
+        // HERE precisely because this property carries an AMPLITUDE and not a TIMESTAMP: a timestamp defaulting
+        // to 0 would flash the whole island on scene load (_Time.y ≈ 0 there), which is why the ticket's
+        // [DFC-1 / Claim 2] demands a very-NEGATIVE default for that shape. This shape needs no such trick.
+        //
+        // WARM WHITE, NEVER RED (game-juice.md §0 + brief §2.5 "dust-brown, never red" — red on a creature reads
+        // as gore and breaks the kid-safe tone), and every channel SUB-1.0 (style-guide-v2 §5 HDR clamp) so the
+        // pulse cannot bloom-blow-out. Peak amplitude is the Sponsor's live dial (AC5), not a fixed full
+        // replacement of the lit colour.
+        _HitFlash ("Hit Flash Amount (0 = off; C#-driven eased amplitude)", Range(0,1)) = 0
+        _HitFlashColor ("Hit Flash Color (warm white, sub-1.0)", Color) = (0.95, 0.92, 0.86, 1)
     }
     SubShader
     {
@@ -164,6 +193,8 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float _MeadowPatchAmp;    // ticket 86cahhfkc GRD-2 — live meadow-patch contrast amp (default-0 = no-op)
                 float4 _MeadowLime;       // GRD-2 sunlit patch tone (mirrors LowPolyZoneGen.MeadowLime)
                 float4 _MeadowDeep;       // GRD-2 shadow patch tone (mirrors LowPolyZoneGen.MeadowDeep)
+                float _HitFlash;          // ticket 86caxjwb3 — C#-driven eased hit-flash amplitude (default-0 = no-op)
+                float4 _HitFlashColor;    // ticket 86caxjwb3 — warm-white pulse tone (sub-1.0 per channel)
             CBUFFER_END
 
             struct Attributes
@@ -321,6 +352,16 @@ Shader "FarHorizon/LowPolyVertexColor"
                 float3 viewDirWS = normalize(GetWorldSpaceViewDir(IN.positionWS));
                 float rim = pow(1.0 - saturate(dot(normalWS, viewDirWS)), _RimPower);
                 finalCol += _RimColor.rgb * rim * _RimIntensity;
+
+                // ENEMY HIT-FLASH (ticket 86caxjwb3 AC2) — the LAST operation, so the pulse is not washed by the
+                // distance fog (the same reason the rim block sits after the fog-cap) and reads across the WHOLE
+                // struck body at orbit distance. A LERP toward a sub-1.0 warm white, never an ADD: an add can push
+                // an already-lit facet past 1.0 into the bloom threshold; a lerp toward a sub-1.0 target cannot.
+                // When _HitFlash = 0 (the DEFAULT on every material, and the resting value the driver writes back
+                // when a flash completes) this is exactly `lerp(finalCol, x, 0) == finalCol` → finalCol UNCHANGED,
+                // byte-identical for terrain/canopy/trunk/water/rock/grass/props. saturate() clamps a mis-dialled
+                // amplitude so the term can never over-shoot past the flash colour.
+                finalCol = lerp(finalCol, _HitFlashColor.rgb, saturate(_HitFlash));
 
                 return half4(finalCol, 1.0);
             }

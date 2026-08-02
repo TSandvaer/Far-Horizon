@@ -1161,10 +1161,19 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # '-batchmode' hits, so it satisfies BOTH halves of the two-sided assert above (86caynve7). It must stay
 # windowed: WeaponFindVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, and
 # weaponfind_side.png is the side-profile silhouette a human eyeballs before review.
+#
+# verify_hitfeedback_gate.sh (86caxjwb3) registers WINDOWED, and this is the one gate where a headless
+# conversion would destroy the gate's ENTIRE REASON TO EXIST rather than merely blanking its frames. It
+# exists to catch a LATCHED hit-flash: the shader clock `_Time.y` is Time.timeSinceLevelLoad, so a
+# C#-written `Time.time` stamp saturates the flash to full intensity FOREVER — and the discriminator is a
+# real frame ~0.5s AFTER the hit showing the creature back at base colour. Under -batchmode
+# HitFeedbackVerifyCapture's ScreenCapture.CaptureScreenshot returns black and its WaitForEndOfFrame never
+# resumes, so the "after" frame would be black — indistinguishable from a correct one to a human, and the
+# component's own coroutine would hang before ever writing it. This entry reds that conversion.
 WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
                 verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
                 verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh
-                verify_weaponfind_gate.sh)
+                verify_weaponfind_gate.sh verify_hitfeedback_gate.sh)
 for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
 for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
 

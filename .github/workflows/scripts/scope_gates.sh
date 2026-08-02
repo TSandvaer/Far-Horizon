@@ -49,7 +49,7 @@ set -uo pipefail
 # registered in test_gate_scripts.sh's launch-mode lists has no key here, no ci.yml
 # condition, or a key no path can ever reach.
 # ---------------------------------------------------------------------------
-ROUTED_KEYS="settings buildmenu pond loot water chop placement heldbelt sky invdragghostpos weaponset mine boulder boar heldwood swings weaponfind"
+ROUTED_KEYS="settings buildmenu pond loot water chop placement heldbelt sky invdragghostpos weaponset mine boulder boar heldwood swings weaponfind hitfeedback"
 
 # The gate wrappers that run UNCONDITIONALLY. Exactly one today, by design.
 ALWAYS_GATES="capture_gate.sh"
@@ -219,6 +219,16 @@ _gates_case() {
     # skips the only gate that tests it.
     Assets/Scripts/Runtime/SwingVerifyCapture.cs|Assets/Scripts/Runtime/SwingSeatGate.cs) GATES_RESULT="swings" ;;
     Assets/Scripts/Runtime/WeaponFindVerifyCapture.cs) GATES_RESULT="weaponfind" ;;
+
+    # ---------------- feature-scoped: enemy hit feedback (86caxjwb3) ----------------
+    # Same reachability requirement as the two arms above: this component IS wired
+    # (verify_hitfeedback_gate.sh), so it must sit ABOVE the `*VerifyCapture.cs -> NONE`
+    # catch-all or a change to it would skip the only gate that tests it. The juice
+    # pool is the shared burst machinery the puff rides — a break there is a break in
+    # the puff, so route it to the same gate. (The DRIVER itself lives under
+    # Runtime/Combat/, which is already an ALL arm above.)
+    Assets/Scripts/Runtime/HitFeedbackVerifyCapture.cs) GATES_RESULT="hitfeedback" ;;
+    Assets/Scripts/Runtime/Juice/*)                   GATES_RESULT="hitfeedback" ;;
 
     # ---------------- author-run probes with NO CI wrapper ----------------
     # These components are INERT unless their own -verify* flag is passed, and no gate

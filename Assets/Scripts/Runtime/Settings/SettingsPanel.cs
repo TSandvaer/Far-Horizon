@@ -125,6 +125,12 @@ namespace FarHorizon
                  "null-refs safely).")]
         public FarHorizon.Combat.BoarEnemy combatBoar;
 
+        [Tooltip("Enemy hit-feedback 86caxjwb3 AC5 — EVERY enemy's EnemyHitFeedback driver. The rows fan OUT " +
+                 "across the whole array (the per-bush berryBushes precedent) so one dial moves the flash / " +
+                 "flinch / puff on every creature at once, including the master `enemy_hit_feedback_enabled` " +
+                 "revert switch. Wired editor-time by BuildHitFeedback; empty skips only its own rows.")]
+        public FarHorizon.Combat.EnemyHitFeedback[] hitFeedbacks;
+
         [Tooltip("Find-in-world weapon 86cah7y5b AC5 — the scene WeaponFindPool the `Weapon finds` findability " +
                  "row binds to (how many of the authored seeded find sites hold a weapon). Wired editor-time by " +
                  "BuildWeaponFinds; null skips only its row (PopulateWeaponFind null-refs safely).")]
@@ -256,6 +262,11 @@ namespace FarHorizon
             // Wild boar 86cah7ydt AC6 — the per-tier boar rows' target. Unambiguous (only the boar has a
             // BoarEnemy). Serialized editor-time; this Awake fallback is the build-safety net.
             if (combatBoar == null) combatBoar = FindObjectOfType<FarHorizon.Combat.BoarEnemy>();
+            // Enemy hit feedback 86caxjwb3 AC5 — the dials fan out across EVERY enemy driver (the berryBushes
+            // precedent: no shared manager, one component per creature). Serialized array wins; this Awake
+            // fallback only fills it when empty (a bake-time/startup Find, never per-frame — unity6-mastery §6).
+            if (hitFeedbacks == null || hitFeedbacks.Length == 0)
+                hitFeedbacks = FindObjectsByType<FarHorizon.Combat.EnemyHitFeedback>(FindObjectsSortMode.InstanceID);
             // FPS counter (86cahmxmt) — build-safety fallback (the ship path wires it editor-time). Finds a
             // DISABLED component too (FindObjectOfType filters by GameObject activeness, not component enabled
             // state), so a persisted OFF pref still re-binds + re-applies on the next launch.
@@ -283,6 +294,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateWorldLook(Registry, worldLook);          // F10 → sky/fog/cloud/mountain/sun (AC2)
             SettingsCatalog.PopulateCombat(Registry, combatHealth, combatRegen, combatDeath); // Combat POC → per-tier HP/damage/regen/death (AC8b)
             SettingsCatalog.PopulateBoar(Registry, combatBoar);              // Wild boar → per-tier HP / gore / charge speed (86cah7ydt AC6)
+            SettingsCatalog.PopulateHitFeedback(Registry, hitFeedbacks);     // Enemy hit feedback → master switch + flash / flinch / puff dials (86caxjwb3 AC5)
             SettingsCatalog.PopulateWeaponFind(Registry, weaponFindPool);    // Find-in-world → per-tier weapon findability (86cah7y5b AC5)
             SettingsCatalog.PopulateFps(Registry, fpsHud);                   // FPS counter on/off (86cahmxmt — default ON, Sponsor-soak tunes)
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
