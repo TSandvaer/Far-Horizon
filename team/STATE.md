@@ -11,12 +11,19 @@ Decisions go in `team/DECISIONS.md` (append-only). Operational scrollback goes n
 
 ## RESUME NEXT-ACTION — 2026-08-02 (Sponsor PRESENT; auto-status OFF and staying off)
 
-**Agents in flight: ONE — Drew on `86caxjx26` (empty-hands stone blades), branch
-`drew/86caxjx26-empty-hands` off `484d43f`, dispatched 2026-08-02 ~15:4xZ. Open PRs: ZERO.**
+**Agents in flight: ZERO. Open PRs: ZERO. Nothing is blocked.**
 
-**If this session dies right now:** check `git -C ../Far-Horizon-drew-wt log --oneline` and
-`gh pr list`. No branch pushed → re-dispatch fresh (agent resume IDs die with the session).
-PR open → dispatch **Devon** as reviewer, one round, `APPROVE` or `REQUEST_CHANGES` only.
+**If this session dies right now:** ask the Sponsor what ships next — `86caxjx26` closed and
+nothing is queued behind it. Do NOT dispatch without his word; the doctrine prefers an idle
+slot to invented work.
+
+### ⚠ Reviewer routing — I got this wrong on #432, disclosed to the Sponsor
+
+The doctrine routes **dev PRs to Tess**; I dispatched **Devon** because the ticket body carried
+the older *"Owner: either dev. Reviewer: the other one"* line and I followed it without checking
+it against the 2026-08-02 ruling. **A ticket body written before the doctrine is not authority
+for routing.** The review itself was substantive (see below) and the Sponsor chose to merge on
+it, but the next dev PR goes to Tess unless he says otherwise.
 
 **Read `CLAUDE.md` § "Orchestration doctrine" before doing anything else** — twelve Sponsor
 rulings from today, several inverting prior standing rules. Short version: idle is free and an
@@ -26,7 +33,7 @@ reproduced in a built exe.
 
 ### The drought ended
 
-`main` @ `484d43f`. **`feat` commits in the last 7 days: 1** — `01e9c03`
+`main` @ `91ccb84`. **`feat` commits in the last 7 days: 1** — `01e9c03`
 `feat(combat): find-in-world weapon acquisition — sword_iron in a stump, E-looted` (#351),
 the first since **2026-07-22**. The kill switch (any calendar week with zero `feat` merges
 retires the standing team) is satisfied; re-check with:
@@ -100,11 +107,20 @@ default `GITHUB_TOKEN` actor.
 - **`orch/coordination` is retired.** Orchestrator works on `main`. Both tips archived remotely as
   `archive/orch-coordination-2026-06-24` and `archive/orch-coordination-2026-08-02`; never merge
   either — they fossilise code `main` deliberately deleted.
-- **Destination past #351: Sponsor picked `86caxjx26`** (2026-08-02, popup) — the empty-hands
-  defect, remaining scope `dagger_stone` + `sword_stone` + the AC3 no-orphan guard (#351 closed
-  the four iron blades). Nothing is queued behind it. `team/survival-roadmap.md` remains stale as
-  a plan (it stops at M-U2 while combat, enemies and weapons have shipped) — **ask the Sponsor
-  again before dispatching whatever follows.**
+- **`86caxjx26` is CLOSED** — merged as `91ccb84` (#432, `fix(inventory)`), ticket `complete`.
+  Stone dagger + stone sword now render in-hand; the AC3 no-orphan guard runs in the blocking
+  EditMode lane, so a future weapon id cannot go unmapped silently again. **Nothing is queued
+  behind it.** `team/survival-roadmap.md` remains stale as a plan (it stops at M-U2 while combat,
+  enemies and weapons have shipped) — **ask the Sponsor before dispatching whatever follows.**
+- **Known-wrong claim now on `main`, deliberately not chased:** #432's PR body says the test
+  `HeldVisualIndexFor_AgreesWithThePredicate_AcrossEveryTier` "pins order". Devon showed it does
+  not — the four index maps have **disjoint ranges** (`{0,3,4,5}` / `{10..14}` / `{6..9}` /
+  `{1,2}`) and key off distinct selected ids, so ordering has no observable effect and that
+  assert is tautological. Harmless (the test still passes and guards agreement), but do not cite
+  it as ordering protection. Corrected in his review comment; **no ticket filed, by doctrine.**
+- **Stray in Devon's worktree:** stash `devon-pre-pr432-review-stash` in
+  `../Far-Horizon-devon-wt` holding an untracked `.nvmrc` + `BuildMenuPanelSettings.asset`.
+  `.nvmrc` is tracked on `main` now; the stash is droppable, left alone pending the Sponsor.
 - ⚠ **`team/orchestrator/dispatch-template.md` contradicts itself.** Its § "Read BEFORE any code"
   table (the new scoped routing) is directly undercut by the "Lesson reminder (mandatory in every
   dispatch)" block below it, which still orders agents to *"read EVERY `.claude/docs/*.md`"* —
