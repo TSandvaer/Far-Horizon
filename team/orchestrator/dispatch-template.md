@@ -72,6 +72,7 @@ Replace placeholders with the task-specific scope. Skip the block only for trivi
 - The `git checkout -B` always force-creates from `origin/main`. Don't try to recover prior in-flight work — every dispatch starts fresh.
 - Other agents may be in flight in parallel; their worktrees + file scopes are documented in your task-specific brief above. No file overlap is expected; if you find one, surface it (don't blind-resolve).
 - **Reviewer-side checkout pattern** (when reviewing a PR whose branch is still claimed by the author's worktree): use `git fetch origin pull/<n>/head:pr-<n>-review && git checkout pr-<n>-review` OR `git checkout --detach origin/<author-branch>`. Do NOT use `gh pr checkout` if the author's worktree is still bound to the head ref — it yanks the branch out from under the author (worktree-concurrency race).
+- **Reviewer/QA checkout-FRESHNESS gate (added 2026-07-19, process-incident).** After any review/QA checkout, assert BOTH before judging a line of content, and STOP-and-report "ENV BROKEN" if either fails: (1) `git merge-base --is-ancestor <expected-base-sha> HEAD` exits 0 — the orch brief supplies the expected base (typically the most recent merge the PR builds on); (2) a brief-named post-base landmark file exists (`test -f <path>`). A stale checkout reads as plausible ground truth and produced a false REQUEST_CHANGES + a false fabrication accusation on PR #306 (incident: team/log/process-incidents.md 2026-07-19) — grep results from the wrong revision are indistinguishable from real findings unless the base is pinned first. Orchestrator side: every review/QA brief MUST name the expected-base sha + one landmark file.
 - **Worktree cleanup = NAMED STASH ONLY (added 2026-07-08, process-incident).** When leaving a worktree clean after a QA/review/bootstrap run, park churn via `git stash push -m "<who>-<task>-churn"` — NEVER `git checkout -- .` or `git reset --hard`. A tree-wide discard is irreversible and uninstructed (it trips the harness's destructive-action warning in auto mode); a named stash keeps the discard reviewable and recoverable. (Incident: team/log/process-incidents.md 2026-07-08 — no damage, but only by luck of the content being machine churn.)
 ```
 
@@ -95,7 +96,7 @@ When dispatching two or more agents in parallel where both will reference a NEW 
 - **Signal payload shape (if applicable):** `signal_name(arg1: Type, arg2: Type)` exact ordering
 ```
 
-**Cross-review check.** When peer-reviewing one parallel PR sharing a concept with another in-flight PR, grep the sibling branch for the identifier names + verify they match yours. Vocabulary divergence is mergeability-blocking — file `REQUEST_CHANGES`, not `APPROVE_WITH_NITS`. (See "Three-verdict cross-review format" below.)
+**Cross-review check.** When peer-reviewing one parallel PR sharing a concept with another in-flight PR, grep the sibling branch for the identifier names + verify they match yours. Vocabulary divergence is mergeability-blocking — file `REQUEST_CHANGES`. (See "Two-verdict cross-review format" below.)
 
 **Why:** User-global rule `Parallel-agent shared-concept vocabulary discipline` (codified after ClaudeTeam M3-10, 2026-05-25, where Felix + Maya invented divergent type names — `PersonaGroup` vs `CollapsedPersonaGroup` — under a shape-only contract; the second PR was non-mergeable and required a reconciliation re-dispatch). RG hasn't hit this yet but has parallel-dispatch patterns (W3-T7 Stage 3+4 in flight today; Devon ↔ Drew on shared scenes) where it could. Cheap insurance.
 
@@ -117,7 +118,19 @@ Orchestrator-side: on an `ADVISEMENT NEEDED` report, answer via `SendMessage` to
 ## Mandatory docs pre-read (mandatory in every dispatch)
 
 ```markdown
-**Read BEFORE any code (every dispatch — you do NOT inherit the SessionStart auto-load):** `CLAUDE.md` + every `.claude/docs/*.md`. In particular **`.claude/docs/unity6-mastery.md` is the MANDATORY Unity 6/URP daily-use guardrails doc (Sponsor-stressed 2026-06-16) — never write Unity code without it** (rendering path/Forward+, GPU Resident Drawer, batching, lighting budget, GC/scripting rules, SO architecture, UI Toolkit, import rules, IL2CPP build). Full cited reference at `team/erik-consult/unity6-mastery-research.md`.
+**Read BEFORE any code (you do NOT inherit the SessionStart auto-load):** `CLAUDE.md` + **only the docs this task class needs** — the orchestrator NAMES them in the brief. The blanket "read every `.claude/docs/*.md`" rule was retired 2026-08-02 (Sponsor decision): it cost ~1,855 lines of context on every dispatch including trivial ones, and ~13 agents died mid-task in one week having each paid it in full.
+
+| Task class | Read (in addition to `CLAUDE.md`) |
+|---|---|
+| Any Unity C# | `unity6-mastery.md` + `unity-conventions.md` |
+| Visual / mesh / shader / world-look | + `lowpoly-quality.md` + `art-direction.md` |
+| Blender / weapon / tool / prop / asset | + `blender-asset-pipeline.md` |
+| Action-verb animation (chop / pick-up / drink / throw, `CastawayArmPose`, `HeldAxeRig`) | + `procedural-animation-verbs.md` |
+| Feel / polish / juice / feedback | + `game-juice.md` |
+| Character rig / mesh / Rodin / Mixamo | + `character-pipeline.md` |
+| "Model / create a new X" of any kind | read `asset-routing.md` FIRST — it routes you to the right doc above |
+
+**`unity6-mastery.md` remains non-negotiable for ALL Unity code** (Sponsor-stressed 2026-06-16): rendering path/Forward+, GPU Resident Drawer, batching, lighting budget, GC/scripting rules, SO architecture, UI Toolkit, import rules, IL2CPP build. Full cited reference at `team/erik-consult/unity6-mastery-research.md`. Reading a doc NOT on your list is allowed when you have a reason; reading all twelve by default is not.
 ```
 
 ## Lesson reminder (mandatory in every dispatch)
@@ -285,15 +298,28 @@ The **Regression guard** line is non-negotiable. It forces every dispatch to pro
 
 The **Reviewer-track hard-gate** line is non-negotiable. MARIAN-TUTOR codified the equivalent rule at `:194` of their dispatch template; the audit (2026-05-23) found Embergrave had been operating on the same convention implicitly — every merge had a peer `APPROVE` comment — but the rule was nowhere written down. Codifying it here removes the silent-convention failure mode (a future agent might skip peer-review on a "trivial" PR and merge directly). Foundation: memory `tess-cant-self-qa-peer-review` (the existing rule this generalizes) + `shared-git-identity-blocks-formal-pr-approval` (the workaround the rule cites).
 
-## Three-verdict cross-review format (peer-reviewer-side)
+## Two-verdict cross-review format (peer-reviewer-side)
+
+> **⛔ `APPROVE_WITH_NITS` was DELETED on 2026-08-02 (Sponsor decision).** It auto-filed a
+> `chore(...): <PR-N> NITs follow-up` ticket on every use — a review verdict that manufactures
+> work. Verified consequence on `origin/main`: PR #383 → #394 ("**#383 NITs**", `d09a80a`) →
+> #401 ("**#394 NITs**", `67802b5`) — a NITs-fix PR received its own NITs review which spawned
+> a further NITs-fix PR, all merged, none gameplay.
+>
+> **A review may NEVER create a ticket. There are two verdicts. Nits are fixed in THIS PR or
+> they are dropped — dropping them is an accepted, Sponsor-approved cost.**
 
 Peer reviewers (Drew / Devon — and Tess on test PRs) post their verdict via `gh pr comment <N> --body-file <path>` per `shared-git-identity-blocks-formal-pr-approval` (the harness blocks `gh pr review --approve` on shared git identity). The verdict header is the FIRST line of the comment body so the orchestrator + future-readers can scan PR threads at a glance.
 
 ```markdown
-## REVIEW VERDICT: APPROVE | APPROVE_WITH_NITS | REQUEST_CHANGES
+## REVIEW VERDICT: APPROVE | REQUEST_CHANGES
 ```
 
-Three valid verdicts — all are load-bearing. Pick the right one; don't downgrade or upgrade out of conflict-avoidance.
+**Review budget — hard caps:**
+
+- **Docs-only and test-only PRs get NO reviewer at all.** CI green → merge. Do not dispatch a reviewer for them; do not review them inline either.
+- **Code PRs get ONE reviewer, ONE round.** `REQUEST_CHANGES` → author fixes in the same PR → reviewer re-checks the diff once → verdict is final. There is no third pass.
+- If a second round would be needed, the reviewer instead APPROVEs and states the residual risk in one line, **or** escalates to the Sponsor with the ship-with-documented-defect option on the table (memory `offer-ship-with-documented-defect-escape`). Never a third round.
 
 ### APPROVE
 
@@ -307,33 +333,11 @@ Reviewed PR #NNN against AC1-AC3. Paired tests present and exercise the failure 
 Self-Test Report screenshot covers AC1 + AC2 visually; AC3 is harness-asserted via test_foo_ac3.gd:120 — confirmed locally.
 ```
 
-### APPROVE_WITH_NITS
-
-**The mergeable-with-followup verdict.** PR meets all acceptance criteria and SHIPS as-is — but the reviewer has non-blocking quality issues worth tracking. The orchestrator auto-files a `chore(...): <PR-N> NITs follow-up` ticket scoped to the NITs comment text, then admin-merges the PR.
-
-Per memory `auto-execute-classes-without-sponsor-ack` rule 6, NITs-ticket-creation from APPROVE_WITH_NITS comments is in the auto-execute class when scope is mechanically derivable from a numbered list with file:line refs. Does NOT apply if the reviewer flags any NIT as "needs discussion" or scope-expanding.
-
-```markdown
-## REVIEW VERDICT: APPROVE_WITH_NITS
-
-PR meets AC1-AC4. Paired tests present. CI green on commit <SHA>. Mergeable.
-
-NITs (non-blocking, file as follow-up ticket):
-1. scripts/foo/Bar.gd:42 — magic number `0.5` should be a named const for clarity
-2. tests/test_bar.gd:88 — duplicate assertion block, dedupe candidate
-3. resources/level_chunks/zone_a_001.tres:15 — `mob_spawns[2]` position 320 looks 1px off the chunk grid; verify with Drew next pass
-
-NITs are mechanical; no scope expansion. Auto-file follow-up per `auto-execute-classes-without-sponsor-ack` rule 6.
-```
-
-**Do NOT downgrade to `APPROVE`** — silently drops the NITs, they regress on the next PR touching the same surface.
-**Do NOT upgrade to `REQUEST_CHANGES`** — incorrectly blocks a shippable PR; the NITs aren't AC-blocking.
-
-When file overlap + downstream timing permits, the orchestrator may also absorb the NITs into the next-scheduled downstream PR touching the same files (Path Y pattern per `auto-execute-classes-without-sponsor-ack` rule 6 NITs-absorption); close the NITs ticket as duplicate-of-downstream.
-
 ### REQUEST_CHANGES
 
-PR does NOT merge until the listed issues are resolved. Reserved for: AC not met, test gap on the failure mode, vocabulary divergence with parallel PR (see Vocabulary contract block above), HTML5-visual-gated PR missing self-soak section, claim-fidelity violation in the Self-Test Report (per `tightened-final-report-contract` Amendment), regression-guard missing on a feature PR.
+PR does NOT merge until the listed issues are resolved **in this same PR**. Reserved for a SHORT list: AC not met, test gap on the failure mode, vocabulary divergence with a parallel PR (see Vocabulary contract block above), missing shipped-build capture evidence on a UX-visible PR, claim-fidelity violation in the Self-Test Report (per `tightened-final-report-contract` Amendment), regression-guard missing on a feature PR.
+
+**Not grounds for REQUEST_CHANGES:** style preferences, naming taste, magic numbers, duplicate assertion blocks, "could be cleaner", or anything that would previously have been a NIT. If it does not block an AC and does not regress shipped behaviour, it is not a finding — say nothing and APPROVE.
 
 ```markdown
 ## REVIEW VERDICT: REQUEST_CHANGES
@@ -347,7 +351,7 @@ Required changes:
 Re-dispatch with these resolved + the same brief.
 ```
 
-**Reviewer self-discipline:** if you're tempted to `APPROVE` to avoid friction but you have NITs, use `APPROVE_WITH_NITS`. If you're tempted to `REQUEST_CHANGES` because something looks suboptimal but doesn't block AC + doesn't regress quality, use `APPROVE_WITH_NITS`. The three-verdict shape exists precisely to prevent the binary "ship clean or block" trap.
+**Reviewer self-discipline (rewritten 2026-08-02):** your job is to answer one question — *does this PR meet its ACs without regressing shipped behaviour?* If yes, `APPROVE` and stop; resist the pull to justify the dispatch by producing findings. A review that finds nothing is a good review. If no, `REQUEST_CHANGES` with the shortest list that unblocks it. You may not file a ticket, and you may not defer a concern into one — it is either blocking (say it now) or it is dropped (say nothing).
 
 ## Final-report shape — TIGHT + cite-able evidence (mandatory in every dispatch)
 
@@ -434,6 +438,32 @@ The harness denies self-merge of one's own PR via `gh pr review --approve` (retu
 
 Every ticket carries a free-text tag from `impl` / `spec` / `investigation` / `test` / `chore` / `cleanup`. The tag drives which acceptance gates apply: **impl** needs a green paired test; **spec** needs PR-opens-to-template; **investigation** needs question-answered-in-PR-body; **test** needs a failing-first contract; **chore** needs no behavior change; **cleanup** needs comment-only or follow-up reframe. Without the tag, the testing-bar rubric mis-scores spec/investigation tickets as low quality. Priya applies the tag at ticket creation; the orchestrator checks it pre-dispatch. (Imported from MarianLearning's 2026-05-22 retro.)
 
+## Lane + CI-coverage line (ticket-level, Priya applies at creation — PASTE, do not re-derive)
+
+Every ticket carries a **Lane** line telling the dispatcher whether it consumes the single Unity build slot, and telling the author what CI will actually say about their PR. **Paste the matching block verbatim.** Deriving this line fresh from `ci.yml`'s `paths-ignore` is exactly how the false "docs-only ⇒ ZERO CI checks" premise got into five tickets and a PR body (caught 2026-07-31, PR #389). Canonical reference: `team/TESTING_BAR.md` § *What CI actually covers, by PR lane*.
+
+**Unity-build lane** (diff touches `Assets/**`, `.github/**`, or any path not in `ci.yml`'s `paths-ignore`):
+
+```markdown
+⚠ **Unity-BUILD lane.** `Assets/**` is absent from `ci.yml`'s `paths-ignore` — keys `on.push.paths-ignore` / `on.pull_request.paths-ignore` in `.github/workflows/ci.yml` (lines `96-101` / `104-109` at `2059ce5`; if they've moved, grep the key names) — so the full run fires (`structure` + `build` + `capture` + advisory `playmode`) and this **consumes the single Unity build slot** (`[[single-unity-build-slot-serializes-orchestration]]`). ⚠ `.github/**` in the diff additionally means the PR **cannot be label-merged** (`[[auto-merge-fails-on-workflow-file-prs]]`).
+```
+
+**Non-build (docs-only, `*.md`) lane:**
+
+```markdown
+✅ **NON-build lane — dispatchable while the Unity build slot is occupied.** Every changed path is in `ci.yml`'s workflow-level `paths-ignore` (`**/*.md`, `team/**`, `inspiration/**`, `.claude/**`, `docs/**`) — keys `on.push.paths-ignore` / `on.pull_request.paths-ignore` in `.github/workflows/ci.yml` (lines `96-101` / `104-109` at `2059ce5`; if they've moved, grep the key names) — so `ci.yml` does not start: **no `structure`, `build`, `capture` or `playmode` result on this PR.**
+
+ℹ **"Non-build" is NOT "no CI".** `.github/workflows/docs-markup.yml` is a **separate** workflow triggered on `paths: '**/*.md'`, so it **does** run and gives one real hosted pass/fail (~10s, no licence). **Report it precisely:** *"`docs-markup` pass; `ci.yml` did not run — no build or test result."* Do NOT write "CI green" (the build was never exercised) and do NOT write "zero CI checks" (a real gate ran). `auto-merge` is the merge Action, not a gate — never count it. Peer review is the substantive gate.
+```
+
+**Zero-check lane, rare but real** (diff is ONLY non-`.md` paths that `ci.yml` ignores — e.g. `inspiration/*.png`, `.claude/settings.json`, a `.claude/hooks/*.sh`): neither workflow triggers. This is the lane where the false claim stays half-plausible, so it gets a paste block too — **do not hand-derive it, and do not let it pass as the docs lane**:
+
+```markdown
+⛔ **ZERO-CHECK lane — no automated gate of any kind will run on this PR.** Every changed path is in `ci.yml`'s `paths-ignore` (keys `on.push.paths-ignore` / `on.pull_request.paths-ignore` in `.github/workflows/ci.yml`; lines `96-101` / `104-109` at `2059ce5`) **and** no changed path is `**/*.md`, so `docs-markup.yml` does not trigger either (key `on.pull_request.paths` in `.github/workflows/docs-markup.yml` — `**/*.md` + its own workflow/script files; lines `54-57` at `2059ce5`). **Report it precisely:** *"No workflow triggered — zero checks. Peer review is the only gate."* `auto-merge` is the merge Action, not a gate — never count it. Because nothing mechanical runs, the reviewer carries the whole gate: read the diff, do not infer safety from a green PR page.
+```
+
+⚠ This is the ONE lane where "zero CI checks" is TRUE. It is true because **both** workflows were checked and both were shown not to trigger — not because the diff "looks like docs". Any ticket claiming zero checks without naming `docs-markup.yml` and why it does not fire is the corrected-five-times phrasing, not this lane.
+
 ## Pre-dispatch checklist (orchestrator-side)
 
 Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dispatch time when fixing them is a one-line brief edit — not after the agent's burned cycles on an under-specified task.
@@ -444,6 +474,7 @@ Run this checklist BEFORE firing the `Agent` call. Catches missing blocks at dis
 - [ ] **Ticket-body hard gates.** Ticket body carries an explicit OOS list + a named success-test. Missing either → bounce to Priya for flesh-out BEFORE dispatch (or the orchestrator fills them per the ticket-flesh-out auto-decide class when it has the context).
 - [ ] **AC shape (Commander's Intent).** The AC leads with the 🎯 destination (what + why) and separates 🔒 constraints from 🎚️ tunable defaults (see § Acceptance-criteria shape). If the destination is buried under implementation route, or a tunable value reads as a mandate, bounce to Priya.
 - [ ] **Work-type tag present** on the ticket (`impl`/`spec`/`investigation`/`test`/`chore`/`cleanup`) — drives which acceptance gates apply.
+- [ ] **Lane line present and PASTED from § Lane + CI-coverage line**, not re-derived. Bounce any ticket whose Lane claims a **docs-only (`*.md`)** PR gets "zero CI checks" / "NO checks at all" — that is false since `docs-markup.yml` shipped, and it is the phrasing this project has already had to correct on five tickets. **Do not bounce a correctly-pasted zero-check-lane line:** on a diff with no `*.md` path at all, zero checks is TRUE. The tell is which block was pasted — the zero-check block names `docs-markup.yml` and why it does not fire; the false phrasing never mentions it.
 - [ ] **Branch name** follows `<role>/<id>-<slug>` format.
 - [ ] **Scoped contract block present** — owned files, read-only references, OOS, conflict rule. OOS named explicitly; if the agent should not touch a tempting adjacent file, NAME IT.
 - [ ] **Reviewer named** per Done clause reviewer-track (game-side → Drew, harness/inventory → Devon, Tess PRs → peer by surface, Priya docs → Devon or Drew by surface).
@@ -494,7 +525,7 @@ Short notes per role. The mandatory + situational blocks above are the contract 
 ### Priya (Project Leader / coordination)
 
 - **Priya does NOT spawn peers** — she authors process docs, retros, backlogs, M3 design seeds. The orchestrator dispatches workers based on her recommendations.
-- **`team/DECISIONS.md` is Priya-only** (weekly batch-PR cadence, Mondays). Other roles' final reports include `Decision draft:` lines; Priya batches them via `decisions-batch-pr-template.md`. Per the project CLAUDE.md "Doc conventions" section.
+- **`team/DECISIONS.md` is Priya-only** (weekly batch-PR cadence, Mondays). Other roles' final reports include `Decision draft:` lines; Priya batches them per `team/GIT_PROTOCOL.md` § **Decisions log — no direct edits** and `team/DECISIONS.md`'s own header. Per `.claude/agents/priya.md` § **Doc conventions**.
 - **Reviewer:** Devon OR Drew per `auto-execute-classes-without-sponsor-ack` § peer-reviewer-selection-by-surface (engine-adjacent docs → Devon; game-side / content docs → Drew). Priya orch-docs PRs WITH peer-reviewer attached + CI green are in the auto-merge class per rule 6 — orchestrator merges without Sponsor sign-off.
 
 ## Worktree cleanup (orchestrator-side, post-merge)

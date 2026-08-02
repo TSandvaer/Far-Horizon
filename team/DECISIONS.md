@@ -13,9 +13,364 @@ Append-only. Format:
 - Affects: <roles or systems>
 ```
 
+> **Correction protocol (established 2026-07-30, `86caz4td5`):** a **merged** entry is never rewritten — not even annotated with a forward-pointer, because an insertion into a historical entry still passes the 0-deletions invariant check and so erodes the record without tripping the guard. Append a new entry whose title begins `CORRECTION:` and which carries an extra **`- Amends:`** field quoting the amended entry's title verbatim + the SHA it merged in (title + SHA only — a positional word like "below" goes stale on the next append). When the correction is **partial**, name the clause **withdrawn**, the clause that **replaces** it, and — explicitly — what still **stands**; if a surviving clause's *reasoning* was replaced, say so, because "unchanged" claims the grounds held too and not just the conclusion. A **full reversal** needs only `Amends:` + `Withdrawn: the entire entry` — running the three-way split on a total reversal yields two empty fields, and ceremony gets skipped. A **widening** that withdraws nothing is a new entry citing the old, never a correction. The correction entry is the **only** place the retired wording is quoted verbatim: the doc being fixed must not reproduce it — not even as a negation — or a staleness grep for the old phrase can never come clean. That quote does double duty, and it is the reason no back-pointer is needed: a term-grep that lands inside the amended entry also returns the correction's `Withdrawn:` line, because both contain the retired wording. Corrections are Priya's, same as entries. (An entry still sitting on an **unmerged** branch may be edited in place — that is a draft revision, not a correction, and needs none of this.)
+
+> **To find whether an entry has been amended, do NOT grep `CORRECTION:`.** That is the going-forward shape only. **11 earlier entries** (as of `c8ce948`) instead mark the amendment in their **TITLE** — `(supersedes …)` / `(reverses …)` / `(… WITHDRAWN)` — and some perform the same three-way split *inline* in a normally-titled entry (the 2026-06-24 need-HUD entry does all four fields in prose). Those are not being rewritten. The one scan that covers every shape, and that cannot go stale because it is derived from the file rather than maintained beside it:
+> ```
+> grep -nE '^## .*(CORRECTION:|supersed|reverses|WITHDRAWN)' team/DECISIONS.md
+> ```
+> ~12 hits, date-ordered — read the titles, then the `Amends:` field or the title marker for the target. **A hand-maintained amended-entries index is deliberately NOT kept:** it would be the one mutable surface in an append-only file, a missing row is an absent *insertion* so the 0-deletions check cannot detect it, and a reader who trusts it and finds nothing is back to "not amended or not indexed?" — the same false negative one level up. It is also not keyable: at least 4 of the 11 amend something that is **not an entry in this file** (the 2026-06-16 WASD entry reverses a `CLAUDE.md` line; the 2026-06-15 vista entry supersedes an Erik research recommendation; the 2026-07-27 low-HP entry withdraws a registry id that was never minted; the 2026-07-08 no-git-handoffs entry supersedes a working practice), and line numbers cannot serve as keys because every append shifts them.
+
 Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame repo: `c:/Trunk/PRIVATE/RandomGame/team/DECISIONS.md`.
 
 ---
+
+<!-- BATCH 2026-07-31 — the enemy-feedback spec pair (#376 `7d6d96f` + #371 `59a6e53`). 16 entries from 20 parked
+     drafts; the 4 composes and the reason for each are recorded in this batch's PR body, not here. -->
+
+## 2026-07-31 — Enemy body and pip row divide the labour: body = "that landed, and this hard"; row = "it's this close to down"
+
+- Decided by: Uma (spec author, `86caxjwb3` / PR **#376** `7d6d96f` §1; the pip-row half stated identically in `86caxhfg2` / PR **#371** `59a6e53` §1) — Priya-batched.
+- Decision: The enemy's two feedback surfaces carry **different questions and never the same one**. The **body** read (flash / flinch / dust, ON the creature) is **analog + instantaneous** and answers *"that landed, and this hard"*. The **above-head pip row** is **quantized + cumulative** and answers *"it's this close to down"*. Precedence is **one-directional: the pip row yields to the body, never the reverse** — the body is never suppressed, shortened or dimmed because the pip carries something.
+- Why: the body is load-bearing exactly where the pip row is **silent**. A low-damage weapon moves **no pip at all** on ~44 % (medium boar) / ~55 % (hard boar) of landed hits, so a design that lets the row speak for the hit delivers the "I did nothing" false-negative both tickets exist to prevent. The asymmetry in the precedence rule follows from the asymmetry in the information: a missing body flash loses the only evidence the strike connected, while a missing pip step is recoverable on the next hit.
+- Reversibility: reversible (a division-of-labour rule; a future design that made the row continuous and instantaneous would re-open it)
+- Affects: Uma (both specs' §1) · Drew / Devon (`86caxjwb3` impl, and `86caxhfg2` behind it) · `team/quality-bars.md` #10 (the two surfaces are separate channels only because they carry separate information — the same variance argument bar #10 now encodes).
+
+## 2026-07-31 — The shared `Health.Changed` seam is NOT a hit seam: it lies about cadence AND about magnitude, and both must be corrected before feedback hangs off it
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §2.1 + §2.2), correcting `86caxjwb3`'s own premise — Priya-batched. Both corrections re-verified against `origin/main` @ `90d024b` while writing this entry.
+- Decision: Feedback driven off `Health.Changed` must gate on **two** corrections, not one. **(a) Cadence** — bleed calls `Health.ApplyDamage` **every frame** (`StatusEffectController.cs:55-61` `Update`→`TickSeconds`, `:99` the per-frame `ApplyDamage`), so a literal *"fire on a damage delta"* strobes flash + flinch + dust for the full 3 s bleed. Gate it on a **magnitude threshold at 2.0 % of `Health.Max`** *and* a **0.12 s refractory window** — the threshold alone is frame-rate-sensitive because a bleed tick's amount is `dps × dt`. **(b) Magnitude** — `ApplyDamage` returns **clamped** `removed` (`Health.cs:157`; `SetCurrent` clamps at `:185`), so both the gate and any damage-proportional weight must read the **pre-clamp intent** (`effective`, `Health.cs:151`), exposed as a public read-only value on `Health`. Recomputing it attacker-side is **rejected** (breaks AC1's attacker-free contract and goes blind to non-weapon damage).
+- Why: the two corrections are not independent, and that is the whole reason they are one entry. Applying (a) without (b) makes the **killing blow the quietest hit of the fight** — worse, on a hard boar (50 HP, `BoarEnemy.cs:44`) a clamped `removed = 1.0` is **exactly 2.0 % of `Max`**, i.e. sitting on the gate, so the kill can produce **no feedback at all**. The gate value is only safe because the pre-clamp read exists. Scale of the cadence problem: axe 2 dps / iron axe 3 dps over 3 s (`WeaponCatalog.cs:65-66` / `:119-120`), so the worst 60 fps tick is 0.05 HP — the 2.0 % gate sits ~9.5× above it and ~4.5× below the weakest shipped strike (`dagger_wood`, 6 base × 0.75 Slash = 4.5 HP = 9.0 % on a hard boar). A permanently-lit, vibrating enemy emitting ~60 particle bursts/second is also indistinguishable from the `[DFC-1]` latch bug — a wrong fix that looks like a known bug is the expensive kind.
+- Reversibility: reversible (two gate values + one exposed field; the values are 🎚️ soak-tunable, the *shape* is not)
+- Affects: Devon / Drew (`86caxjwb3` impl; `Health.cs` gains one read-only member) · `86cah7yuh` (status effects — the per-frame DoT path is theirs) · `86caxhfg2` (which solves the SAME root cause a different way — see the arming entry below) · any future cue driven off `Health.Changed`. Source: PR #376 §2.1/§2.2 + Devon's dev factual-check on PR #348 (`5109223633`, the `[DFC-*]` set).
+
+## 2026-07-31 — The hit flash is a warm-biased multiplicative EXPOSURE LIFT on albedo BEFORE lighting, sub-1.0 ceiling — never a lerp toward flat warm-white
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §2.3 / §3.1), refining `combat-cluster-design-brief.md` §1.2 — Priya-batched.
+- Decision: The enemy hit flash is a **multiplicative exposure lift with a warm bias and a sub-1.0 ceiling (0.92)**, applied to **albedo before lighting** via the shipped `_MeadowPatchAmp` idiom (`Assets/Shaders/LowPolyVertexColor.shader:247-252` — a `> 0.0` guarded albedo write ahead of the lit/ambient assembly). It is explicitly **not** a lerp toward a flat warm-white.
+- Why: the boar's ivory tusk `(0.90, 0.88, 0.78)` and near-black eye `(0.06, 0.05, 0.04)` are **per-vertex colours inside the same head mesh and the same material** (`MovementCameraScene.cs:2564-2565`; the four-tone head mesh at `:2814`). A flat-cream **lerp** at any readable amplitude therefore erases **both at once** — the identity features *and* the quality-bar-#9 tusk read that the boar soak passed on. A **multiply** preserves the tone ordering while still delivering a luma step of ~1.76× (boar) / ~1.52× (snake): hue-independent, and so desaturation-proof under bar #10. The sub-1.0 ceiling keeps it inside the HDR-clamp discipline (`style-guide-v2.md` §5) and below the Bloom threshold (1.02, `ZoneD_PostProfile.asset:59-64`) so a hit never blooms. And at amplitude 0 the expression is **bit-identical to today**, so the shared shader's no-op-at-default proof carries over unchanged — which is what lets a new float land on a shader every material in the world uses.
+- Reversibility: reversible (a shader expression + one CBUFFER float defaulting to 0)
+- Affects: Devon / Drew (`86caxjwb3`; the new float must go in `CBUFFER_START` per `LowPolyVertexColor.shader:93`) · every material on that shader (protected by the default-0 no-op) · `team/quality-bars.md` #9 (tusk read) + #10 (hue-independence) · `combat-cluster-design-brief.md` §1.2 (refined, not reversed).
+
+## 2026-07-31 — The flash is the binary "connected" channel; weapon weight is EMERGENT from one scalar and the flash is excluded from it
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §3 + §5), refining `combat-cluster-design-brief.md` §2.4 — Priya-batched.
+- Decision: **The flash carries one bit — "connected" — and nothing else.** It is **distance-invariant** and does **not scale with damage**; its attack is **zero frames** (peak on the impact frame) and *"eased out"* means the **release** is eased, never ease-in-out. If it fails to read at orbit distance the lever is **DURATION** (0.08 → ≤0.14 s), never amplitude. Weapon weight instead rides **one scalar** — `w = sqrt(clamp01(intent / (Max × 0.5)))` — driving the **flinch** (`Lerp(0.50, 1.30, w)`) and the **puff count** (`Lerp(4, 9, w)`), with a **floor** (0.50× flinch / 4 particles) mirroring the pip row's living-floor rule. **No weapon-tier and no damage-type lookup.** Step-shaped or extra-beat differentiation is forbidden — that is a crit system.
+- Why: these are one decision because the flash's exclusion is *what makes the scalar safe*. Amplitude is already pinned from two sides (the tusk-contrast requirement and the sub-1.0 ceiling), so there is no room to scale it; and a ≤1.2× tint delta inside 5 frames on a moving creature is **below discrimination** — spending the flash on differentiation costs it its role as a reliable binary and buys nothing. Distance- or damage-varying the flash destroys the one property that makes it **learnable**. The single scalar delivers brief §2.4's *"a pierce hit lands meatier"* **for free**, because pierce ×2.0 (`BoarEnemy.cs:49`) simply IS a bigger number — a ~1.5× spread across the shipped weapon set with no table to maintain, which is the same no-hardcoded-matchup discipline bar #9 confirmed at the boar soak. Note the scalar reads `intent`, not `removed`, per the seam entry above.
+- Reversibility: reversible (one formula + two `Lerp` bands; the numbers are 🎚️ soak-tunable, the flash's exclusion is not)
+- Affects: Devon / Drew (`86caxjwb3`) · `86caffwv5` (light swings — owns the impact frame this hangs off, and hit-stop/Impulse) · `team/quality-bars.md` #9 · `combat-cluster-design-brief.md` §2.4 (refined).
+
+## 2026-07-31 — The flinch occupies an axis ORTHOGONAL to that creature's telegraph
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §4) — Priya-batched. Rig amplitudes re-verified on `origin/main` @ `90d024b`.
+- Decision: Each creature's hit flinch moves on an axis **orthogonal to its own telegraph**. Boar: head **UP** / body **BACK**, against the shipped head-down `headLowerDeg = 34f` gore tell and the `chargeLeanDeg = 12f` charge lean (`Combat/BoarBodyRig.cs:73`, `:75`). Snake: **LATERAL** whip, against its shipped **vertical** rear. Peaks are specified as fractions of already-approved amplitudes on the same rig (head 41 % of `headLowerDeg`, body 42 % of `chargeLeanDeg`, tail 1.25× the idle wag, snake lateral 1.6× `slitherAmplitude = 0.055f` at `Combat/SnakeBodyChain.cs:54`). **Rotation + small per-part offsets only** — no scale, no root write, no leg terms. Envelope ≤ 0.22 s with **exactly one** ≤15 % counter-overshoot.
+- Why: a same-axis flinch **fakes a telegraph**. The player has been taught to read head-down as *the boar is about to gore*; a hit that also pushes the head down injects a false tell and regresses the charge read the Sponsor PASSED at the boar soak (bar #9) — a feedback addition that damages a working read is a net loss however good it looks in isolation. Calibrating as fractions of approved amplitudes rather than fresh numbers means the flinch cannot out-shout the telegraph it must stay legible against. Leg terms are excluded specifically because **four legs moving together reads as a collapse**, not a flinch — wrong message, not wrong amount. The single bounded overshoot is the reconciliation of bar #2 (motion never reads dead) with `game-juice.md` §2 (never a sustained wobble): one counter-beat is alive, two is a vibration.
+- Reversibility: reversible (additive `LateUpdate` offsets; zero at rest by construction)
+- Affects: Drew / Devon (`86caxjwb3`) · `86cah7ydt` (boar — the charge feel must not regress) · `86caaz4vn` (snake) · `.claude/docs/procedural-animation-verbs.md` (the additive-offset + zero-at-rest idiom; note the castaway `CastawayArmPose`→`HeldAxeRig` chain does NOT apply to an enemy rig) · `team/quality-bars.md` #2 + #9.
+
+## 2026-07-31 — The tier stagger suppresses the agent's ADVANCE, never its `State`; `Windup` is non-interruptible at EVERY tier including easy
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §4.5) — Priya-batched.
+- Decision: The hit stagger is implemented as a suppression of the agent's **advance**, never a write to `State`, and it applies in **`Chase` only** (easy 0.35 / medium 0.15 / hard 0.0 s). **`Windup` is non-interruptible at every tier, easy included.** The recoil is **non-directional** — a hitch, not knockback.
+- Why: suppressing advance rather than state makes `86caxjwb3` AC3's *"must not cancel a committed charge"* true **by construction** instead of by careful coding — the class of guarantee that survives a refactor. Keeping `Windup` non-interruptible even on easy is the counter-intuitive half and the load-bearing one: a cancellable telegraph can be **mashed away**, and then the boar never actually demonstrates the charge the player is supposed to learn to dodge. Easy must be *more forgiving*, not *differently taught* — a tier that removes the lesson is a different game, not an easier one (bar #7). Non-directional is a scope call with a hard reason: a directional recoil needs the attacker's position, which AC1's attacker-free seam does not carry, and displacing a `NavMeshAgent` body is a separate mechanic with its own failure modes.
+- Reversibility: reversible (three per-tier durations, 🎚️ soak-tunable; the `Chase`-only scoping and the `Windup` exclusion are not)
+- Affects: Drew / Devon (`86caxjwb3`) · `86cah7ydt` (`BoarAI` — the state enum + the Dead contract) · `team/quality-bars.md` #7 (per-tier) + #9 (the learnable charge) · `[[difficulty-settings-easy-medium-hard]]`.
+
+## 2026-07-31 — The kill hit's treatment is a change of SHAPE, not of volume — it is ABSENCE
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §6) — Priya-batched.
+- Decision: The killing blow gets **less**, not more. The flash **plays and decays identically** and is **never zeroed on death**; the **flinch is cancelled** on `Died`; the impact puff is **suppressed** and replaced by a **softer, wider, slower death puff at the GROUND line, delayed 0.20 s**. No brighter flash, no corpse recolour, no slow-mo; whole death read ≤ 1.1 s.
+- Why: the beats must read *"hit … it goes down"* — two events — rather than one undifferentiated kill-burst, which `game-juice.md` §2 forbids outright at this tone. Each clause has its own reason and they pull in different directions, which is why the entry is about shape rather than a single amplitude: **not zeroing the flash** because a snap to base colour on death is a **pop** (the most common cheap-looking death artifact); **cancelling the flinch** because a half-played recoil held on a settling body is a **twitch on a corpse**; **delaying the puff to the ground line** because with a topple out of scope, the ground-line dust is the only thing that makes the settle read as *landing* rather than as the model switching off. Brief §2.5 puts the dust on the tipping; absent a topple, this is how that intent survives.
+- Reversibility: reversible (one delay + three amplitude/shape values, 🎚️ soak-tunable)
+- Affects: Drew / Devon (`86caxjwb3`) · `86cah7ydt` (`BoarAI` death entry + the `dead ?` branches in `BoarBodyRig.LateUpdate`) · `.claude/docs/game-juice.md` §2 (the kill-burst hard-don't) · `combat-cluster-design-brief.md` §2.5.
+
+## 2026-07-31 — No blocked / absorbed / immune outcome exists on a live enemy; and the forward rule is that zero damage is a different MESSAGE, not a lower AMPLITUDE
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §7; §7's base-damage range corrected 4→6 by PR **#377** `92de044`) — Priya-batched. Re-verified on `origin/main` @ `90d024b`.
+- Decision: There is **no zero-damage-on-a-live-enemy case to design for today**, and the two zero cases that *do* exist must produce **zero body feedback**: a **whiff** (the swing is its own feedback) and a **strike on a corpse** (hitting a dead animal must feel inert). **Forward rule:** if a block / parry / armour mechanic ever lands, it needs its **own** cue — **zero damage is a different MESSAGE, not a lower amplitude**.
+- Why: immunity is **unrepresentable** in the shipped model, not merely unused — `ResistanceProfile.Multiplier` maps any `m <= 0f` to **NEUTRAL `1f`** (`Combat/ResistanceProfile.cs`, whose own comment states the intent: *"a missing profile never makes a target immortal"*). Both enemies keep `damageTakenMul` at 1.0, all 15 `WeaponCatalog` defs deal **> 0** (base 6 … 21 — the min is 6, not 4; that arithmetic was wrong on §7's low end and is corrected in `92de044`), and there is no block/parry/armour/shield system anywhere in `Runtime/Combat/`. The forward rule matters more than the present-tense finding: a **dimmed** flash is indistinguishable from a **weak hit that did land**, so the intuitive "less feedback for less damage" answer silently converts a *your attack was negated* event into a *you did a little damage* event — the single most misleading substitution available in a hit-feedback system.
+- Reversibility: reversible as a scope statement; the forward rule is a design constraint on a mechanic that does not exist yet
+- Affects: Drew / Devon (`86caxjwb3` — the whiff/corpse early-return at `Combat/MeleeAttack.cs`) · whoever ships a block/armour mechanic · `86cah7ym9` (weapon roster — the "all 15 deal > 0" premise) · `combat-cluster-design-brief.md`.
+
+## 2026-07-31 — The dust puff spawns at the creature's renderer-bounds centre, never at a contact point, and its shape is never radially symmetric
+
+- Decided by: Uma (spec author, PR **#376** `7d6d96f` §8) — Priya-batched.
+- Decision: The impact dust spawns at the target's **renderer-bounds centre (~60 % height)**, **not** at a contact point. Shape is a short **upward-and-outward gravity-affected cone** — **never radially symmetric**. Proposed colour pin: pale warm earth **`#B39472`**, lighter than every creature tone; **never red**.
+- Why: the shared `Health.Changed` seam **carries no hit position**, and AC1 forbids reaching back to the attacker to get one — so a contact-point origin is unavailable without breaking the seam that makes the whole system attacker-free. The design answer is that it does not matter: a ≤12-particle, 0.4 s burst is **not legible enough for its origin to be readable**, so the player reads *"dust, at the animal"* and the bounds centre satisfies that completely. This is the good case of a constraint and a design preference agreeing — and it makes enemy #3 correct for free, with no per-creature authoring. The two shape prohibitions carry the tone: a **ring** reads as an **explosion**, and **red** dust reads as **blood**, both of which break the calm register the whole spec is calibrated to. Lighter-than-every-creature-tone is what stops the puff reading as a **piece coming off the body**.
+- Reversibility: reversible (a spawn point, a cone shape, one colour — colour is 🎚️ soak-tunable)
+- Affects: Drew / Devon (`86caxjwb3` — the project's FIRST pooled `ParticleSystem`) · `.claude/docs/game-juice.md` §1.4 (pooled faceted bursts, ≤12) · `.claude/docs/lowpoly-quality.md` (chunky faceted particle shapes) · `.claude/docs/unity6-mastery.md` §2 (no `MaterialPropertyBlock` on juice VFX).
+
+## 2026-07-31 — The lost-pip extinguish flash is CONDITIONAL on no body flash — in practice a bleed/DoT-only accent, met by construction rather than by tuning
+
+- Decided by: Uma (spec author). **One entry from two spec sections that state the same rule** — `86caxhfg2` / PR **#371** `59a6e53` §5 + §7 (and its own §13 draft), **as amended by** `86caxjwb3` / PR **#376** `7d6d96f` §1.3, which is the authority here. Priya-batched. The hp-read draft says so itself: *"this draft and that spec's §13 extinguish draft state the SAME rule; batch them as one entry, not two."*
+- Decision: The pip row's one permitted accent — a lost-pip extinguish flash at **~60 % of the player HUD's amplitude and half its duration** (`#EAD9B8`, α ≤ 0.85, ≤ 0.24 s total) — **fires only when no body flash fired on that target within `enemy_hit_flash_seconds`**. Since a **strike always brings a body flash**, that makes it a **bleed/DoT-only** accent, and **an extinguish flash on a strike frame is a bug, not a miscalibration.** `enemy_hit_flash_seconds` is owned by `enemy-hit-feedback-spec.md` §10.
+- Why: the pip's information **is the count change**; on a strike frame an extinguish flash duplicates the body's *"something happened"* while adding nothing, and it does so at the exact moment the loudness ordering (body flash > flinch > dust > pip row) is most crowded. The valuable half is the **mechanism**: gating on *"did a body flash fire?"* rather than on a tuned amplitude means the ordering is met **by construction**, so it cannot drift when either surface is re-dialled — and it converts a calibration question into a testable predicate. Suppression stays **one-directional** (the body is never suppressed for the pip) per the division-of-labour entry above. The reason this is one entry and not two: the extinguish rule was parked in **both** specs' draft lists; splitting it would put the same rule on the record twice with two different sources, and a later reader amending one copy would leave the other standing.
+- Reversibility: reversible (one predicate + three values, 🎚️ soak-tunable)
+- Affects: Drew / Devon (`86caxhfg2`, deferred behind `86caxjwb3`) · `enemy-hp-read-spec.md` §3.2 (the rule it amends) + §5/§7 · `enemy-hit-feedback-spec.md` §1.3 (the amending authority) + §10 (owns the dial) · `hp-hud-polish-spec.md` §2.3-§2.4 (the player-side wince the enemy side deliberately does not copy).
+
+## 2026-07-31 — The enemy pip row is a 5-block quantized PROPORTION read — explicitly NOT "hits remaining" — with a draining leading pip and a living floor
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §2 + §2.3) — Priya-batched. Re-verified on `origin/main` @ `90d024b`.
+- Decision: The row is **five pips reading a PROPORTION of max HP**, explicitly not *"hits remaining"*. Sub-pip hits are carried by a **DRAINING leading pip** — rendered at `α = Lerp(0.35, 1.0, remainder)` — and a **living-floor** rule guarantees at least one pip at ≥ 0.35 α while `Current > 0`, so the row never reads dead while the animal is alive.
+- Why: hits-to-kill spans **2 … 9** on a medium boar across the 15 shipped `WeaponCatalog` defs (`spear_iron` 2 → `dagger_wood` / `pickaxe_wood` 9), so a fixed 5-pip row interpreted as hits would be **wrong for 13 of the 15** — only `sword_wood` and `pickaxe_iron` land on 5. Five is additionally **geometry-forced**: ten pips inside the pinned 64 px pill would be 4.0 px each. The draining pip is not a separate nicety but the **completion of the same decision** — quantizing to five *creates* a sub-pip blind spot, and shipping the quantization without the drain delivers the "I did nothing" false-negative on up to ~44 % (medium) / ~55 % (hard) of landed hits. It is **value, not width**: a 10 × 6 px pip has no readable width granularity, and a value step survives desaturation (bar #10). A continuous bar was considered and rejected — it forks the HUD grammar, loses its leading edge at orbit distance, and is single-channel under bar #10.
+- Reversibility: reversible (a count + an alpha band; the count is geometry-forced, so re-opening it means re-opening the pill geometry)
+- Affects: Drew / Devon (`86caxhfg2`) · `SurvivalHud.cs` grammar (`:44` `SegmentCount`, `:47` `PlateAlpha`, `:361` the FLOOR rule this mirrors — **and `:343`/`:365`'s `TopSegmentThreshold = 0.95f` promotion, which makes `FilledSegments` unsafe to reuse here**) · `hud-three-bar-spec.md` · `team/quality-bars.md` #10.
+
+## 2026-07-31 — The enemy pip row ARMS on the player's landed strike, not on `Health.Changed` — the same root cause as the body gate, solved differently because the constraints differ
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §3.1) — Priya-batched.
+- Decision: The row **arms on the `MeleeAttack` strike seam** (`removed > 0f`), **not** on `Health.Changed`. `Health.Changed` drives the row's **VALUE while it is already showing** and **never extends the hold**.
+- Why: same root cause as the body-feedback gate — the axe's bleed ticks through `Health.ApplyDamage` — but the **remedy is deliberately different, and the difference is instructive**. Arming on `Changed` would re-summon a plate over a **disengaged** animal for 3 s of DoT while showing nothing change: the enemy-side sibling of the HUD's own §2.4 DoT strobe. The body side could not take this route because AC1 forbids attacker coupling, so it had to correct `Health.Changed` in place with a magnitude gate plus a refractory window; the row has **no such constraint**, so it can simply arm from a seam that already means *"the player hit something"* (`Combat/MeleeAttack.cs` exposes `LastDamageDealt` and computes `removed` at the strike). The generalisable point: **one root cause does not imply one remedy** — the cheapest correct fix depends on which seams the surface is allowed to touch, and recording only the body's gate would have left a future author assuming the gate is the house pattern.
+- Reversibility: reversible (a trigger source)
+- Affects: Drew / Devon (`86caxhfg2`) · `86cah7yuh` (the DoT path) · `hp-hud-polish-spec.md` §2.4 (the player-side DoT debounce this is the sibling of) · the seam entry above (`86caxjwb3`'s gate — the same root cause).
+
+## 2026-07-31 — The enemy row reuses `LootPrompt`'s projection IDIOM but diverges from it on anchor, stack order, off-screen policy and concurrency
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §1.3 / §4 / §4.2 / §4.3) — Priya-batched. `LootPrompt`'s anchor re-verified on `origin/main` @ `90d024b`.
+- Decision: *"The shared above-head anchor"* means a shared **projection idiom and code path**, **not** a shared screen position: `LootPrompt` anchors above the **PLAYER's** head (`Runtime/LootPrompt.cs` resolves `_playerT` from the looter's `player`, else its own transform — it is authored ON the player), so the interaction pill can never contend for an enemy's head. The **enemy** head stack is therefore its own deterministic order — **`[head] → status cue band → pip row`** — and the enemy anchor **height** is derived once per arm from the target's renderer bounds (+0.25 m clearance), never the castaway's 2.2 m. Four deliberate deltas from `LootPrompt`: it **clamps for spill but HIDES when its anchor is off-screen** (`LootPrompt` clamps unconditionally because the player is always on frame); concurrency is capped at **`MaxRows = 3`**, a **code const, not a third registry id**; placement is **nearest-first with vertical-only de-overlap** so a row's horizontal centre always still points at its owner; and the pip row **never** displaces the interaction pill.
+- Why: these are one entry because the failure mode is one action — **copying `LootPrompt` wholesale** — and it gets all four wrong at once. A clamped row over an off-frame enemy is an **orphan plate naming nothing**, which is strictly worse than no row. Horizontal de-overlap would break the row's only binding to its owner. And the stack order **honours `status-effect-readability-spec.md` §3.2's "status wins the head anchor" verbatim rather than re-litigating it** — which additionally prevents an IMGUI plate from occluding rising poison pips, a defect neither spec would have owned.
+- Reversibility: reversible (a placement policy + one const)
+- Affects: Drew / Devon (`86caxhfg2`) · `86cah7yuh` (shares the enemy head; §3.2 arbitrates) · `Runtime/LootPrompt.cs` (idiom reused, policy deliberately not) · `Settings/SettingsCatalog.cs` (`MaxRows` deliberately NOT a registry id).
+
+## 2026-07-31 — The enemy pip row's entire animation budget is alpha and colour-value: nothing moves, scales or shakes
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §5 + §7) — Priya-batched.
+- Decision: The element animates **only** in alpha and colour-value. **No row-nudge, no scale-pop, no plate flash, no hue shift, no particles, and no Impulse or hit-stop of its own.** The single permitted accent is the conditional lost-pip extinguish (its own entry above).
+- Why: a row-nudge is not merely excess amplitude — in this game's established vocabulary it **means something else**: nudging the HUD is how *you were hit* reads, so borrowing it for an enemy's HP row asserts damage to the player. Wrong message, not wrong volume. Scale-pop and plate flash are excluded on the loudness ordering (the row is last behind body flash > flinch > dust); hue shift is excluded because a value-only read survives desaturation and a hue read does not (bar #10); Impulse/hit-stop is excluded because `86caffwv5` owns those channels and a second owner means two systems fighting for the same frames. Confining the budget to two properties also makes the whole element cheap to reason about at review time — every proposed addition is answerable by "is it alpha or value?".
+- Reversibility: reversible (a prohibition list)
+- Affects: Drew / Devon (`86caxhfg2`) · `86caffwv5` (owns hit-stop / Impulse) · `.claude/docs/game-juice.md` §2 (the hard-don'ts) · `team/quality-bars.md` #10.
+
+## 2026-07-31 — Difficulty changes only the generosity of TIME on the enemy pip row, never the read
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §6) — Priya-batched. Per-tier HP re-verified on `origin/main` @ `90d024b`.
+- Decision: Form, colour, count, position, trigger and state machine are **identical at all three tiers**. Only `enemy_hp_pip_hold` moves (**3.5 / 2.0 / 1.2 s**), and `enemy_hp_pips_enabled` stays **global and ON at every tier**. If hard reads as illegible, the dial to move is the **HOLD**, never the pip count.
+- Why: turning the row off on hard makes hard **a different game**, and — the sharper objection — it makes the soak **unfalsifiable exactly where the read matters most**, because the tier under the heaviest pressure is the one with no readout to judge. A per-tier asymmetry already exists **for free** and is the reason the count must not become a tier dial: boar HP is per-tier (32 / 40 / 50, `Combat/BoarEnemy.cs:40/42/44`) while weapon damage is not, so pip resolution is already coarser on easy and finer on hard. Adding a second tier-varying term on top of that would make two tiers differ in ways nobody can attribute.
+- Reversibility: reversible (three hold durations, 🎚️ soak-tunable)
+- Affects: Drew / Devon (`86caxhfg2`) · `Settings/SettingsCatalog.cs` (a live dial must write BOTH the active field and the active tier's map entry — the dead-knob class) · `team/quality-bars.md` #7 · `[[difficulty-settings-easy-medium-hard]]`. **Logged, not fixed:** the snake's HP is flat **24** across all tiers (`Combat/SnakeEnemy.cs`, `SnakeMaxHp = 24f`) while the boar's is per-tier — a balance-lane inconsistency owned by `86caaz4vn`, out of scope for both specs.
+
+## 2026-07-31 — The enemy pip row ships at FIVE regardless of whether the player's 5-segment HP bar lands first
+
+- Decided by: Uma (spec author, `86caxhfg2` / PR **#371** `59a6e53` §1.4) — Priya-batched. Re-verified on `origin/main` @ `90d024b`.
+- Decision: The enemy row ships at **5 pips either way**, so `86caxhfg2` is **not sequenced behind** `86cah7z2q`. If the player's 5-segment bar lands first, the two read as a **shared vocabulary**; if it does not, **5-vs-10 reads as correct hierarchy** — yours detailed, theirs coarse.
+- Why: this is an **ordering** decision, and it exists to stop a false dependency from forming. The player's HP bar on `main` is still **10 segments** (`SurvivalHud.cs:44 SegmentCount = 10`; there is no `HpSegmentCount`) — `86cah7z2q`'s 5-segment bar is **Sponsor-locked but unshipped**, which is exactly the state in which a planner invents a blocking dependency out of a vocabulary-consistency worry. The count is **geometry-forced** regardless (see the pip-row entry above), so there is no version of this where waiting changes the answer. Recording it means a future board pass cannot re-gate `86caxhfg2` on `86cah7z2q` without contradicting a written decision. Note the row's own actual blocker is different and real: it is deferred behind `86caxjwb3`, whose soak decides whether it lives at all.
+- Reversibility: reversible (a sequencing call)
+- Affects: Priya (board sequencing — do NOT gate `86caxhfg2` on `86cah7z2q`) · Drew / Devon · `86cah7z2q` (the player-side bar) · `hud-three-bar-spec.md` (the segment/plate grammar both share).
+
+## 2026-07-30 — CORRECTION: committed Blender export/build SCRIPTS live in `tools/debug/`, not `art-src/`
+
+- Amends: the entry **"An asset/hero PROVENANCE commit must include the export SCRIPT — `.blend` + FBX alone is not a reproducible export"** (dated 2026-07-30; merged in `51f4623`, PR #367 — title + SHA are the keys, deliberately no positional word). Correction by Priya — the amended entry is my own; `86caz4td5`.
+- **Withdrawn:** that entry's LOCATION clause only — *"A committed `bpy` export script beside the source `.blend` in `art-src/` is the preferred form"* and *"it lives in `art-src/`, not next to the FBX"*. `art-src/` is the wrong directory.
+- **Replaced by:** an export / provenance / asset-build script is committed to **`tools/debug/`**, with a one-line row in `tools/debug/REGISTRY.md`. `art-src/` holds **non-executable source artifacts only** — `.blend` sources, palette PNGs, concept art, hero/family renders, provenance `README`s. **The `REGISTRY.md` row is not tidiness — it is the replacement for the discoverability the withdrawn clause was buying.** *"Beside the source `.blend`"* was **provenance-by-adjacency**: find either artifact and you have found the other, with no index to consult and nothing to keep in sync. `tools/debug/` breaks that adjacency in **both** directions — the `.blend` no longer carries its recipe, and the recipe no longer carries its source — so a script with no row is not merely un-indexed, it is unfindable, and provenance that cannot be located is not provenance. That is why the row is part of the convention rather than a nice-to-have, and it is why this correction replaces a **mechanism** and not only a path. One precision the amended entry is owed: adjacency was never actually in force — zero `.py` had ever been committed under `art-src/` — so what is replaced is the mechanism that entry *chose*, not a property the repo ever had.
+- **Still stands, unchanged:** that the export RECIPE is *provenance* and binding on every asset/hero provenance commit; that it must record (1) the mandatory `Join` step, (2) the resulting joined object's NAME, (3) the axis/scale export settings; the load-bearing reason (Unity's **Generic** rig binds by transform path, so a differently-named `Join` imports cleanly and silently never binds); and that a README statement of what was actually done is the acceptable minimum.
+- **Still stands, but on REPLACED grounds:** that `blender-asset-pipeline.md:279`'s old location was wrong. Same verdict, different warrant — it now rests on the re-measured evidence below (`Assets/Art/` holds zero `.py`), **not** on the original's inheritance from `character-pipeline.md:62`, which this correction withdraws as a method. That inheritance was the original's *only* argument for the conclusion, so filing this under "unchanged" would claim support this entry itself demolishes. Listed separately for that reason: a conclusion that survives on new grounds is not an untouched clause, and the one item in a still-stands list whose warrant the correction destroyed is exactly the item a later reader must not be allowed to skim past.
+
+  Taken together: the rule is not reversed and the recipe is still binding provenance — but a path **and** a discoverability mechanism changed, and one surviving conclusion was re-grounded. Narrow fix, not a reversal; more than a directory swap.
+- Why the original was wrong: I checked **two** candidate directories (`art-src/`, `Assets/Art/`), found zero `.py` in both, and then picked `art-src/` by inheriting the *source-artifact* convention (`character-pipeline.md:62`) rather than by finding where scripts actually are. I never searched `tools/debug/`. Ground truth re-measured for this correction on `origin/main` @ `c8ce948`: `git ls-tree -r --name-only origin/main | grep '^tools/debug/.*\.py$'` returns **28** files — 27 of which use the `bpy` API; the 28th (`blender_mcp_send.py`) is the TCP transport to the Blender-MCP addon, so Blender tooling either way — while the same query under `art-src/` and under `Assets/Art/` returns **zero**. The count is also 28 at `51f4623`, so `86caz4td5`'s "26" was a miscount against its own enumeration (25 `bl_*` + 3), not staleness. **The generalisable lesson: "zero in the two places I looked" is not evidence for either of them.** A location claim must be settled by searching the repo for the ARTIFACT KIND (`*.py`) and reading off the directory that has them — never by inheriting a sibling artifact's convention. The amended entry even recorded its own "zero under either" measurement and still concluded from it; a null result pointed at the answer being somewhere unlooked, and was read as a tiebreak instead.
+- Reversibility: reversible (a location convention — re-homing the scripts would legitimately re-open it)
+- Affects: Devon / Drew / Uma (every asset-provenance and Blender-script commit) · `.claude/docs/blender-asset-pipeline.md:279` — **corrected in the same PR as this entry**, and now the single authority for the location; this entry no longer overrides it · `tools/debug/REGISTRY.md` (the row is part of the convention) · `86caywfjq` (v4's unrecorded `Join` step — its export script goes to `tools/debug/`, not `art-src/`). Known adjacent gap, reported not fixed: 5 of the 28 scripts (`bl_01b_palette_flint.py`, `bl_02b_axe_flint.py`, `bl_02c_flint_head.py`, `bl_02d_flint_head_v2.py`, `bl_03b_uv_flint.py`) have no `REGISTRY.md` row, so `86caz4td5`'s claim that the registry describes "each" was also wrong — coverage is 23/28.
+
+## 2026-07-30 — A posture/affordance cue on a procedurally-jittered mesh is specified as a CATEGORICAL aspect inversion, never a size ratio
+
+- Decided by: Uma (spec author, `86cav8ybj` / PR #362 round 2 at head `c3ec4d7`), after Devon's round-1 `REQUEST_CHANGES` NIT N1 (comment `5131041457`) — Priya-batched. ⚠ **PR #362 was OPEN when this entry was written** (spec-only, zero `Assets/**`, direction half only). The rule below is a spec-authoring methodology call and does **not** depend on which direction option the Sponsor picks; it survives even if the rock direction is rejected outright. ⚠ **#362 owes TWO drafts and only this one is recorded.** Its round-1 sibling — *"Interactive-vs-scenery disambiguation is bought by POSTURE on the non-interactive class, never by hue and never by re-authoring the hero prop"* (PR #362 body §"Decision draft (for Priya's weekly DECISIONS.md batch)") — is **deliberately HELD for a later batch, not missed**: unlike this one it IS direction-dependent, so it must not land ahead of the Sponsor's A/B/C pick.
+- Decision: When a readability cue must separate two object classes built from the SAME procedurally-jittered mesh generator, specify the cue as a **categorical aspect inversion** ("the decorative class crosses from taller-than-wide to **wider**-than-tall"), never as a size/height **ratio**. Where a ratio is still informative, quote **worst-case alongside nominal** — never a single number that is neither. Any ratio that survives into an acceptance criterion must be a **measured per-instance check** (encapsulate the shipped renderer bounds, report the achieved *minimum*), never a constant derived from nominal half-extents.
+- Why: `LowPolyMeshes.FacetedRock` applies a per-instance `sy ∈ [0.85, 1.03]` (`LowPolyMeshes.cs:375`), a **per-vertex** `rj = 1 ± jitter/2` (`:382`) and an absolute wobble of `± radius × jitter × 0.11` (`:386-388`), putting the vertical factor at roughly `V ∈ [0.63, 1.29]`. The asymmetry that decides which guarantee survives: the mesh is a subdiv-1 octahedron, so `V` is set by essentially **one** pole vertex and has a real low tail, while the planar extent is the **max of twelve** and concentrates near its top. A ratio derived from a nominal half-extent therefore collapses at the tail — `86cav8ybj`'s claimed **≥2× apex floor** re-derived to **1.32×** worst case on the recommended option and **1.06×** on the "keep the mass" option, i.e. the tallest decorative slab essentially reaching the shortest ore node's apex, which the round-1 phrasing "still 2.1×" concealed. Round 1's quoted 2.7× / 2.1× were neither nominal nor worst-case — an inconsistent middle. The aspect **inversion** by contrast survives every draw — but its threshold is **squash-scoped, not universal**: flipping it needs `V × q ≥ P`, so at the specified squash **`q = 0.60`** (options A and C) it needs `V ≥ 1.60`, against a 1.268 cap (spec §2.3, `rock-affordance-direction.md:142-143`, which scopes it the same way at `:333` and `:536`). Option B's `q = 0.72` re-derives the same floor to **≈1.33** (`0.96 / 0.72` off the identical realistic-`P` floor the 1.60 comes from — **Uma's derivation in the PR #367 round-2 review**, comment `5135576618`, not a #362 spec figure), still clear of 1.268. So the inversion holds on **all three** options, at ~26% headroom on A/C and ~5% on B; quoting only the roomier figure would be this entry's own rule failing one level up. Two corollaries worth carrying: (a) the reviewer's own worst-case estimate (~1.7×) was itself too generous because it sized the low tail off `BoulderPoolSize = 7` (`MovementCameraScene.cs:3049`) when the ore pool is `IronDifficultyPresets.Easy.OreNodeCount` (`:2871`) — more draws, deeper tail; (b) a number a human picks an option **by** must be the number he actually **gets**.
+- Reversibility: reversible (a spec-authoring rule; a future generator with a tight vertical distribution could re-earn a ratio floor — but only by measuring it)
+- Affects: Uma (spec authoring) · Devon / Drew (the `86cav8ybj` implementation half, and any AC quoting a size ratio as a floor) · `team/quality-bars.md` Bar 10 (FORM-first channel ranking) and its "Open / unconfirmed" candidate row · `team/TESTING_BAR.md` bounded-convergence claims. Source: PR #362 body §"N1 — honest worst-case, quoted alongside nominal" + round-2 Self-Test Report (comment `5131293335`); Devon's peer review (comment `5131041457`, "Decision draft in the PR body: read, not acted on. It's Priya's to batch"). Every `LowPolyMeshes.cs` / `MovementCameraScene.cs` anchor above re-verified on `origin/main` @ `b9abf7b` while writing this entry.
+
+## 2026-07-30 — An asset/hero PROVENANCE commit must include the export SCRIPT — `.blend` + FBX alone is not a reproducible export
+
+- Decided by: Tess (QA verdict `PASS_WITH_NITS` on PR #357, comment `5129792893`, §"What a future re-rigger would still be missing" + NIT 1) with Drew's independent peer-review NIT 2 (comment `5128605270`) — merged `840a1c6`; Priya-batched.
+- Decision: A provenance commit for any hero/asset version must commit the **export recipe**, not just the source `.blend` + the FBX set. The recipe must state, as things that WERE DONE rather than things to consider: (1) the **`Join` step** — that it is mandatory, (2) the **resulting joined object's NAME**, and (3) the axis/scale export settings. A committed `bpy` export script **beside the source `.blend` in `art-src/`** is the preferred form; a README statement of what was actually done is the acceptable minimum. `blender-asset-pipeline.md` §10 already recommends *scripting* the export (table row "FBX export with exact settings | YES") **and** already says to commit it (`:279`, "Commit the script next to the FBX so future passes re-run deterministically") — what this decision adds is that the script is **provenance, binding on every asset/hero provenance commit**, and that it lives in **`art-src/`, not next to the FBX**: `:279`'s location contradicts `character-pipeline.md:62`'s standing source convention ("new character generations land under **`art-src/`**") and the shipped layout, and `art-src/` wins. "Consider doing X" phrasing does not discharge the requirement.
+- Why: on `86cayp1vb` (castaway v4) the committed `.blend` holds **40 separate mesh objects** while every committed and shipped FBX contains **exactly one** mesh node (`CastawayV4`, 960 verts / 1,760 tris — geometry-identical across the `.blend`, `castaway_v4_apose_rawfix.fbx` and the shipped `Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx`, sorted-world-vertex digest `02d47c052037d21bf71f20d0` on all three). So a `Join` demonstrably happened at export — and nothing committed records it as done: the README's §Handoff step 1 still reads "**Consider** `Join`-ing the 40 parts into one mesh first for Mixamo upload", phrased as an open question, and no export `.py` is committed. The object **name** is the sharpest edge, and the reason this is not merely tidiness: Unity's **Generic** rig binds by transform path, and the shipped rig's mesh node is `CastawayV4` — so a differently-named `Join` produces a file that imports cleanly and simply never binds, a silent break with no error to grep for. Item (3) is already documented (`character-pipeline.md` §Step 3); (1) and (2) were not, and they are the two a re-exporter must otherwise re-derive from a raw FBX parse.
+- Reversibility: reversible (a provenance-checklist rule; it adds one file to a commit that already exists)
+- Affects: Devon / Drew / Uma (every future asset-provenance commit) · `.claude/docs/blender-asset-pipeline.md` §10 (the rule it makes binding — **and `:279`, whose "next to the FBX" location this decision overrides; a doc fix is owed there, unticketed as of this entry**) · `.claude/docs/character-pipeline.md` §Step 3 + `:62` (the `art-src/` convention that wins) · open tickets `86caywfjq` (v4's Join step unrecorded — the ticket that discharges this for v4) and `86caywf84` (the sibling code-comment staleness filed off the same review). Scope note: this decision does **not** widen to the Mixamo auto-rig settings, which `86cayp1vb`'s own review recorded as a separate, non-blocking gap. Source: PR #357 (`840a1c6`) comments `5129792893` + `5128605270`; the `art-src/`-vs-FBX location split re-verified on `origin/main` @ `3992e96` (sources `art-src/castaway_v4.blend` + `art-src/castaway-v4-README.md`; FBX ships to `Assets/Art/Character/Castaway/v4/castaway_v4_rigged.fbx`; **zero** committed `.py` under either `art-src/` or `Assets/Art/`).
+
+## 2026-07-27 — Status-effect framework: FIVE bounded extensions, contract-pinned vocabulary (not "just data")
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: Adding poison / stun / slow to the shipped bleed-only framework requires exactly five bounded extensions, named per `86cah7yuh`'s pinned VOCABULARY CONTRACT as amended 2026-07-27 (ticket comment `90150245438801`): (1) kind-aware `StatusEffectSpec.IsActive` — DoT kinds keep the DPS+duration rule, control kinds require duration only; (2) a `magnitude01` field appended to the existing struct, with factories `MakePoison(dps, duration)` / `MakeStun(duration)` / `MakeSlow(magnitude01, duration)`; (3) the query trio `IsActive(kind)` / `ActionsBlocked` / `MoveSpeedMultiplier` on `StatusEffectController`; (4) the two zero-alloc chip queries `RemainingSeconds(kind)` / `Stacks(kind)` — an `IReadOnlyList<ActiveEffectView>` is REJECTED because `foreach` over the interface boxes an enumerator every `OnGUI` frame; (5) append-only enum ordering `Poison, Stun, Slow` with `Bleed` pinned at ordinal 0. Nothing beyond that — no ScriptableObject effect assets, no authoring window, no effect registry, no cleanse/resistance mechanic. `ActionsBlocked` (not `IsStunned`) is deliberate: stun blocks the action verbs, never movement.
+- Why: the ticket's "just add effect data" framing is true for poison and false for stun and slow — the shipped `StatusEffectSpec.IsActive => damagePerSecond > 0f && durationSeconds > 0f` (verified at `Assets/Scripts/Runtime/Combat/StatusEffect.cs:44`) makes a correctly-authored zero-DPS stun a **silent no-op**, the worst class of bug. Naming the five gaps up front makes Devon extend the shipped shape instead of forking a parallel control-effect type, and the contract pin prevents the parallel-dispatch vocabulary divergence that makes sibling PRs non-mergeable.
+- Reversibility: reversible (a struct-field append is serialization-safe; the enum is append-only so already-serialized specs — `BoarEnemy.goreBleed`, `SnakeEnemy.biteBleed`, the axe `OnHitStatus` — do not shift)
+- Affects: Devon (`86cah7yuh` impl) · Drew (reviewer) · `StatusEffect.cs` / `StatusEffectController.cs` / `WasdMovement` / the `MeleeAttack.ShouldSwingOnClick` truth-table family. Source: `team/uma-ux/status-effect-readability-spec.md` §2 (G1–G5), PR #339 `e13a51e`.
+
+## 2026-07-27 — Status composition: STRONGEST-WINS slow, sub-linear DoT stacking capped at 3, stun never stacks
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: `StatusEffectController.Apply`'s deferred stack/refresh policy is now settled per kind. **Slow: STRONGEST WINS** — `MoveSpeedMultiplier` is the single *smallest* active `magnitude01`, then clamped to the tier floor; it is **never a product** (0.7 × 0.8 = 0.56 would fall straight through a 0.6 floor). **Bleed / poison: refresh-and-intensify, capped at 3 stacks** — duration = `max(remaining, new)`, magnitude scales sub-linearly at 1.0× / 1.6× / 2.0× of base DPS. **Stun: never stacks and never extends** (see the caps entry below). **Cross-kind: independent** — up to all four active at once. The floor and per-tier magnitude *values* are soak-tunable dials; the composition RULES above are not.
+- Why: the shipped `Apply` adds an unbounded fresh instance per call and its own doc comment defers the policy to "a later ticket" — this is that ticket. A linear 3× DoT on hard's `damageTakenMul 1.35` is a stealth instant-death, and a multiplied slow drops below the floor that keeps the boar charge dodgeable — which would convert a fair telegraph into a trap and break the snake/boar fairness contract.
+- Reversibility: reversible (policy is code + per-kind counters; success-tests pin it — 5× bleed ⇒ `Stacks(Bleed) == 3` at 2.0× base, two slows at 0.7/0.8 ⇒ `MoveSpeedMultiplier == 0.7` not 0.56)
+- Affects: Devon (`86cah7yuh`) · `StatusEffectController` · boar/snake fairness contract. Source: `status-effect-readability-spec.md` §6.2/§6.3, PR #339 `e13a51e`.
+
+## 2026-07-27 — Stun caps are hard invariants, not tunables (≤2.0 s, chain-immunity, no break-out input)
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: Stun carries hard ceilings that no dial may exceed: **≤2.0 s at any tier** (easy ≤0.6 s, medium ≤1.2 s), a **chain-immunity window ≥ the stun's own duration** on every tier (easy ≥3.0 s) during which a re-applied stun is **dropped entirely** — not queued, not refreshed — and **no input may be required to break out** (no mash-free, no shake-off, no key prompt). Movement is never blocked; `ActionsBlocked` gates the action verbs only. A swallowed left-click is **DROPPED, never buffered**, and flashes the stun chip once so a dead click is never mistaken for a bug. Registry ids may tune durations *under* these ceilings. (Whether stun exists at all on the EASY tier remains an open Sponsor-soak question — `status_stun_enabled_easy`, §8 Q1 — and is NOT settled here.)
+- Why: losing control is the scariest thing the game can do to a kid, and a chained stun is the single most rage-inducing mechanic in games — the shipped list-add `Apply` would happily stack stuns forever. The no-break-out-input rule is also Danish-layout-safe: `LootPrompt.BuildLabel` pins the literal-letter convention, so a stun is a *wait*, which is simultaneously the kid-friendly and the layout-safe choice.
+- Reversibility: reversible for the values under the ceilings; the ceilings themselves are treated as invariants (raising one is a new Sponsor decision, not a dial)
+- Affects: Devon (`86cah7yuh`) · `StatusEffectController` · the `ShouldSwingOnClick` / `ShouldChopOnClick` / `ShouldLootOnKey` / `MineOre` / `LeftClickConsume` truth-tables · `[[sponsor-danish-keyboard-layout]]`. Source: `status-effect-readability-spec.md` §5.2/§5.3, PR #339 `e13a51e`.
+
+## 2026-07-27 — Slow needs no new locomotion code — `MoveSpeedMultiplier` only
+
+- Decided by: Priya (PR #339 review verification, re-checked against source 2026-07-27)
+- Decision: The slow effect ships with **no second speed source and no new Animator state** — `WasdMovement` multiplies its commanded speed by `MoveSpeedMultiplier` and nothing else is built. A slow reads as heavy legs for free.
+- Why: verified in `Assets/Scripts/Runtime/CastawayCharacter.cs` — the Animator blend is already speed-driven (`SpeedParam = "Speed"` fed from the same `agent.velocity` magnitude `WasdMovement` commands, `:213`) and foot-sync scales clip playback by `actualSpeed / strideRef` (`:109-111`) inside a clamp band of `footSyncMulMin = 0.5f` … `footSyncMulMax = 2.5f` (`:87-88`). A 0.6× multiplier therefore flows through to both a slower Walk blend and a 0.6× stride cadence, comfortably inside the band — the legs neither freeze nor skate. An earlier spec draft carried this as a "verify at implementation" open item; it is retired.
+- Reversibility: reversible (the finding is a code fact; if the band ever narrows, the item re-opens)
+- Affects: Devon (`86cah7yuh` AC3 🔒 — do not add a second speed source) · `CastawayCharacter` / `WasdMovement`. Source: `status-effect-readability-spec.md` §6.1, PR #339 `e13a51e`.
+
+## 2026-07-27 — Status chips are IMGUI on the shipped `SurvivalHud` path — not UI Toolkit
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: Status-effect chips render as flat IMGUI (`GUI.DrawTexture` on `Texture2D.whiteTexture` + `GUI.Label` glyphs, explicit `Rect`s, no `GUILayout.*`) inside the existing `SurvivalHud.OnGUI` — 22 px chips, 4 fixed slots, a 2 px duration underline, 1–3 stack pips, no numbers and no countdown digits. This **corrects `combat-cluster-design-brief.md` §3.2's "UI Toolkit panel / UI Image" phrasing**. Chips bind the three zero-alloc scalar queries only — no `foreach`, no list, no enumerable in `OnGUI`. Whichever of `86cah7z2q` / `86cah7yuh` lands FIRST authors the minimal pip row and the other EXTENDS it; neither forks a second HUD renderer.
+- Why: the live HUD is IMGUI, one HUD code path is the standing rule (`86caamkxv`), and standing up a second UI stack for four 22 px chips is unjustifiable. Pure IMGUI also never strips to magenta in the built exe — the reason the whole HUD is IMGUI in the first place.
+- Reversibility: reversible (a future IMGUI→UI-Toolkit HUD migration remains a standing separate follow-up and would carry the chips with it)
+- Affects: Devon + Uma + Drew (`86cah7yuh` / `86cah7z2q` — whichever lands first) · `SurvivalHud.cs`. Source: `status-effect-readability-spec.md` §3.1 + `hp-hud-polish-spec.md` §5, PR #339 `e13a51e`.
+
+## 2026-07-27 — Status effects read on THREE colour-independent channels (silhouette / motion-speed / fixed slot)
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: Every status effect must be identifiable on each of three channels **independently of hue**: chip **silhouette** (shape), **motion speed** (stun fastest, slow slowest, poison medium, bleed tick-synced), and a **fixed HUD slot per kind** — an inactive kind leaves its slot EMPTY, never packed, so "the third slot is lit" is itself the stun read. Colour is the third cue, never the first; text is a last-resort fallback in the `LootPrompt` cream-pill idiom ("Bleeding" / "Poisoned" / "Stunned" / "Slowed", nothing else). A cue that only works because of its colour is a failed cue.
+- Why: the world is saturated mid-green and will happily eat a green cue; a colour-blind player must still read the corner; and 22 px chips at peripheral glance in a 1080p frame do not carry hue reliably. Positional constancy is the cheapest and most robust of the three channels and costs nothing to implement.
+- Reversibility: reversible (shapes/motions are per-chip constants; the slot ORDER is the part that should not churn once players learn it)
+- Affects: Devon + Uma (`86cah7yuh` / `86cah7z2q`) · `SurvivalHud` chip dock. Source: `status-effect-readability-spec.md` §3, PR #339 `e13a51e`.
+
+## 2026-07-27 — DoT winces are debounced HUD-side; no source tag on `Health.ApplyDamage`
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: The HP damage-wince is **debounced inside the HUD** — a minimum ~0.35 s between wince triggers, with every amplitude scaled by the fraction of `Max` lost — and the lost-segment flash is exempt only when a segment boundary is actually crossed. Adding a damage-source tag to `Health.ApplyDamage` was considered and **rejected** as the more invasive fix. This is a hard requirement of BOTH combat tickets: if the HP-HUD ticket has not landed, a poison implementation must not ship a per-tick screen pulse of its own.
+- Why: bleed and poison tick through `Health.ApplyDamage` → `Health.Changed` (`StatusEffectController.TickSeconds`), so a per-`Changed` wince would strobe the vignette and row-nudge several times a second while a DoT runs — the single worst tonal failure available on this surface. A HUD debounce is contained; a framework source-tag touches every damage call site for the same outcome.
+- Reversibility: reversible (one debounce constant, exposed as `hp_wince_debounce`)
+- Affects: Uma + Drew (`86cah7z2q`) · Devon (`86cah7yuh` — inherits the requirement) · `SurvivalHud` / `Health` / `StatusEffectController`. Source: `hp-hud-polish-spec.md` §2.4 + `status-effect-readability-spec.md` §4.3, PR #339 `e13a51e`.
+
+## 2026-07-27 — ONE low-HP threshold: the shipped `HpCriticalThreshold01 = 0.25f` (second registry id WITHDRAWN)
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: The low-HP fraction is the shipped `SurvivalHud.HpCriticalThreshold01 = 0.25f` const (verified at `Assets/Scripts/Runtime/SurvivalHud.cs:152`). The proposed registry id `hp_low_warning_threshold` is **explicitly withdrawn — do not mint it**. One threshold, one home.
+- Why: `86cah7z2q` AC2 🎚️ already pins reuse of the existing threshold rather than minting a second one, and an earlier spec revision proposed the second id in §7. Two thresholds for one concept is the dead-knob class in a new costume — a dial that appears live and silently disagrees with the const the draw path actually reads.
+- Reversibility: reversible (one const; if it ever needs to be tunable, the const becomes the dial — never a parallel id)
+- Affects: Uma + Drew (`86cah7z2q`) · `SettingsCatalog.PopulateHpHud` · `SurvivalHud`. Source: `hp-hud-polish-spec.md` §2.5/§7, PR #339 `e13a51e`.
+
+## 2026-07-27 — The low-HP fail-state surface stays INSIDE the HUD (no sustained vignette, no post-process)
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: The low-HP warning lives in the HUD, not on the screen. **Forbidden at every tier:** a sustained red/low-HP screen vignette, a screen-edge alarm, a desaturation or any post-process/lens pulse, a "LOW HEALTH" text card, a heartbeat SFX loop, a "YOU DIED" card, a letterbox, a slow-motion death, an on-screen deaths counter. **Permitted:** a screen-edge coal-red pulse ONLY as a *transient* damage beat (fully gone inside ~0.35 s, IMGUI edge strips, never a post-process Volume). **No hit-stop and no camera Impulse on INCOMING damage** — those are the reward punctuation for the player's own strike landing. This resolves the fail-state surface that `hud-three-bar-spec.md` §4 deferred. (The warning's pulse SHAPE and the specific amplitudes remain open Sponsor-soak dials — §8 Q4/Q5/Q7 — and are NOT settled here.)
+- Why: freezing time or washing the screen when the player gets *hurt* reads as trauma and inverts the calm tone; a sustained vignette turns a wince into an alarm the player cannot dismiss. Full-screen post-process also costs a Render-Graph pass and is already ruled out by `game-juice.md` §2, while pure IMGUI never strips to magenta in the built exe.
+- Reversibility: reversible for the permitted transient (amplitude constants + `hp_damage_vignette_peak`); the forbidden list is treated as a tone invariant
+- Affects: Uma + Drew (`86cah7z2q`) · Devon (`86cah7yuh` — the same rule binds DoT ticks) · `SurvivalHud` / `game-juice.md` caps. Source: `hp-hud-polish-spec.md` §2.3/§2.5/§2.6, PR #339 `e13a51e`.
+
+## 2026-07-27 — Prescribed-not-shipped: no particle system, no `_HitFlash`, no audio bus — the combat cluster builds the FIRST
+
+- Decided by: Priya (spec-review verification, independently re-verified on `origin/main` 2026-07-27)
+- Decision: Three "existing precedents" cited in earlier spec drafts **do not exist**, and the combat-cluster tickets must size for that. Verified counts on `main`: `ParticleSystem` / `ObjectPool` / `OnParticleSystemStopped` in `Assets/Scripts` = **0**; `_HitFlash` anywhere under `Assets` = **0**; `AudioSource` / `PlayOneShot` in `Assets/Scripts` = **0**; `.ogg`/`.wav`/`.mp3` under `Assets` = **0**. Consequences: (1) `game-juice.md` §1.4's pooling guidance is a **prescription, not a record of shipped code**, and the "berry-pop precedent" cited in earlier drafts does not exist — whichever of `86cah7z2q` / `86cah7yuh` lands first builds the project's FIRST pooled particle system (pool, material, prefab and all), which is materially more than "reuse the existing pattern"; (2) enemy hit-flash / flinch / dust are spec'd only and owned by the swings lane — if a HUD ticket lands before any body-level hit feedback, its enemy read is the ONLY enemy-damage feedback and must not ship disabled; (3) **every audio line in both specs is `<deferred — no audio bus>` and not authorable**, which supersedes `combat-cluster-design-brief.md` §3.3's "soft ascending chime" phrasing that read as shippable.
+- Why: sizing an M-ticket against a precedent that does not exist is how a wave slips silently. Both specs' bar-side and IMGUI fallbacks were written precisely so readability is not hostage to that lift — the smaller slice ships the bar/chip language and defers the particles.
+- Reversibility: n/a (a verified state-of-repo fact; the decision it drives — size for the first particle system, defer all audio — is reversible per ticket)
+- Affects: Uma + Devon + Drew (`86cah7z2q` / `86cah7yuh` sizing) · orchestrator (wave sequencing) · `game-juice.md` readers. Source: `hp-hud-polish-spec.md` §1/§4/§6 + `status-effect-readability-spec.md` §1/§4.2, PR #339 `e13a51e`.
+
+## 2026-07-27 — Policy growth beyond a pinned VOCABULARY CONTRACT lands as a ticket amendment, never a silent spec redefinition
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #339 (`e13a51e`)
+- Decision: When a spec needs framework behaviour beyond what a ticket's pinned VOCABULARY CONTRACT already authorizes, it **requests a contract amendment on the ticket** rather than redefining the surface in prose. The ticket contract wins over the spec wherever the two diverge, and a divergence caught at review is **REQUEST_CHANGES, not a NIT**. The two amendments this wave needed are **already APPLIED**, not pending: `86cah7yuh`'s 2026-07-27 amendment block carries **A1** (the stun chain-immunity window, one per-kind last-expiry timestamp) and **A2** (the per-kind stacking policy plus `Stacks(kind)`) — verbatim, *"Requested by `status-effect-readability-spec.md` §2.1 and **granted here**, so the extension surface is not silently larger than the contract"* — and the ticket's success-tests name both. Nothing from this wave is left outstanding.
+- Why: parallel dispatches against a shared concept only stay mergeable while one authority names the identifiers; a spec that quietly grows the surface reintroduces exactly the vocabulary divergence the contract exists to prevent. Both amendments here are bounded (one timestamp + one count per kind) and neither adds a type — cheap to authorize, expensive to discover mid-implementation. The round that granted them also reconciled AC3's medium slow default 0.6 → 0.7 (0.6 stays the hard floor) so one number ships, which is the same "ship ONE value, never two" discipline applied at the ticket layer.
+- Reversibility: reversible (process rule; amendments are ticket edits)
+- Affects: Devon + Drew (`86cah7yuh` implements against the amended contract; review posture) · Priya (contract-amendment authoring) · every parallel-dispatch brief. Source: `status-effect-readability-spec.md` §2 (🔒 VOCABULARY AUTHORITY) + §2.1, PR #339 `e13a51e`; amendments read from `86cah7yuh`'s body 2026-07-27.
+
+## 2026-07-27 — Heavy attack needs a delayed-impact seam (`heavyWindupSeconds`); the light path stays synchronous
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #340 (`aa10fa5`)
+- Decision: The heavy attack requires a **delayed-impact seam on `MeleeAttack` that does not exist today**. The new field is **`heavyWindupSeconds`** on `MeleeAttack` — deliberately NOT the resource verbs' `swingImpactDelaySeconds` — and target resolution moves to the impact frame **for the heavy only**; the light path keeps its synchronous damage (soaked, shipped behaviour). Companion normalized read: `HeavyWindupNormT`.
+- Why: verified code fact — combat damage is applied synchronously in the click frame (`Assets/Scripts/Runtime/Combat/MeleeAttack.cs:229`, `target.ApplyDamage(...)` inside `PerformAttack`), while `swingImpactDelaySeconds` is **declared only on the three resource verbs** (`ChopTree.cs:256`, `MineBoulder.cs:127`, `MineOre.cs:122`) and **declared nowhere on the combat path** — `MeleeAttack.cs` carries zero references. The count split, stated so it is not mis-cited later: **3 declaration sites**; **10 files under `Assets/`** mention the identifier (the 3 declarations + 5 test files + 2 serialized scenes); **16 tracked files repo-wide** once the team specs and this log are counted. Reusing the resource-verb field name across the combat path would blur two different timing models on one identifier. **No soak qualifier needed** — this is a build-shaping code fact, not a feel call.
+- Reversibility: reversible (one field + an impact-frame branch on the heavy path only)
+- Affects: `86cau6prr` (impl) · `MeleeAttack.cs` · Drew/Devon. Source: `team/uma-ux/heavy-attack-input-model-spec.md` §4.4/§12, PR #340 `aa10fa5`.
+
+## 2026-07-27 — Heavy attack RE-WIRES the dormant reserved `Attack` state (`CastawayMelee`) — never a sixth state
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #340 (`aa10fa5`)
+- Decision: The reserved heavy clip is **`CastawayMelee` ← `Melee_Attack.fbx`**, DISTINCT from the axe light **`CastawayAxeSwing` ← `Attack_Axe.fbx`**. Its Animator state **already exists and is dormant**, so the implementation **re-wires that reserved state** with one `AnyState→Attack` transition on (`Chop` && `WeaponClass == 5`) rather than adding a sixth state. **Do NOT call `WireAttackClass` as-is** — its first line adds a state, which would create a *new* state and strand the reserved one; either add the `AnyStateTransition` directly or extend the helper to accept an existing `AnimatorState`. Renaming the reserved state for symmetry is acceptable; a second state is not. The clip is **GENERIC, not Humanoid** (`Melee_Attack.fbx.meta:130` and `castaway_v4_rigged.fbx.meta:101` both `animationType: 2`) and is already imported and bound against the v4 rig — what is dormant is the incoming transition, not the binding.
+- Why: verified against `Assets/Scripts/Editor/CharacterAssetGen.cs` (`:77`/`:83` fbx paths, `:248`/`:253` clip consts, the reserved-state comment at `:1374`). Setting the clip to Humanoid is the explode-to-a-cone trap on this scaled hierarchy (`86ca8rdkp`), and `86cau6prr`'s body said "Humanoid" until 2026-07-27 — corrected in the ticket during this spec's review round. **No soak qualifier needed.** Also corrected in the same round: the no-orphan-anim-id invariant lives in `Assets/Tests/EditMode/AttackSwingControllerTests.cs` assertion 6, **not** in `WeaponSetTests.cs` (verified: `WeaponSetTests` contains zero `AnimationId` references).
+- Reversibility: reversible (Animator wiring is generated by `CharacterAssetGen`; a dedicated cleave clip stays the post-soak escape route)
+- Affects: `86cau6prr` (impl) · `CharacterAssetGen.cs` / `CastawayCharacter.cs` / `AttackSwingControllerTests.cs` · `[[chop-swing-mixamo-clip-not-procedural]]` · `[[castaway-v4-blocky-handmodel-passed-lookdev]]`. Source: `heavy-attack-input-model-spec.md` §2/§7.2/§12, PR #340 `aa10fa5`.
+
+## 2026-07-27 — Heavy-attack roster expansion is a DATA seam, and the heavy is combat-only
+
+- Decided by: Uma (spec author) — ratified via Priya's spec review + merge of PR #340 (`aa10fa5`)
+- Decision: Giving another weapon a heavy is **data plus one Animator state — never a new input path**: an optional `WeaponDef.HeavyAnimationId` (null = no heavy, and `heavyCapableWeaponSelected` is exactly `HeavyAnimationId != null`), one `AnimId*` const, one row in `WeaponClassForAnimationId` → a new `WeaponClass` int, one `SwingSpeedForClass` case, one Animator state. Zero input changes, zero guard changes, zero timing-model changes — that is the test of whether the model generalized. No new Animator layer, no AvatarMask, no second trigger system, no procedural swing. **And the heavy is combat-only:** it resolves targets exclusively through `ResolveNearestTarget(weapon.Reach)` over `Health` components and never touches `ChopTree` / `MineBoulder` / `MineOre` — state that as an explicit non-goal in the impl PR body. (Which weapons get a heavy and in what order is an open Sponsor-soak question — §8.9 — and is NOT settled here.)
+- Why: the dedicated heavy key bypasses `verbClaimedClick`, so an axe-holding player next to a tree could press it and — if the heavy were routed through the verb layer — chop the tree with a combat swing, double-yielding wood or double-damaging a boar depending on precedence. It ships correct and regresses the moment an axe heavy lands, so the non-goal has to be written down. Keeping expansion in data is what stops each new weapon from re-opening the input analysis `heavy-attack-input-spec.md` already settled.
+- Reversibility: reversible (data rows + consts)
+- Affects: `86cau6prr` (impl) · `86cah7ym9` (roster) · `WeaponDef` / `WeaponCatalog` / `CastawayCharacter` / `MeleeAttack`. Source: `heavy-attack-input-model-spec.md` §7.2/§7.3/§12, PR #340 `aa10fa5`.
+
+## 2026-07-22 — Weapon held-seat: ONE dial per weapon class across all tiers (stone-axe zero-lock RETIRED)
+
+- Decided by: Sponsor (verbatim "use the same dial for rock and metal", soak-swings-6 final F9 dial; baked by Drew in PR #327 round 7)
+- Decision: Each weapon CLASS (axe / pickaxe / spear / sword / dagger) uses ONE dialed held-seat (offset/euler/scale) applied identically to its wood/stone/iron tiers — per-tier seat divergence is retired. The original stone axe's zero-locked index-0 seat (ApplyCurrent restored the captured baseline byte-unchanged) is RETIRED: `HeldWeaponCycleDebug.ApplyCurrent` now composes index-0's array seat like every other weapon (backward-compatible with the old zero array), and `Awake` seats the equipped chop axe at spawn. The axe SCALE stays 1.0 (the held-scale dial still refuses the axe); `HeldAxeV3/V4` rig constants are UNTOUCHED (the class euler composes on the approved rig baseline).
+- Why: the Sponsor wanted all material tiers of a weapon to read IDENTICALLY in-hand; one per-class seat is simpler + drift-guarded, and the equipped stone chop-axe now matches the approved wood-axe look.
+- Reversibility: reversible (seat constants + the ApplyCurrent composition are code; drift-guarded by `HeroAxeSceneTests._SameDialAcrossTiers_86caffwv5` + per-tier equality pins + the axe scale-1.0 guard)
+- Affects: `HeldWeaponCycleDebug` / `HeroAxeSceneTests`, held-weapon visual seating; Drew + Devon + Tess. Source: PR #327 (86caffwv5) r7, comment 5034253841.
+
+## 2026-07-22 — Boar soak PASS → PR #332 merged; 2nd-enemy mesh route ratified (snake-style C#-baked)
+
+- Decided by: Sponsor (soak popup, 2026-07-22 afternoon)
+- Decision: Boar soak on `soak-boar-1` (stamp `9f76ec7`) PASSED in full — charge feel, emergent spear-beats-boar matchup legibility, AND the look; #332 merged as `0dc4844`, ticket 86cah7ydt complete. The AC5 route deviation is RATIFIED: 2nd-enemy meshes follow the snake's C#-editor-baked + procedurally-posed route (no rig — sidesteps the FBX-helicopter class); Blender-authored silhouettes remain optional swap-tickets (the swap-hatch is Devon-verified drop-in).
+- Why: the systemic matchup proof (spear 18.0/hit vs axe 10.5/hit purely from reach + pierce-tag composition, zero table — guard test deletes the tag and the bonus vanishes) is the locked-decision-5 payoff; the route deviation is precedent-consistent (snake) and avoids the just-proven Blender round-trip trap. Sponsor's eye confirmed what the metrics could not (matchup LEGIBILITY).
+- Reversibility: reversible (mesh swap-hatch; dials all per-tier tunable)
+- Affects: combat cluster (3rd-enemy tickets inherit the route), asset-routing doc (creature-route footnote → Priya batch), quality-bars.md (matchup-legibility bar → Priya appends)
+
+## 2026-07-22 — v4 right-hand fix: defer again + Option-C feasibility spike; never Blender-re-export the rigged character
+
+- Decided by: Sponsor (popup, 2026-07-22 midday)
+- Decision: (1) PR #330 merges as a safety PR (byte-revert + FBX v7700 canary + raw-parse instrument) on Devon's byte-identity verification — no re-soak needed at net-zero visual diff. (2) The right-hand defect stays DEFERRED (second deferral); a research-lane spike proves/kills Option C (raw-FBX binary weight edit, no hierarchy re-export) before any fix route is chosen; Option B (Mixamo re-rig) explicitly not chosen now. (3) Standing engineering rule from the incident: NEVER re-export an already-rigged Mixamo character through Blender's FBX exporter — it rebakes rest orientations on most bones (33/42 measured) and helicopters all zero-rest Generic clips; clip-layer bpy edits remain OK; enforcement = the v7700 canary test.
+- Why: Option A proved structurally impossible (PR #330 comment 5044931437); Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig; the defect is cosmetic and already Sponsor-accepted once ("ill fix the hands later", 2026-07-20). Evidence-first spike beats gambling the build lane.
+- Reversibility: reversible (spike is throwaway; routes stay open)
+- Affects: Drew/Devon (character pipeline), 86cau4za2 (back to `to do` post-merge), boar sequencing (unblocked — build lane frees at #330 merge)
+
+## 2026-07-22 — Swings cluster ships: mini-soak-8 PASS → PR #327 merged (re-appended after the 08:09 revert)
+
+- Decided by: Sponsor
+- Decision: Mini-soak of `Build/soak-swings-8` (stamp `58ae23d`) PASSED — walk-into-boulder blocks at touching distance and click-mine fires from the blocked spot; #327 merged as `250e4e6`; tickets 86caffwv5 + 86caffwuz complete.
+- Why: The r8 carve-tighten resolved the only soak-7 reject (blocked a body-length out); all machine gates were already green (CI green after capture-job rerun — the 2026-07-21 failure was a runner shutdown signal mid-job, not code; Devon APPROVE_WITH_NITS r7; Tess QA PASS + SERVE GO incl. the r8 played-check, comment 5042990009).
+- Reversibility: reversible (revert PR #327)
+- Affects: Drew/Devon/Tess (swings surface); board (cluster #2 boar unblocked; round-9 right-hand investigation done — fix pending Sponsor sequencing)
+
+## 2026-07-21 — Erik Rigify verdict accepted: STAY Mixamo (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (implicit accept — no pushback on the served verdict)
+- Decision: stay on the Mixamo pipeline; bad clips get clip-layer bpy repair (à la SneakGaitCurveFix); Rigify re-enters only if a human animator ever joins (open question to Sponsor, unanswered).
+- Why: Rigify is a control rig with zero clips; game-export friction + re-rig blast radius (Generic bindings, Animator, all 15 seats) = Very High for zero gain. Research note: team/erik-consult/rigify-vs-mixamo-research.md (merged #328).
+- Reversibility: reversible (future re-evaluation)
+- Affects: animation asset routing
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-21 — Loot prompt anchor: above the character's head (reconstructed 2026-07-22)
+
+- Decided by: Sponsor (confirmed the orchestrator's delegated recommendation)
+- Decision: interaction/loot prompts render above the castaway's head (tier-aware ore text; the belt-overlapping prompt relocated).
+- Why: readability at gameplay framing; the old anchor collided with the belt UI.
+- Reversibility: reversible
+- Affects: LootPrompt / HUD
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-21 — Ore spec KEPT: wood pickaxe mines boulders only (reconstructed 2026-07-22)
+
+- Decided by: Sponsor ("Keep spec" popup, 2026-07-21)
+- Decision: wood pickaxe mines BOULDERS only; iron ore requires a stone/iron pickaxe; the tier-aware tooltip "Needs stone pickaxe" is the UX cue.
+- Why: progression legibility — the tooltip carries the teaching; the shipped spec matched his intent.
+- Reversibility: reversible (spec/dial change)
+- Affects: mining progression, LootPrompt copy
+- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+
+## 2026-07-19 — Combat cluster: SPEC PREP starts now; implementation gated on #317 (v4 activation) merge
+
+- Decided by: Sponsor (orchestrator popup, 2026-07-19)
+- Decision: Combat-cluster **spec prep begins immediately** (AC-flesh, design brief, sequencing) while `#317` (castaway v4 activation) finishes; **implementation of every combat ticket still waits for `#317`'s merge**. The six cluster tickets — swings `86caffwv5`, boar `86cah7ydt`, find-in-world weapons `86cah7y5b`, weapon-roster expansion `86cah7ym9`, additional status effects `86cah7yuh`, HP-HUD polish + heal sources `86cah7z2q` — stay `to do` (prep ≠ implementation) and each carries a `#317-merge` implementation gate.
+- Why: v4 is the live hero the combat verbs animate on (swings play on the castaway animator); prepping specs in parallel keeps the non-build lane full without dispatching impl against a hero that is mid-activation. Splitting prep from impl lets the design settle before code starts.
+- Reversibility: reversible (prep is docs/ACs only; no code committed until #317 merges)
+- Affects: combat cluster (6 tickets), Devon + Drew + Uma + Tess; sequencing per the sibling decision below
+
+## 2026-07-19 — Combat cluster order: SWINGS first, boar second
+
+- Decided by: Sponsor (orchestrator popup, 2026-07-19)
+- Decision: The combat cluster is sequenced **swings first** (`86caffwv5` — attack animation per weapon: a Mixamo clip per weapon class, one-click-one-strike active input) **then the wild boar** (`86cah7ydt` — 2nd enemy + weapon-vs-mob matchup proof). Recorded on both tickets.
+- Why: a weapon that reads as a real attack is the foundation the enemy matchup builds on — the boar's "spear beats boar via reach + weak-to-pierce" proof only lands once the swings feel like real attacks. Sponsor-picked order.
+- Reversibility: reversible (sequencing only)
+- Affects: combat cluster dispatch order, Drew + Devon
 
 ## 2026-07-08 — Crafting system redesigned: placed recipe-menu table + 3 tiers + unified place-to-build
 
@@ -526,179 +881,57 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - Reversibility: reversible — Sponsor revokes with a word; falls back to one-click staging.
 - Affects: orchestrator merge flow, away-queue format (one-click class retired), all personas' merge expectations
 
+## 2026-07-08 — Sponsor NEVER performs git/CLI operations (hard rule; supersedes all "you run this" handoffs)
+- Decided by: Sponsor (verbatim, /drain-and-save popup: "I NEVER WANT TO COMMIT, PUSH OR ANYTHING YOU SHOULD DO IT")
+- Decision: the Sponsor is never handed git/gh commands to run — no merges, commits, pushes, worktree cleanups, or label commands. The orchestrator/team performs ALL mechanical operations; where the classifier gates an action, the orchestrator obtains the Sponsor's in-context approval via popup and then executes it ITSELF. The Sponsor's role is verdicts and approvals only (soaks, dials, priorities, popup clicks).
+- Why: repeated friction handing the Sponsor one-click commands (away-queue one-clicks, fh-261-fold cleanup, the #287 merge suggestion). Pairs with the 2026-07-08 STANDING AUTO-MERGE grant.
+- Reversibility: reversible on the Sponsor's word
+- Affects: orchestrator merge/cleanup flows, away-queue format (no command handoffs — approval-only items), memory [[explain-why-before-handing-sponsor-commands]]
+
+## 2026-07-08 — Rule clarified: GitHub UI clicks count as commands too (Sponsor scope-check)
+- Decided by: Sponsor (verbatim: "clicking in gh should count as command also then")
+- Decision: the never-runs-commands rule includes GitHub's web UI — no browser merges, no UI operations. The Sponsor's surface is IN-CHAT ONLY (popups, soak verdicts, priorities) plus physical machine actions the orchestrator's sandbox genuinely cannot perform (e.g. launching the interactive runner window — attempted twice, OS-denied). Consequence: the browser-merge class is RETIRED — even .github workflow-file PRs are merged by the orchestrator via direct `gh pr merge --admin` after in-chat approval (proven live on PR #287, 2026-07-08 16:03Z; the workflow-token wall only constrains the Action's token, not the orchestrator's gh auth). The scoped-PAT ticket 86cafhehe is downgraded to optional (label-path completeness, no longer required for any merge).
+- Reversibility: reversible on the Sponsor's word
+- Affects: merge flows for .github PRs, away-queue item format, ticket 86cafhehe priority
+
 ## 2026-07-18 — Wood-tier weapon set PASSED (Sponsor walkthrough verdict)
 
 - **Decision:** Sponsor PASSED all 5 wood-tier pieces as-is (axe/pickaxe/spear/knife/sword; whittled-wood, existing palette tones, 28-41 tris) from the 13 staged renders in art-src/wood-burst-renders/ — "PASS — export FBXs, integrate" via /sponsor-questions-walkthrough popup.
 - **Consequence:** FBXs export from art-src/weapons_reauthor.blend (wood row y=-0.6) to Assets/Art/Props/WeaponPack/ and integration proceeds (ids *_wood already live in #294 catalogs; in-hand seating + verbs remain ②/art-burst scope per the #294 deferred flags).
 - **Source:** away-queue item 0b (staged 2026-07-08) → resolved 2026-07-18.
 
-## 2026-07-21 — Ore spec KEPT: wood pickaxe mines boulders only (reconstructed 2026-07-22)
+## 2026-07-19 — Crafting redesign wave ①-④ CLOSED on sponsor soak PASS; C build menu is the single build entry point
 
-- Decided by: Sponsor ("Keep spec" popup, 2026-07-21)
-- Decision: wood pickaxe mines BOULDERS only; iron ore requires a stone/iron pickaxe; the tier-aware tooltip "Needs stone pickaxe" is the UX cue.
-- Why: progression legibility — the tooltip carries the teaching; the shipped spec matched his intent.
-- Reversibility: reversible (spec/dial change)
-- Affects: mining progression, LootPrompt copy
-- Provenance: re-appended 2026-07-22 after the 08:09:34Z working-tree revert wiped the original uncommitted entry; sources = 2026-07-21 session save + PR #327 trail.
+- **④ chain soak = SPONSOR PASS** (walkthrough popup, "chain works, forge reads right"; soak-crafting-4 @ 75a9725): `86camz9uz` ① (shipped 07-18) · `86camz9v7` ② · `86camz9vh` ③ · `86camz9vq` ④ · ghost-obstruction fix `86catqxm0` — all complete. The Sponsor-locked wood→stone→iron progression from the 2026-07-08 grill is live end-to-end.
+- **Sponsor design confirmation (mid-soak verbatim, ticket 86catpvpa comment 90150243183538):** C = build MENU for all placeable structures; the placed crafting TABLE's menu is ITEMS-only (tools/weapons); the interim forge key V retires. Shipped same-day as PR #311 (`IBuildPlaceable`/`BuildMenuUI.RegisterPlaceable` seam — ⑤ campfire and future placeables register rows, never fork a menu).
+- **Merge-path policy shift (sponsor verbatim in-walkthrough: "Why do i have to merge anything? you can do it. yes merge now"):** fully-gated workflow-file PRs are orch-DIRECT-merged via `gh pr merge --admin` when the sponsor is present/delegating — the browser-click ritual was classifier-convention only, never token-required for the CLI (#299 `d757c2e`, #308 `fdb81df`, #309 `9a8687b`). Away-mode staging unchanged.
 
-## 2026-07-21 — Loot prompt anchor: above the character's head (reconstructed 2026-07-22)
+## 2026-08-02 — Orchestration doctrine rewritten: 12 rulings to stop the team generating its own work
 
-- Decided by: Sponsor (confirmed the orchestrator's delegated recommendation)
-- Decision: interaction/loot prompts render above the castaway's head (tier-aware ore text; the belt-overlapping prompt relocated).
-- Why: readability at gameplay framing; the old anchor collided with the belt UI.
-- Reversibility: reversible
-- Affects: LootPrompt / HUD
-- Provenance: as above.
-
-## 2026-07-21 — Erik Rigify verdict accepted: STAY Mixamo (reconstructed 2026-07-22)
-
-- Decided by: Sponsor (implicit accept — no pushback on the served verdict)
-- Decision: stay on the Mixamo pipeline; bad clips get clip-layer bpy repair (à la SneakGaitCurveFix); Rigify re-enters only if a human animator ever joins (open question to Sponsor, unanswered).
-- Why: Rigify is a control rig with zero clips; game-export friction + re-rig blast radius (Generic bindings, Animator, all 15 seats) = Very High for zero gain. Research note: team/erik-consult/rigify-vs-mixamo-research.md (merged #328).
-- Reversibility: reversible (future re-evaluation)
-- Affects: animation asset routing
-- Provenance: as above.
-
-## 2026-07-22 — Swings cluster ships: mini-soak-8 PASS → PR #327 merged (re-appended after the 08:09 revert)
-
-- Decided by: Sponsor
-- Decision: Mini-soak of `Build/soak-swings-8` (stamp `58ae23d`) PASSED — walk-into-boulder blocks at touching distance and click-mine fires from the blocked spot; #327 merged as `250e4e6`; tickets 86caffwv5 + 86caffwuz complete.
-- Why: The r8 carve-tighten resolved the only soak-7 reject (blocked a body-length out); all machine gates were already green (CI green after capture-job rerun — the 2026-07-21 failure was a runner shutdown signal mid-job, not code; Devon APPROVE_WITH_NITS r7; Tess QA PASS + SERVE GO incl. the r8 played-check, comment 5042990009).
-- Reversibility: reversible (revert PR #327)
-- Affects: Drew/Devon/Tess (swings surface); board (cluster #2 boar unblocked; round-9 right-hand investigation done — fix pending Sponsor sequencing)
-
-## 2026-07-22 — v4 right-hand fix: defer again + Option-C feasibility spike; never Blender-re-export the rigged character
-
-- Decided by: Sponsor (popup, 2026-07-22 midday)
-- Decision: (1) PR #330 merges as a safety PR (byte-revert + FBX v7700 canary + raw-parse instrument) on Devon's byte-identity verification — no re-soak needed at net-zero visual diff. (2) The right-hand defect stays DEFERRED (second deferral); a research-lane spike proves/kills Option C (raw-FBX binary weight edit, no hierarchy re-export) before any fix route is chosen; Option B (Mixamo re-rig) explicitly not chosen now. (3) Standing engineering rule from the incident: NEVER re-export an already-rigged Mixamo character through Blender's FBX exporter — it rebakes rest orientations on most bones (33/42 measured) and helicopters all zero-rest Generic clips; clip-layer bpy edits remain OK; enforcement = the v7700 canary test.
-- Why: Option A proved structurally impossible (PR #330 comment 5044931437); Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig; the defect is cosmetic and already Sponsor-accepted once ("ill fix the hands later", 2026-07-20). Evidence-first spike beats gambling the build lane.
-- Reversibility: reversible (spike is throwaway; routes stay open)
-- Affects: Drew/Devon (character pipeline), 86cau4za2 (back to `to do` post-merge), boar sequencing (unblocked — build lane frees at #330 merge)
-
-## 2026-07-22 — Boar soak PASS → PR #332 merged; 2nd-enemy mesh route ratified (snake-style C#-baked)
-
-- Decided by: Sponsor (soak popup, 2026-07-22 afternoon)
-- Decision: Boar soak on `soak-boar-1` (stamp `9f76ec7`) PASSED in full — charge feel, emergent spear-beats-boar matchup legibility, AND the look; #332 merged as `0dc4844`, ticket 86cah7ydt complete. The AC5 route deviation is RATIFIED: 2nd-enemy meshes follow the snake's C#-editor-baked + procedurally-posed route (no rig — sidesteps the FBX-helicopter class); Blender-authored silhouettes remain optional swap-tickets (the swap-hatch is Devon-verified drop-in).
-- Why: the systemic matchup proof (spear 18.0/hit vs axe 10.5/hit purely from reach + pierce-tag composition, zero table — guard test deletes the tag and the bonus vanishes) is the locked-decision-5 payoff; the route deviation is precedent-consistent (snake) and avoids the just-proven Blender round-trip trap. Sponsor's eye confirmed what the metrics could not (matchup LEGIBILITY).
-- Reversibility: reversible (mesh swap-hatch; dials all per-tier tunable)
-- Affects: combat cluster (3rd-enemy tickets inherit the route), asset-routing doc (creature-route footnote → Priya batch), quality-bars.md (matchup-legibility bar → Priya appends)
-
-## 2026-07-27 — ClickGateDiag keep/strip: KEEP standing until the live mine failure is fixed
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27)
-- Decision: [ClickGateDiag] (ClickGateDiagnostic.cs, PR #327) stays a STANDING instrument with its release-build per-click Debug.Log (:153) ungated, until the live mine-click failure (Drew r5 item 1 on 86caffwv5) is diagnosed + fixed — then re-evaluate gating the release log. Recorded in the tools/debug/REGISTRY.md entry via ticket 86cav8y1u (Devon, in flight 2026-07-27).
-- Why: it is the ground-truth instrument for exactly that open failure; the log is cold-path (per-click edge only). Stripping it before the failure is diagnosed would force a dev-build repro loop.
-- Reversibility: reversible (gate/remove the log in ≤1 PR whenever re-evaluated)
-- Affects: Devon (86cav8y1u registry entry), the future mine-failure diagnosis ticket
-
-## 2026-07-27 — v4 right-hand route: SHIP-AS-IS; Option B bundled with the next rig change
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27)
-- Decision: the castaway v4 right-hand thumb-weight defect (86cau4za2) SHIPS AS-IS (third and final deferral as an active item). Option B (Mixamo re-rig) is not scheduled on its own — it is BUNDLED with the next rig change whenever one is genuinely needed, so the auto-rig lottery + full held-weapon re-seat/re-dial risk is paid once. Options A (Blender rig edit) and C (raw-FBX binary weight edit) remain refuted (PR #330 helicopter incident; spike PR #331 one-way re-serializer + structurally absent thumb skin-cluster).
-- Why: the defect is cosmetic and twice Sponsor-accepted; Option B discards the accepted left-hand dial and re-rolls the defect-producing auto-rig for an uncertain fix.
-- Reversibility: reversible (the ticket re-activates the moment a rig change is scheduled)
-- Affects: 86cau4za2 (leaves the active queue — re-scoped to bundle-with-next-rig-change), character pipeline (no rig work implied), held-weapon seats (untouched)
-
-## 2026-07-27 — Repo visibility: KEEP PUBLIC + enable real branch protection on main
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27)
-- Decision: TSandvaer/Far-Horizon stays PUBLIC (state gh-verified 2026-07-20), and main gets GitHub-ENFORCED branch protection with required status checks (free-tier feature available only while public) — replacing the convention-only "protected main" (classifier + auto-merge Action). Orch stages/executes the exact protection config post-walkthrough: required checks named from a real main run (structure/build/capture class), admin-merge path (--admin) retained so the standing label-merge + docs-only-PR flows keep working.
-- Why: enforced required checks close the gap documented in [[main-has-no-github-enforced-protection]]; the repo is already world-readable, so public costs nothing new.
-- Reversibility: reversible (protection is a settings PUT/delete; visibility can be flipped later at the cost of losing the free protection)
-- Affects: merge flow (non-admin merges now hard-gated), auto-merge Action (PAT/admin unaffected), docs-only PRs (merge via --admin as today)
-
-## 2026-07-27 — Erik's open question CLOSED: no human animator planned; Rigify permanently off the table
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27)
-- Decision: no human animator is planned for Far Horizon — the door is CLOSED. The Mixamo Generic pipeline + bpy clip-layer repair (SneakGaitCurveFix class) is THE animation route for the project's lifetime; Rigify does not re-enter under any currently-foreseen condition. This answers the open question in the 2026-07-21 Rigify-vs-Mixamo decision (team/erik-consult/rigify-vs-mixamo-research.md).
-- Why: solo-sponsor project; custom hand-authored animation is not on the roadmap; keeping the contingency alive costs a recurring "but what if" in every rig/clip decision.
-- Reversibility: reversible in principle (a future staffing change could reopen it), but treat as settled — stop citing Rigify as a live contingency in research/briefs.
-- Affects: Erik (research framing), Drew/Devon (animation-verb work — no rig-route hedging), procedural-animation-verbs.md consumers
-
-## 2026-07-27 — Inventory-icon route: 3D-rendered IconBaker system (not procedural pixel glyphs)
-
-- Decided by: Sponsor (walkthrough icon-session popup, 2026-07-27)
-- Decision: inventory icons move to a render-the-actual-prop-to-sprite IconBaker (Uma's long-term gameplay-UI direction), starting with iron_ore + iron_ingot (86camyvwn). The quick ItemIconGen pixel-glyph extension and hand-authored PNGs were declined. Prototype (Drew, drew/86camyvwn-iconbaker-proto): mesh inventory + offscreen-RT baker + candidate contact sheet for the Sponsor's live judgment; productionization scope (ItemCatalog wiring, tests, possibly re-baking the existing wood/stone/berry/water pixel icons) follows his pick.
-- Why: every future item inherits a real-prop icon from one system; the pixel-glyph route would keep growing a parallel hand-tuned set.
-- Reversibility: reversible (ItemIconGen glyphs remain the fallback; icon args are per-item)
-- Affects: 86camyvwn (in progress), InventoryUI/ItemCatalog (productionization), Uma's gameplay-UI direction (seeded)
-
-## 2026-07-27 — Next feature wave: COMBAT CLUSTER (pre-ordered while the NITs pool drains the build lane)
-
-- Decided by: Sponsor (popup, 2026-07-27 evening)
-- Decision: the combat cluster fills the feature lane next — ahead of boat POC (86caa9zju) and open-horizon (86cagfn8h). Prework starts immediately: Uma authors the HP-HUD (86cah7z2q) + status-effect readability (86cah7yuh) UX specs; Priya is fleshing the pool's ACs (86cah7y5b find-in-world, 86cah7ym9 roster, 86cah7yuh, 86cah7z2q, 86cau6prr heavy-attack); find-in-world is the likely first dev ticket when the build lane frees. Boat/open-horizon stay queued, not cancelled.
-- Why: combat momentum is fresh (framework + boar shipped, matchup-legibility bar ratified); prework now means zero lane-idle when the NITs pool drains.
-- Reversibility: reversible (specs/ACs keep their value; the Sponsor can reorder the lane at any dispatch boundary)
-- Affects: Uma (specs in flight), Priya (AC-flesh in flight), Drew/Devon (next feature dispatches), Erik (idle-with-reason — no open research question in this wave)
-
-## 2026-07-27 — CI playmode job flips advisory → REQUIRED (86camz787 GO)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: `86camz787` is GO — the `playmode (self-hosted, advisory — non-blocking)` job in `ci.yml` becomes a REQUIRED merge gate. Dispatch as an S ticket in the `.github` lane; the resulting PR needs the Sponsor's browser merge (the auto-merge token lacks the `workflow` permission — memory `auto-merge-fails-on-workflow-file-prs`). If the gate misbehaves, revert is a one-line `ci.yml` change.
-- Why: the precondition held — since #338 merged, 5 of 5 playmode jobs completed green (main runs 30296431820 + 30303098020, plus 3 feature-branch runs), with no wedge/timeout in that window. The 3 long-standing CombatPlayModeTests reds were #338's own new tests missing `LogAssert.Expect` (zero production defect), fixed and on main. Leaving the only automated interaction coverage non-blocking lets interaction regressions reach `main` between soaks.
-- Reversibility: reversible (one-line `ci.yml` revert; the June wedge-at-play-mode-enter class is the watch item — if it recurs and blocks merges on the single-runner box, revert rather than grind)
-- Affects: `ci.yml` / merge gates (Devon or Drew, S), every subsequent PR's required-check set, memory `advisory-playmode-job-unreliable-soak-is-interaction-gate` (soak remains the *interaction* gate; this adds an automated floor beneath it)
-
-## 2026-07-27 — Heavy-attack commitment weight (§8.2): build the spec'd defaults, judge the weight at soak
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: `86cau6prr` implements Uma's spec'd defaults unchanged — ≈0.95 s total lockout (0.40 s wind-up + 0.55 s recovery), no player cancel, 0.4× movement damping, with the §6 per-tier recovery/damping rows as written (easy 0.40 s / 0.6×, hard 0.75 s / 0.25×). The commitment weight is judged LIVE at the soak via the dev-console dials and the Sponsor's pick is baked. No spec round before dispatch.
-- Why: `heavy_windup`, `heavy_recovery` and `heavy_move_damping` are all registered tweakables in the spec's §6 registry table, so building the defaults locks only the PHASE STRUCTURE (wind-up → delayed impact → recovery, no cancel) — not the numbers. Judging a feel value on paper is strictly worse than judging it in the hand (`[[verify-soak-builds-or-bake-and-judge]]`, `[[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]]`). Uma's counter-position is recorded and was surfaced in the popup: she classed it build-shaping rather than tuning, and would rather bad kid-tier defaults never reach a soak.
-- Reversibility: reversible (the dials move at soak; `heavy_enabled` is the one-click revert for the whole mechanic)
-- Affects: `86cau6prr` — **this was the LAST pre-impl gate; the ticket is now dispatchable.** ⤵ (see also the find-in-world entry below) The spec's other gate (item (a), the input pick) dissolved when the merged model spec made `F` the default with `R` offered in the same soak (§3.1 / §8 item 1); item (b), light swings `86caffwv5`, completed 2026-07-22. The soak must offer both keys and carry the commitment dials.
-
-## 2026-07-27 — Find-in-world weapon is `sword_iron`, one per island region (86cah7y5b)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: the second acquisition route places **one `sword_iron`** per island region on the existing seeded-scatter path — the ticket's default, matching Uma's `combat-cluster-design-brief.md` §3.4 recommendation of an iron-tier piece as the "special" reward. Count and spread remain soak-tunable per AC2/AC5; no second find piece.
-- Why: it gives the strongest "this one is special" read against the crafted wood/stone, and the progression objection does not actually apply — `sword_iron` is weapon-only, while the **axe and pickaxe** are what gate the gather→craft ladder (wood-pick → stone → stone-pick → iron ore → forge). So a found sword hands over early combat power without letting the player skip a single resource tier.
-- Reversibility: reversible (the piece is one const pair — `WeaponCatalog.<X>Id` / `ItemCatalog.<X>Id`; count is a seeded-scatter parameter)
-- Affects: `86cah7y5b` (Drew game-side, Devon reviewer, M, Unity-build + soak-gated) — the ticket's one open question is now closed and it is fully dispatchable
-
-## 2026-07-27 — The heal item is a FORAGED MEDICINAL HERB (86cah7z2q AC4)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: the single heal item is a **foraged medicinal herb**, picked from an `IPickable` plant on the berry-bush pattern — the ticket's recommended default. Cooked-food and crafted-salve alternatives declined. This sets one new `ItemCatalog` id + one mesh/icon; it does NOT change the campfire half of AC4 (rest at a lit `Campfire`, already settled) and it does NOT re-tune `HealthRegen`.
-- Why: smallest new surface of the three — one id, one mesh, one scatter entry, zero new systems, all through the shipped `EatBerryAction`/`Inventory` consume seam and `Health.Heal(float)`. Cooked food would have required inventing a cooking interaction (scope far beyond AC4) or degrading to "berry heals", which muddies the shipped hunger loop; a crafted salve would put healing behind the crafting table, leaving an early-game player with nothing but regen after a hit. The herb stays kid-legible and fits the island survival arc.
-- Reversibility: reversible (one `ItemCatalog` id + asset; the consume seam is unchanged whichever fiction wins)
-- Affects: `86cah7z2q` AC4 (Drew for the heal sources, either dev for the HUD polish; Devon reviewer). Costs a second forageable plant that must read as clearly distinct from berry bushes at gameplay framing — call that out in the Self-Test Report and the soak. Uma's invariants stand: relief not power-up, exactly ONE heal item, all healing through `Health.Heal(float)`.
-
-## 2026-07-27 — Weapon roster CLOSED: bone tier RETIRED, no sixth weapon type (86cah7ym9 AC2)
-
-- Decided by: Sponsor (walkthrough popups ×2, 2026-07-27 late evening)
-- Decision: both of `86cah7ym9`'s AC2 questions are answered, matching Priya's recommendations. **(1) The bone tier is RETIRED** — the weapon family is three tiers, wood / stone / iron, full stop. The 2026-07-01 lock's "wood→stone→bone/metal" phrasing is superseded; stop citing bone as a live tier. **(2) No sixth weapon TYPE** — the roster is the shipped five (axe, pickaxe, spear, dagger, sword). Blunt (club/mace) and ranged (bow/sling) were surfaced and declined.
-- Why: bone has no crafting-chain hook (the shipped progression is wood-pick → stone → stone-pick → iron ore → forge → iron), no source material in the world, and no Sponsor mention since the original grill; a 4th tier costs 5 meshes + 5 recipes + 5 hand-seats. A sixth type generally needs a new swing class (new Mixamo clip + `AnimId*` + a `WeaponClassForAnimationId` row) — real code and art, not "just data" — and ranged would additionally need a projectile system that does not exist. Keeping either alive as a hedge carries the same recurring "but what if" cost the Sponsor just closed for Rigify.
-- Reversibility: reversible per piece — AC3's per-addition recipe stays as the reusable template, so a single bone piece or a club could return as one M-sized data+asset PR without reopening the design
-- Affects: `86cah7ym9` — AC2 is now CLOSED. What remains is **AC1** (Uma's `weapon-tool-style-spec.md` correction — stale §2/§4, `grip-wrap-red` removal; S, docs-only, non-build lane, **dispatchable now** and the only unowned live work on the ticket) and **AC3** (the reusable per-piece recipe, a template rather than pending work). Also affects `86cau6prr` open question 2 (roster-wide heavies) — the roster it would generalise over is now fixed at five types × three tiers.
-
-## 2026-07-27 — HP bar takes Uma's FORM distinction: 5 chunky segments, taller box, extra gap (86cah7z2q AC1)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: implement `hp-hud-polish-spec.md` §2.1 **as written** — `HpSegmentCount = 5` (each segment = 20% HP, FLOOR rule kept, no `TopSegmentThreshold` exception), HP box **260 × 34** (`segY = y + 5f`, `segH = h - 10f`), baseline moves `-152` → **`y = Screen.height - 162f`** (a 46 px gap above thirst vs the needs' uniform 36 px pitch), and the inventory ledger moves **`-188` → `-216`** to clear it. Colour band ramp untouched. Alternatives declined: keep-identical-to-needs, taller-but-10-segments, 5-segments-at-current-height.
-- Why: form reads faster than colour at peripheral glance and survives both a colour-blind player and a saturated-green background; five chunky blocks read as "hearts", the universal kid-legible vitality grammar. The Sponsor took the full proposal rather than a partial, accepting the ledger relayout as the price.
-- Reversibility: reversible — `HpSegmentCount` back to `SegmentCount` and `h` back to 28 is a two-constant flip (the spec calls this out explicitly at §2.1)
-- Affects: `86cah7z2q` AC1 (either dev; Devon reviewer). Watch items for the Self-Test Report: (a) the shipped layout **already** overlaps by 1 px (HP plate top 158 vs ledger plate bottom 157) — this ticket incidentally fixes it, so note it or it reads as a new regression; (b) the ledger plate top rises to 219 and must stay ≥16 px clear of the `BootHud` plates — **covering the BUILD stamp is a hard fail, not a NIT**, because every soak verifies the stamp; (c) if the belt/inventory UI has superseded the ledger by implementation time, verify rather than assume.
-
-## 2026-07-27 — Enemy-HP read SEQUENCED: body feedback ships first, the pip-row is judged at that soak (86caxhfg2)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: do NOT build the above-head enemy-HP pip-row yet. Ship the **body-level hit feedback first** — `_HitFlash` material-instance pulse + flinch/hit-react + the pooled dust puff (`combat-cluster-design-brief.md` §1.2/§2.5) — and decide at THAT soak whether an enemy-HP element is needed at all. `86caxhfg2` (pip-row, `needs-soak`) is deferred behind it, not cancelled. Body-read-only-forever was surfaced and not chosen either; the question stays genuinely open until the body read can be felt.
-- Why: Uma's §6 verified 2026-07-27 that `_HitFlash`, the hit-react and the dust puff appear **only in spec docs — zero occurrences anywhere under `Assets/` on `main`**, and no `ParticleSystem` exists in `Assets/Scripts` at all. The pip-row is specified as the *secondary* read precisely because the body is meant to carry the primary one; shipping it first would make it the ONLY enemy-damage feedback in the game and the soak would judge it in exactly the distorted state it was not designed for. Building the body feedback costs nothing extra — the design brief prescribes it regardless — and it makes the "is it nearly down?" question answerable in the hand. Same principle as the heavy-attack commitment-weight call the same evening.
-- Reversibility: reversible (nothing is built or removed; `86caxhfg2` keeps its spec and its `needs-soak` marker)
-- Affects: `86caxhfg2` → deferred-with-reason behind body feedback. **A body-hit-feedback ticket does not exist yet** — Priya to file it from `combat-cluster-design-brief.md` §1.2/§2.5 (`_HitFlash` + flinch + pooled dust puff; note `game-juice.md`'s no-`MaterialPropertyBlock`-on-juice-VFX rule and the pooled-particle requirement, and that this is the first `ParticleSystem` in the project). Its soak carries the pip-row question as an explicit judgement item.
-
-## 2026-07-27 — Stun EXISTS on the easy tier, at Uma's cap (86cah7yuh §8 Q1)
-
-- Decided by: Sponsor (walkthrough popup, 2026-07-27 late evening)
-- Decision: stun is ON at **easy** with the spec's cap — **≤0.6 s duration, ≥3.0 s chain-immunity** — keeping the §7 tier ladder intact (medium ≤1.2 s / ≥1.5 s; hard ≤2.0 s / immunity ≥ duration). Stun-off-on-easy and stun-on-hard-only were surfaced and declined.
-- Why: all three tiers keep the same mechanic with generosity as the only axis — a kid moving up a tier meets a *stronger* effect, never a brand-new one. The control-loss objection is bounded by design: `ActionsBlocked` blocks the **action verbs only, not movement** (ticket AC2 🎚️), so a stunned castaway can always walk out of danger; and 0.6 s against a 3.0 s immunity cannot chain. Uma's intended read stands — see stars, think "I can't swing for a moment", wait it out.
-- Reversibility: reversible (per-tier duration + immunity are dialable; easy-off is a single value)
-- Affects: `86cah7yuh` (Devon systems, Drew reviewer) — §7's tier table ships as written. Reminder for impl: per-tier values must write **both** the active field and the active tier's map entry or `ApplyDifficulty` clobbers the live dial (dead-knob class). Also settles by implication that easy and medium differ only in generosity, which is the standing tier model across snake / boar / heavy-attack.
-
-## 2026-07-28 — PR #337 soak: torso fold PASSED, two separate defects found (86cav8xg9)
-
-- Decided by: Sponsor (soak on `soak-pickaxe-1`, stamp `1194927` confirmed in his screenshots)
-- Decision: **#337's own bar is MET** — asked to judge the stance with the other defects set aside, the Sponsor confirmed the torso **looked right**. The pelvis-hinge fix stands; it is not to be reworked. **Two SEPARATE defects were found and are NOT this ticket's scope as written:** (verbatim) *"he is swinging like he is handing the axe with both hands, when in reaity the axe stays in the right hand only. the axe is still pivoting and not sitting right during the swing"*. Whether #337 merges now hinges on one open triage: are those two **pre-existing on `origin/main`** or **introduced by #337**? Pre-existing → merge #337 on its own bar, file the defects separately. Introduced → fix round on this PR. **#337 does NOT merge until that verdict lands.**
-- Why: the fix was scoped narrowly to the torso fold and delivered it; holding a passed fix hostage to unrelated defects would be wrong, but merging before confirming they are unrelated would be worse. The Sponsor explicitly wanted Drew to confirm pre-existing before splitting them off.
-- Reversibility: reversible (nothing merged; the triage only routes the work)
-- Affects: `86cav8xg9` stays `in review`; `86caxgyc4` stays dep-blocked; Drew triaging in `drew-swings-wt`, verdict to be posted as a comment on PR #337 so it survives the session. Capture at soak time, so the next reader does not chase the wrong clip: the Sponsor said "axe" but was **MINING** — belt slot 2 (`P`) selected, prompt "Mine stone", boulder in frame — so the held tool was the **pickaxe** and the clip was the **mine** swing. His "still pivoting" implies the seating defect predates this build.
+- Decided by: Sponsor (grilled through 12 discrete decisions in one session; every ruling his)
+- Decision: (1) hard ceiling of one developer + one reviewer + at most one justified support;
+  (2) `maintain-docs` Stop hook REMOVED, skill is manual-only and gated on naming an incident
+  plus what it cost; (3) `APPROVE_WITH_NITS` DELETED — two verdicts, one round, and a review may
+  NEVER create a ticket; docs/test-only PRs get no reviewer; (4) agents may create tickets only
+  for bugs reproduced in a built exe, everything else is Sponsor-gated; (5) blanket
+  read-all-12-docs pre-read replaced by a per-task-class routing table; (6) testing bar KEPT
+  intact but testing the test infrastructure is banned, and verify-captures ship CI-wired or not
+  at all; (7) away/unattended mode OFF until three feats ship; (8) STATE.md slimmed to a resume
+  header, away-queue + decisions-while-away archived to `team/log/`; (9) kill switch armed — any
+  calendar week with zero `feat` merges retires the standing team; (10) next destination is
+  closing out the weapon/combat line (PR #351).
+- Why: measured on `origin/main` 2026-08-02 — last `feat` was 2026-07-22 (`0dc4844`), and the 79
+  commits since were 47 docs, 12 chore, 10 fix, 8 test, 1 spike, 1 ci and ZERO feat. Nine of ten
+  open PRs were non-gameplay. An unattended loop burned four rate-limit windows and then the
+  weekly account cap producing documentation. Removing the anti-idle hook killed the DEMAND for
+  work; these rulings kill the SUPPLY engines that manufactured it — an auto-firing docs skill
+  whose three proposers were asked "what should we document" every tick, a review verdict that
+  auto-filed a ticket (verified chain #383 to #394 to #401), unbounded ticket authoring, and
+  docs run through the full code-review pipeline.
+- Sponsor's framing, verbatim: "I want a well oiled team that does productive work, not work for
+  the sake of work" and "if this is not possible a single session with a single agent works
+  better than orchestration."
+- Reversibility: reversible (all doctrine/prose + two settings edits) — but the kill switch is
+  deliberately automatic so reversal-by-drift is detectable within a week.
+- Affects: all roles, `CLAUDE.md`, `.claude/settings.json`, the `maintain-docs` skill, the
+  dispatch template, `team/TESTING_BAR.md`, `team/STATE.md`, all six persona files, `TEAM.md`.

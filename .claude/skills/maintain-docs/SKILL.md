@@ -1,32 +1,36 @@
 ---
 name: maintain-docs
-description: Auto-triggered after every turn (via Stop hook) — silently reviews the turn for findings/new/altered code worth capturing in `.claude/docs/`. Spawns 3 parallel sonnet proposers + 1 sonnet consolidator, auto-applies merged doc edits, and emits output to the main thread ONLY when documentation was actually changed. Also invokable manually via /maintain-docs.
+description: MANUAL-ONLY. Capture a hard-won finding into `.claude/docs/` after an incident that actually cost something — a wasted rebuild, an overturned soak, a dead agent-hour. Invoked only as /maintain-docs, never automatically. Refuses to write anything whose motivating incident cannot be named with its cost.
 ---
 
-# Maintain Docs (auto)
+# Maintain Docs (manual)
 
-Capture non-obvious knowledge from the current turn into `<PROJECT_ROOT>/.claude/docs/` so future Claude sessions start informed. This skill runs automatically after every turn via the Stop hook at `.claude/hooks/maintain-docs-stop.sh`, and is also invokable on demand.
+Capture knowledge that was **paid for** into `<PROJECT_ROOT>/.claude/docs/` so future Claude sessions don't pay for it again.
 
-## Step 0: Visibility policy (read first)
+## ⛔ This skill is MANUAL-ONLY (Sponsor, 2026-08-02)
 
-- **Run silently by default.** Do NOT emit a start message; do NOT emit a no-change message. The user does not need to know on every turn that the hook fired.
-- Emit output to the main thread ONLY when documentation was actually changed (see Step 6).
-- Subagent spawns and tool calls are fine — they appear in the trace but do not bloat the main thread message log.
+It previously ran as a Stop hook after every turn that touched a file or dispatched an agent — i.e. after **every orchestrator tick**, spawning 4 sonnet agents each time whose literal task was "find something to document." Three agents asked that question will always find something; returning `NO_PROPOSALS` reads as failing the task. Over ten days that engine helped produce **79 commits with 47 docs and zero `feat`** (measured on `origin/main`, 2026-08-02).
 
-## Step 1: Early-exit filter
+The Stop-hook registration was removed from `.claude/settings.json`. **Do not re-add it.** This skill now runs only when a human types `/maintain-docs`.
 
-Skip the rest of the skill and end silently if this turn was:
+## Step 1: The incident gate (hard precondition — no exceptions)
 
-- A greeting, acknowledgment, or trivial clarification
-- Pure Q&A with no code changes and no architectural conclusions
-- A routine edit with no surprise, constraint, or design decision surfaced
-- Tool-only exploration (reads/greps) where nothing new was concluded
-- A task that simply repeats patterns already covered in existing `.claude/docs/`
-- An orchestration tick (heartbeat, dispatch announcement, ticket-status flip) without a code/architecture change — the orchestrator's own activity log is captured by memory + session state, not docs
+A doc entry may be written **only** if you can state both of these concretely:
 
-The bar is high: most turns fail this filter. Only continue when the turn produced a non-obvious insight, a new feature area, a gotcha, or a validated pattern future Claude would benefit from knowing cold.
+1. **The incident** — a specific thing that went wrong, named with a verifiable reference (a PR number, a commit SHA, a ticket ID, a soak that overturned a claim, an agent that died mid-task).
+2. **What it cost** — a rebuild, a soak round, a wasted dispatch, hours of agent time, a wrong merge. Concrete, not "confusion" or "could have been clearer."
 
-**Unmerged-API defer rule (Drew PR #318 finding 2026-05-22).** Even if the early-exit filter doesn't fire, captures that would cite a function / API / file / commit only present on an UNMERGED feature branch should DEFER until the parent PR merges. The alternative is to keep the proposal but tag it explicitly as "pending PR #N merge" so peer-reviewers know the cite cannot be verified against `main` yet. Empirical case: PR #318's initial draft included a `CameraDirector.follow_target` cite from the still-open PR #314 spike branch; Drew's peer-review caught the premature cite and the capture was scope-reduced + deferred until PR #314 merges. The consolidator (Step 4) should reject proposals that violate this rule unless the "pending PR #N" tag is present.
+Write it in this shape before proposing anything:
+
+> **Incident:** <what broke, cited> — **Cost:** <what was actually spent>
+
+**If you cannot name the incident and its cost, there is no doc to write. Stop and end silently.** "This seems useful," "future Claude would benefit," "worth capturing," and "non-obvious" are NOT incidents — that bar was already in this skill and it did not hold. An incident is something that already happened and already cost something.
+
+Additionally, still stop if the finding is already covered in an existing `.claude/docs/` file. Read before proposing.
+
+**Corollary — the docs are not a growth surface.** Prefer amending an existing doc over creating a new one. A new file needs its own incident, not just a new topic.
+
+**Unmerged-API defer rule (Drew PR #318 finding 2026-05-22).** Even once the incident gate passes, captures that would cite a function / API / file / commit only present on an UNMERGED feature branch should DEFER until the parent PR merges. The alternative is to keep the proposal but tag it explicitly as "pending PR #N merge" so peer-reviewers know the cite cannot be verified against `main` yet. Empirical case: PR #318's initial draft included a `CameraDirector.follow_target` cite from the still-open PR #314 spike branch; Drew's peer-review caught the premature cite and the capture was scope-reduced + deferred until PR #314 merges. The consolidator (Step 4) should reject proposals that violate this rule unless the "pending PR #N" tag is present.
 
 **Ticket-id cites > scratch `.md` cites (Tess PR #321 finding 2026-05-22).** When a capture would cite a source artifact, prefer cite shapes that are durable in `git log`:
 
@@ -39,7 +43,7 @@ Empirical case: PR #318's initial draft cited `team/tess-qa/playwright-red-main-
 
 - List `<PROJECT_ROOT>/.claude/docs/` contents.
 - Read the "Detailed Documentation" section of `<PROJECT_ROOT>/CLAUDE.md` to get the current index.
-- Write a 200–500 word internal brief of this turn's **non-obvious** findings: architectural decisions, gotchas, constraints that surfaced, patterns validated, new systems touched. Exclude routine narration, trivial fixes, and anything already covered in existing docs.
+- Write a brief of **at most 300 words** stating the Step-1 incident and its cost, then the one lesson that would have prevented it. Nothing else — no survey of the turn, no list of things touched, no "other candidates worth considering."
 
 ## Step 3: Three parallel proposer agents (single message, 3 Agent calls)
 
@@ -57,11 +61,12 @@ You are proposing documentation updates for <PROJECT_ROOT>/.claude/docs/ based o
 ## Existing index (from CLAUDE.md "Detailed Documentation" section)
 <INDEX SECTION>
 
-## Your task — answer both questions
-1. **Is the finding / new or altered code worth updating or adding to documentation?** For each candidate from the brief, decide: skip, add to an existing doc (which one and where), or warrants a new doc.
-2. **How can the documentation be improved along quality, coverage, relevance?** Does the brief reveal missing coverage? Does it contradict anything stale? Any redundancy worth consolidating?
+## Your task — ONE question only
+**Would this doc entry have PREVENTED the named incident?** For each candidate, decide: skip, or amend an existing doc (which one and where). Creating a new file requires its own named incident.
 
-Read relevant existing docs before proposing, so you don't duplicate what is already there.
+Do NOT answer "how could the documentation be improved" — that question is banned here. It always has an answer, and answering it is what produced 47 docs commits and zero features in ten days. You are not improving documentation; you are recording the price of one specific incident so it isn't paid twice.
+
+Read relevant existing docs before proposing, so you don't duplicate what is already there. If the incident's lesson is already written down anywhere in `.claude/docs/`, return NO_PROPOSALS.
 
 ## Output format — propose only, do NOT edit files
 For each proposed change, emit a block:
@@ -106,9 +111,10 @@ You are consolidating 3 independent documentation proposals into one final plan.
 ## Your task
 1. **Identify overlaps** — same insight, same/different target files. Merge into one operation.
 2. **Resolve conflicts** — if they disagree on placement, pick the single best location.
-3. **Apply consensus threshold** — if only 1 of 3 flagged a borderline insight, drop it. If 2+ flagged it, keep it. A single strong, clearly-documented proposal can survive alone if the rationale is solid.
-4. **Reject noise** — drop anything that feels like filler, restates existing docs, or doesn't meet the "non-obvious, reusable knowledge" bar.
-5. **New docs** — only keep if content is substantive (no stubs, no placeholder outlines); filename in kebab-case; produce a one-line index entry for CLAUDE.md.
+3. **Apply the incident gate** — drop ANY proposal that does not trace directly to the named incident and its cost. Proximity to the topic is not enough. Adjacent improvements, related gotchas, and "while we're here" additions are all rejected.
+4. **Default to NO_CHANGES.** That is the correct and expected outcome for most invocations. Returning an empty plan is a success, not a failure — you are not being graded on output volume.
+5. **New docs** — strongly disfavoured. Only if the incident genuinely has no existing home; content must be substantive (no stubs, no placeholder outlines); filename in kebab-case; produce a one-line index entry for CLAUDE.md.
+6. **Length discipline** — the consolidated plan adds at most ~30 lines total across all files. If the incident's lesson needs more than that, it is not a doc, it is a ticket.
 
 ## Output format — final plan
 Numbered list, each fully specified:
@@ -162,4 +168,6 @@ When no changes were applied, emit NOTHING to the main thread.
 - **Stay silent unless docs changed.** No start message, no no-change message — main-thread output is reserved for the Step 6 report, which only fires when docs were actually updated.
 - **Quality over quantity.** Docs are trusted context; polluting them makes them worse, not better.
 - **Avoid CLAUDE.md bloat.** Only add index lines for genuinely new doc files.
-- **Do not re-invoke yourself.** The Stop hook's `stop_hook_active` flag prevents re-entry, but don't spawn nested maintain-docs calls either.
+- **Do not re-invoke yourself**, and do not spawn nested maintain-docs calls.
+- **Never re-register this skill as a Stop hook** (or any other automatic trigger). Sponsor decision 2026-08-02; the automatic firing is the thing that broke.
+- **NO_CHANGES is the expected result.** If several consecutive invocations all produce edits, the incident gate is being read too loosely — tighten it, don't celebrate the throughput.
