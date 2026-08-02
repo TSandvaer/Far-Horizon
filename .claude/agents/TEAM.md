@@ -1,4 +1,4 @@
-# Embergrave / RandomGame — Agent Team
+# Far Horizon — Agent Team
 
 Five named agents handle the Embergrave game build. The Sponsor (Thomas) talks to the **orchestrator** (the Claude Code session). The orchestrator fans out directly to Priya, Uma, Devon, Drew, and Tess via the `Agent` tool. **Nested-Agent spawning is unsupported** in this Claude Code build (see *Topology* below) — top-level fan-out is the permanent model.
 
@@ -54,33 +54,45 @@ Five named agents handle the Embergrave game build. The Sponsor (Thomas) talks t
 
 Every agent reads these before a first substantive task:
 
-- [CLAUDE.md](../../CLAUDE.md) — project brief
-- [.claude/docs/combat-architecture.md](../docs/combat-architecture.md) — combat runtime + harness conventions
-- [.claude/docs/html5-export.md](../docs/html5-export.md) — HTML5 quirks (HDR clamp, Polygon2D, service-worker cache)
-- [.claude/docs/orchestration-overview.md](../docs/orchestration-overview.md) — orchestration conventions
-- [.claude/docs/audio-architecture.md](../docs/audio-architecture.md) — audio bus + AudioDirector autoload
-- [.claude/docs/test-conventions.md](../docs/test-conventions.md) — universal warning gate (Playwright + GUT)
-- [team/TESTING_BAR.md](../../team/TESTING_BAR.md) — paired-tests + Self-Test Report + journey-probe gates
+> ⚠ **Corrected 2026-08-02.** This file previously listed five `.claude/docs/` links that do
+> not exist in this repo (`combat-architecture.md`, `html5-export.md`,
+> `orchestration-overview.md`, `audio-architecture.md`, `test-conventions.md`) and pointed at
+> the wrong repo, board, engine and worktrees — all Godot/RandomGame-era carryover. Values
+> below are verified against `git remote -v`, `git worktree list` and `CLAUDE.md`.
+
+- [CLAUDE.md](../../CLAUDE.md) — project brief + **§ "Orchestration doctrine"** (read this first)
+- [team/TESTING_BAR.md](../../team/TESTING_BAR.md) — the 6-point bar + what it does NOT ask for
 - [team/GIT_PROTOCOL.md](../../team/GIT_PROTOCOL.md) — PR workflow + Cross-lane integration check
-- [team/orchestrator/dispatch-template.md](../../team/orchestrator/dispatch-template.md) — dispatch brief + tightened final-report contract
+- [team/orchestrator/dispatch-template.md](../../team/orchestrator/dispatch-template.md) — dispatch brief, the per-task-class doc routing table, the two-verdict review format
+
+**Do NOT read every `.claude/docs/*.md`.** That rule was retired 2026-08-02; your dispatch brief
+names the 1–3 docs your task class needs. The routing table is in the dispatch template.
 
 ## Operational IDs
 
-- **ClickUp workspace:** `90151646138`
-- **ClickUp list (RandomGame board):** `901523123922`
+- **ClickUp list (Far Horizon board):** `901523878268`
 - **ClickUp space (TSandvaer Development):** `90156932495`
-- **GitHub repo:** `TSandvaer/RandomGame`
-- **Engine:** Godot 4.3 stable (HTML5 = `gl_compatibility` / WebGL2; desktop = `forward_plus`/`mobile`)
+- **GitHub repo:** `TSandvaer/Far-Horizon`
+- **Engine:** Unity 6 `6000.4.11f1` / URP, desktop-first Windows (`Build/Windows/FarHorizon.exe`)
 
 ## Worktree map
 
-- Project root (orchestrator survey, READ-ONLY): `c:\Trunk\PRIVATE\RandomGame`
-- Orchestrator commits via: `c:\Trunk\PRIVATE\RandomGame-orch-wt`
-- Per-role: `c:\Trunk\PRIVATE\RandomGame-{priya,uma,devon,drew,tess}-wt`
+- Project root (orchestrator survey, READ-ONLY): `c:\Trunk\PRIVATE\Far-Horizon`
+- Per-role: `c:\Trunk\PRIVATE\Far-Horizon-{priya,uma,devon,drew,tess,erik}-wt`
+- Several task-specific worktrees also exist (e.g. `Far-Horizon-drew-swings-wt`). **Use the one
+  your brief names** — never assume the plain `-wt` path. Confirm with `git worktree list`.
+- **One agent per worktree at a time.** Two concurrent dispatches against the same worktree race
+  on `git checkout` / `gh pr checkout` and can corrupt in-progress work.
 
 ## Models
 
-All five agents are `opus` by default. Embergrave values correctness + Sponsor-soak-finding minimization over throughput. Downgrade to `sonnet` only if a specific lane proves consistently throughput-bound without quality regression.
+All agents are `opus` by default. Far Horizon values correctness + Sponsor-soak-finding minimization over throughput. Downgrade to `sonnet` only if a specific lane proves consistently throughput-bound without quality regression.
+
+**⛔ Roster ≠ headcount (Sponsor decision 2026-08-02).** Six personas are *defined*; at most
+**three** may be in flight, and typically fewer: one developer, one reviewer (only once a PR
+exists), and at most one support persona against a named concrete need. Personas are prompts,
+not salaries — an idle persona costs nothing, an unjustified dispatch costs the week. See
+`CLAUDE.md` § "Orchestration doctrine".
 
 ## Forward-compat note
 

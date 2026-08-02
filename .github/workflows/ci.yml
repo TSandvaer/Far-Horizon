@@ -142,6 +142,22 @@ jobs:
           chmod +x .github/workflows/scripts/structure_check.sh
           .github/workflows/scripts/structure_check.sh
 
+      # Leaked tool-call markup in committed *.md (86cayxtw8). Hosted + licence-free,
+      # zero Unity dependency, does not touch the self-hosted build slot.
+      # WARNING — THIS JOB CANNOT BE THE ONLY HOME FOR THIS GUARD: the workflow-level
+      # `paths-ignore` above lists '**/*.md' + 'team/**', so a DOCS-ONLY PR triggers NO
+      # run of this workflow at all. Ground-truthed on PR #360 and #358 (both docs-only;
+      # `gh pr checks` shows the `auto-merge` check ONLY — no structure / build /
+      # capture). All five files this guard was written for arrived on docs-only PRs
+      # (#112, #125, #268, #282, #323), so a structure-job-only guard would have caught
+      # 0 of 5. `.github/workflows/docs-markup.yml` is the *.md-path-triggered sibling
+      # that closes that gap; this step covers mixed docs+code PRs and any PR touching a
+      # non-ignored path. Same script, one behaviour, unit-tested once below.
+      - name: Docs tool-call-markup check
+        run: |
+          chmod +x .github/workflows/scripts/check_docs_markup.sh
+          .github/workflows/scripts/check_docs_markup.sh
+
       # The gate scripts are tested too (the bar applies to itself). Zero Unity
       # dependency, so it runs in the license-free job on every PR: console-error
       # gate nit fixes + the capture gate's black/empty/uniform/magenta/zero-frame
@@ -150,6 +166,18 @@ jobs:
         run: |
           chmod +x tests/scripts/test_gate_scripts.sh
           tests/scripts/test_gate_scripts.sh
+
+      # The capture-gate PATH ROUTER (see the `capture` job header for the whole
+      # design). It needs its OWN guard because the router adds a NEW way for a gate
+      # to gate nothing: invoked, but behind a condition that is never true — which
+      # on the PR surface is indistinguishable from a gate that passed. Covers the
+      # mapping (discrimination), the now THREE-part registration key+condition+
+      # reachability (wiring), the fail-OPEN form of every ci.yml condition, and that
+      # a routed gate can STILL go red. Zero Unity dependency, like its siblings.
+      - name: Capture-gate path-router unit tests
+        run: |
+          chmod +x tests/scripts/test_scope_gates.sh
+          tests/scripts/test_scope_gates.sh
 
       # The destructive-bash deny-hook protects every persona/orch session; its
       # field-scoping behavior (ticket 86cabe3gx) is regression-guarded here.
@@ -165,6 +193,27 @@ jobs:
         run: |
           chmod +x tests/scripts/test_anti_idle_hook.sh
           tests/scripts/test_anti_idle_hook.sh
+
+      # COMMITTED-BYTES drift guard for Assets/Resources/WeaponSetLineup.prefab
+      # (86cayp0p9). Reads BOTH the prefab and the generator that bakes it out of
+      # the COMMIT via `git show`, and reds when the committed node set diverges
+      # from the generator's row-set contract, naming the missing nodes.
+      #
+      # THIS JOB, deliberately: `BootstrapProject.Run` appears in this file at
+      # exactly two step sites (the `build` job and the `playmode` job), and each
+      # RE-BAKES the prefab on disk before anything reads it — which is why the
+      # EditMode guard (Assets/Tests/EditMode/CommittedLineupDriftGuardTests.cs,
+      # 86catwzhy) is green on CI even when the committed bytes are stale, exactly
+      # as its own SCOPE heading declares. That test is not broken and is not
+      # replaced; this is a second guard at the one layer that can go red
+      # unconditionally. `structure` never bootstraps, has no Unity, and is hosted,
+      # so it also costs nothing against the single self-hosted Unity build slot.
+      #
+      # `HEAD` here is the checkout@v4 pull_request merge ref — i.e. the guard
+      # grades the bytes the PR would actually merge. fetch-depth: 0 above already
+      # gives `git show` full history to read from.
+      - name: Committed weapon-lineup drift guard
+        run: python3 .github/workflows/scripts/check_committed_lineup.py HEAD
 
   # ---------------------------------------------------------------------------
   # Build gate — self-hosted Windows runner, HEADLESS half (2nd-runner-SAFE).
@@ -481,6 +530,61 @@ jobs:
   # false-green the very percept the pond gate exists to guard). Because those gates still need a window,
   # this whole job STAYS PINNED to runner-1 + SERIAL for now; unpinning is AC4 (86cag93zb), which splits
   # the headless gates into their own unpinned job once they prove stable in CI here.
+  #
+  # ========================= PATH-SCOPED GATE ROUTING (Sponsor-approved) =========================
+  # THE PROBLEM: all SIXTEEN gates below ran on EVERY run, scoped to NOTHING. Eight of them launch
+  # the built exe WINDOWED, and the self-hosted runner IS the Sponsor's laptop — so a one-line docs
+  # change replayed the campfire, the sky and the pond as windows popping open and shut. Verbatim:
+  # "testing the same things every time... useless."
+  #
+  # THE SHAPE: exactly ONE gate stays ALWAYS-ON; the other fifteen become CONDITIONAL on what the
+  # diff touches. NO gate is deleted and NO gate is weakened — this changes WHEN each runs, never
+  # WHETHER it exists. The routing table lives in `.github/workflows/scripts/scope_gates.sh`.
+  #
+  # THE ALWAYS-ON GATE IS `capture_gate.sh` (step 7, the generic `-captureGate`). WHY THAT ONE,
+  # chosen from evidence rather than from the wired list's names:
+  #   * It is the ONLY scene-agnostic gate. Every `verify_*` sibling is feature-scoped BY
+  #     CONSTRUCTION — it teleports the player to a bush / a boulder / an ore node, or grants a
+  #     specific tool, and asserts about THAT feature. `capture_gate.sh` asserts nothing about a
+  #     feature: it proves the exe LAUNCHES, Boot.unity LOADS, `Camera.main` EXISTS (a missing
+  #     MainCamera is an explicit Quit(1) in CaptureGate.cs:74-78), and the gameplay orbit camera
+  #     renders four REAL frames that `frame_check.py` proves are not black / empty / uniform /
+  #     all-magenta (the shader-strip tell). That IS the catastrophic class.
+  #   * team/TESTING_BAR.md's mechanical-gate table already names exactly this pair —
+  #     "Shipped-build capture | capture_gate.sh + frame_check.py | the BUILT exe renders REAL
+  #     frames (editor-vs-runtime backstop)" — so the always-on gate is the one the testing bar
+  #     already designates, not a new invention.
+  #   * It is HEADLESS (`-batchmode`, RT-readback, 86cag93zb), so the always-on cost is ZERO
+  #     windows on the Sponsor's desktop. A windowed always-on gate would have kept one pop per run.
+  #   * It needs no promotion work: promoting an UNWIRED component instead (e.g. -verifyCastaway)
+  #     would mean authoring it into Boot.unity first — an unauthored -verify verb parses as a
+  #     normal launch and HANGS the job to its timeout (unity-conventions.md §CI architecture, the
+  #     PR #312 ruling) — and that cannot be validated with the runner offline.
+  #   * BOUNDED HONESTLY: `frame_check.py` is content-agnostic. It proves the frame is a real
+  #     rendered frame, NOT that the castaway's POSE is right. The spike's "legs-up" incident would
+  #     have shipped a non-black frame. The always-on gate covers launch + load + camera + render;
+  #     an automated character-POSE assertion does not exist in this repo on ANY gate today, wired
+  #     or unwired (`CastawayVerifyCapture` produces a judgeable close-up but asserts only "an
+  #     avatar with settled bounds exists"). Closing that is a follow-up, not a regression here.
+  #
+  # THE REQUIRED-CHECK TRAP, AND WHY THIS SHAPE CANNOT HIT IT. `ci.yml:89-95` warns that a
+  # `paths-ignore` filter makes a run not trigger AT ALL and does NOT report a skipped REQUIRED
+  # check as success — so a docs-only PR would hang forever on a never-reported required check.
+  # That warning is about JOB/WORKFLOW-level filtering. This routing is deliberately STEP-level:
+  # every gate stays inside the `capture` job, the job itself is unconditional, and a SKIPPED STEP
+  # does not fail its job. So the `capture` check still runs and still reports on EVERY run, and
+  # the required-check surface (`structure` + `build` + `capture`) is byte-unchanged. Nothing here
+  # touches the workflow-level `paths-ignore`, and no new check name is introduced.
+  #
+  # FAIL-OPEN IS THE LOAD-BEARING PROPERTY, and it is belt AND braces:
+  #   * `scope_gates.sh` emits ALL-true on an empty/unobtainable diff, an unusable base sha, a git
+  #     failure, or ANY changed path that matches no rule (an unmapped file costs runner time,
+  #     never coverage).
+  #   * every condition below is `!= 'false'`, NOT `== 'true'` — so a MISSING output (the scope
+  #     step crashed, or GITHUB_OUTPUT was unset) also RUNS the gate. A gate can only be skipped by
+  #     an explicit `false` the script wrote on purpose. `tests/scripts/test_scope_gates.sh` reds if
+  #     any condition is flipped to the fail-CLOSED `== 'true'` form.
+  # ==============================================================================================
   # ---------------------------------------------------------------------------
   capture:
     name: capture (self-hosted runner-1, windowed gates)
@@ -497,9 +601,31 @@ jobs:
       # The capture scripts (capture_gate.sh, verify_*_gate.sh, frame_check.py) live
       # in the repo, so the capture runner needs its own checkout. clean:false keeps
       # parity with the build/playmode jobs (harmless here — no Library is used).
+      # fetch-depth: 0 is required by the scope step below — the path router diffs the
+      # PR base sha against HEAD, which needs the base commit's objects present. On the
+      # warm clean:false runner this is an incremental fetch, not a re-clone.
       - uses: actions/checkout@v4
         with:
           clean: false
+          fetch-depth: 0
+
+      # PATH-SCOPED GATE ROUTING (see the job header). Emits run_<gate>=true|false for
+      # each of the 15 routed gates; the always-on generic capture gate (step 7) is
+      # deliberately NOT routed and carries no condition. `if: always()` so a red build
+      # job cannot leave the outputs unwritten; and even then every consumer reads
+      # `!= 'false'`, so an unwritten output runs the gate.
+      - name: Compute capture-gate scope (path routing)
+        id: scope
+        if: always()
+        shell: bash
+        env:
+          # HEAD (the script's default) rather than github.sha: HEAD is BY DEFINITION the
+          # commit actions/checkout put in the workspace, so it can never fail to resolve.
+          # On a pull_request the two are the same merge commit anyway.
+          SCOPE_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          chmod +x .github/workflows/scripts/scope_gates.sh
+          .github/workflows/scripts/scope_gates.sh --github-output
 
       - name: Prepare output dir
         shell: bash
@@ -518,13 +644,13 @@ jobs:
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
                 ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log \
-                ci-out/verify-heldwood.log
+                ci-out/verify-heldwood.log ci-out/verify-swings.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
                  ci-out/boulder-caps ci-out/buildmenu-caps ci-out/boar-caps \
-                 ci-out/heldwood-caps
+                 ci-out/heldwood-caps ci-out/swings-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -594,7 +720,7 @@ jobs:
       #    Runs only when the build produced an exe; frames + log upload AFTER
       #    (if: always()) so the panel evidence survives a fail.
       - name: Settings-panel capture gate (panel opens + live tweak)
-        if: always()
+        if: always() && steps.scope.outputs.run_settings != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -607,7 +733,7 @@ jobs:
           fi
 
       - name: Upload settings-panel frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_settings != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-settings-caps-${{ github.sha }}
@@ -626,7 +752,7 @@ jobs:
       #     rendered (frame_check), the regression guard `selectedEnteredGhost=True`, the non-interactive/modal
       #     ground truth, and the menu is VISIBLE (open != closed). Runs only when the build produced an exe.
       - name: Build-menu capture gate (menu opens + select enters ghost flow)
-        if: always()
+        if: always() && steps.scope.outputs.run_buildmenu != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -639,7 +765,7 @@ jobs:
           fi
 
       - name: Upload build-menu frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_buildmenu != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-buildmenu-caps-${{ github.sha }}
@@ -664,7 +790,7 @@ jobs:
       #    Runs only when the build produced an exe; frames + log upload AFTER (if: always()) so
       #    the pond evidence survives a fail.
       - name: Freshwater-pond capture gate (pond reads fresh-blue + visible)
-        if: always()
+        if: always() && steps.scope.outputs.run_pond != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -677,7 +803,7 @@ jobs:
           fi
 
       - name: Upload freshwater-pond frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_pond != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-pond-caps-${{ github.sha }}
@@ -702,7 +828,7 @@ jobs:
       #     swapchain-content backstop. Runs only when the build produced an exe; frames + log upload
       #     AFTER (if: always()) so the prompt evidence survives a fail.
       - name: Loot-prompt capture gate (prompt shows + renders in range)
-        if: always()
+        if: always() && steps.scope.outputs.run_loot != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -715,7 +841,7 @@ jobs:
           fi
 
       - name: Upload loot-prompt frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_loot != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-loot-caps-${{ github.sha }}
@@ -740,7 +866,7 @@ jobs:
       #     missing wiring), so the exe's exit code IS the gate verdict; frame_check.py is a swapchain
       #     backstop. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
       - name: Water-acquisition capture gate (collect water + drink raises thirst)
-        if: always()
+        if: always() && steps.scope.outputs.run_water != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -753,7 +879,7 @@ jobs:
           fi
 
       - name: Upload water-acquisition frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_water != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-water-caps-${{ github.sha }}
@@ -792,7 +918,7 @@ jobs:
       #     stone-selected), so a re-narrowing of ChopTree's axe gate to stone-only reds this step.
       #     Both tiers are gated now; nothing was traded away. One extra frame: chop_wood_axe.png.
       - name: Chop capture gate (fell → pile → E-loot → wood in inventory; stone tier + WOOD tier)
-        if: always()
+        if: always() && steps.scope.outputs.run_chop != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -805,7 +931,7 @@ jobs:
           fi
 
       - name: Upload chop frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_chop != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-chop-caps-${{ github.sha }}
@@ -828,7 +954,7 @@ jobs:
       #      missing wiring), so the exe's exit code IS the gate verdict; frame_check.py is a swapchain-content
       #      backstop. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
       - name: Placement capture gate (ghost RED over tree + registered boulder, GREEN on clear ground)
-        if: always()
+        if: always() && steps.scope.outputs.run_placement != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -841,7 +967,7 @@ jobs:
           fi
 
       - name: Upload placement frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_placement != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-placement-caps-${{ github.sha }}
@@ -866,7 +992,7 @@ jobs:
       #     yet (needs a runtime change — remaining scope on 86cahx2p5); its assert rides the exit
       #     code. Runs only when the build produced an exe; frames + log upload AFTER (if: always()).
       - name: Held-belt capture gate (held visual follows belt selection)
-        if: always()
+        if: always() && steps.scope.outputs.run_heldbelt != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -879,7 +1005,7 @@ jobs:
           fi
 
       - name: Upload held-belt frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_heldbelt != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-heldbelt-caps-${{ github.sha }}
@@ -903,7 +1029,7 @@ jobs:
       #     frame_check.py is a swapchain-content backstop. Runs only when the build produced an
       #     exe; frames + log upload AFTER (if: always()) so the sky evidence survives a fail.
       - name: Sky capture gate (sun disk visible + cloud contrast)
-        if: always()
+        if: always() && steps.scope.outputs.run_sky != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -916,7 +1042,7 @@ jobs:
           fi
 
       - name: Upload sky frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_sky != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-sky-caps-${{ github.sha }}
@@ -940,7 +1066,7 @@ jobs:
       #     frame_check.py is a swapchain backstop on inv_drag_ghost_pos.png. Runs only when the
       #     build produced an exe; frame + log upload AFTER (if: always()).
       - name: Inv drag-ghost-position capture gate (2560x1440, ghost rides the cursor)
-        if: always()
+        if: always() && steps.scope.outputs.run_invdragghostpos != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -953,7 +1079,7 @@ jobs:
           fi
 
       - name: Upload inv drag-ghost frame + log
-        if: always()
+        if: always() && steps.scope.outputs.run_invdragghostpos != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-invdragghost-caps-${{ github.sha }}
@@ -981,7 +1107,7 @@ jobs:
       #     convert to the 86cag93zb headless RT-readback path without a component rewrite. Runs only when the
       #     build produced an exe; frame + log upload AFTER (if: always()) so the lineup evidence survives a fail.
       - name: Weapon-set capture gate (stone+iron lineup reads as one faceted family)
-        if: always()
+        if: always() && steps.scope.outputs.run_weaponset != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -994,7 +1120,7 @@ jobs:
           fi
 
       - name: Upload weapon-set frame + log
-        if: always()
+        if: always() && steps.scope.outputs.run_weaponset != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-weaponset-caps-${{ github.sha }}
@@ -1023,7 +1149,7 @@ jobs:
       #     same shape as its siblings. Runs only when the build produced an exe; frames + log upload AFTER
       #     (if: always()) so the mine evidence survives a fail.
       - name: Mine capture gate (select pickaxe → strike → break → E-loot → iron ore)
-        if: always()
+        if: always() && steps.scope.outputs.run_mine != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1036,7 +1162,7 @@ jobs:
           fi
 
       - name: Upload mine frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_mine != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-mine-caps-${{ github.sha }}
@@ -1064,7 +1190,7 @@ jobs:
       #     step invocation is the same shape as its siblings. Runs only when the build produced an exe; frames +
       #     log upload AFTER (if: always()) so the boulder evidence survives a fail.
       - name: Boulder capture gate (select wood pickaxe → strike → break → E-loot → stone)
-        if: always()
+        if: always() && steps.scope.outputs.run_boulder != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1077,7 +1203,7 @@ jobs:
           fi
 
       - name: Upload boulder frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_boulder != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-boulder-caps-${{ github.sha }}
@@ -1111,7 +1237,7 @@ jobs:
       #     the weapon-set gate at step 15). Runs only when the build produced an exe; frames + log upload
       #     AFTER (if: always()) so the boar evidence survives a fail.
       - name: Boar capture gate (find → aggro → windup → charge → gore → spear-kill → despawn)
-        if: always()
+        if: always() && steps.scope.outputs.run_boar != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1124,7 +1250,7 @@ jobs:
           fi
 
       - name: Upload boar frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_boar != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-boar-caps-${{ github.sha }}
@@ -1158,7 +1284,7 @@ jobs:
       #     is a content backstop. HEADLESS (-batchmode, no -nographics) like its held-belt sibling. Runs
       #     only when the build produced an exe; frames + log upload AFTER (if: always()).
       - name: Held-wood capture gate (every wood tool renders its own mesh in-hand)
-        if: always()
+        if: always() && steps.scope.outputs.run_heldwood != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1171,7 +1297,7 @@ jobs:
           fi
 
       - name: Upload held-wood frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_heldwood != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-heldwood-caps-${{ github.sha }}
@@ -1181,7 +1307,65 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      # 20. FIND-IN-WORLD WEAPON gate (86cah7y5b) — the SECOND acquisition route. The generic -captureGate
+      # 20. SWING shipped-build capture gate -- the 5 per-class swings, the pickaxe deep-fold ceiling, the
+      #     MINE TWO-HAND GRIP palm assert and the round-5 ARM-RELEASE term (ticket 86caynve9 -- the
+      #     CI-wiring follow-up from Devon's PR #354 round-5 review, NIT 6, verbatim: "`git grep
+      #     verifySwings -- .github/workflows/ci.yml` = 0 today; the capture job's log on run 30540738473
+      #     never emits [swing-twohand]/[swing-release], so #354's own headline regression guard never
+      #     runs"). PR #354 names its Regression guard as "the shipped -verifySwings palm assert
+      #     (pinEngaged + palmMeasured + leftPalmOnHaft + rightWristOnHaft, exit code = verdict)" -- and
+      #     that assert is the only thing standing between the codebase and a silent return of the round-3
+      #     defect the Sponsor rejected BY EYE (left hand 28.2 cm off the shaft while round-3's own gate
+      #     was GREEN at its then-cap of 0.80 SW). Until this step existed the guard was a manual ritual:
+      #     the generic -captureGate (step 7) shoots only the default SPAWN frame, where nothing is swung
+      #     and no tool is in hand, so nothing about the swing chain is exercised -- the identical
+      #     #165 chop / -verifyMine / -verifyBoulder / -verifyBoar gap class.
+      #     This launches the SAME built exe WINDOWED with -verifySwings, driving SwingVerifyCapture: fire
+      #     all 5 per-class swings through the production TriggerAttack seam (asserting routing + that the
+      #     skinned mesh stays at the player, the Generic-rig cone-explosion guard 86ca8rdkp); measure the
+      #     LIVE composed pickaxe torso fold against its 50deg ceiling; score the LEFT PALM (not the wrist
+      #     5.6 cm behind it) against the mesh-derived touch bound on the worst frame of a 156-frame sweep;
+      #     prove the F9 mine-seat panel draws with real rows; then fire one more mine swing with the panel
+      #     CLOSED and watch the left-arm pin RELEASE frame by frame. The component Quit(1)s on any failed
+      #     criterion, so the exe's exit code IS the gate verdict. The wrapper adds an EVIDENCE-PRESENCE
+      #     check on top, which is load-bearing and not decoration: SwingVerifyCapture deliberately makes a
+      #     missing precondition LOUD IN THE LOG rather than RED (its own source: _releaseOk "defaults TRUE
+      #     only so a SKIPPED pass cannot red the whole gate; a skip is LOUD in the log instead"), so a
+      #     build where Hips/Head, the arm bones, the left-arm IK or the F9 tool fail to resolve exits 0
+      #     with the palm never measured once. The wrapper converts each of those documented warnings into
+      #     a red. frame_check.py is the swapchain-content backstop.
+      #     WINDOWED (-screen-fullscreen 0), NOT -batchmode: SwingVerifyCapture captures via
+      #     ScreenCapture.CaptureScreenshot (backbuffer) AND photographs an IMGUI overlay for the F9 panel
+      #     pass -- both halves of unity-conventions.md §Headless's boundary sentence for "MUST stay
+      #     WINDOWED". A headless conversion yields BLACK frames while the logic half still exits 0 (the
+      #     #287 false-empty class); tests/scripts/test_gate_scripts.sh WINDOWED_GATES reds that.
+      #     Runs only when the build produced an exe; frames + log upload AFTER (if: always()) so the swing
+      #     evidence survives a fail.
+      - name: Swing capture gate (5 class swings + pickaxe fold + two-hand palm grip + arm release)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_swings_gate.sh
+            .github/workflows/scripts/verify_swings_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/swings-caps ci-out/verify-swings.log
+          else
+            echo "[verify-swings] no exe at Build/Windows/FarHorizon.exe -- build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload swing frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-swings-caps-${{ github.sha }}
+          path: |
+            ci-out/swings-caps/*.png
+            ci-out/verify-swings.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 21. FIND-IN-WORLD WEAPON gate (86cah7y5b) — the SECOND acquisition route. The generic -captureGate
       #     (step 7) only shoots the DEFAULT SPAWN frame, and the seeded find sits ~10-16u out in the walkable
       #     annulus, so BOTH halves of this deliverable (the resting sword + the sword IN HAND after the loot)
       #     would otherwise have ZERO built-frame evidence. This launches the SAME built exe WINDOWED with

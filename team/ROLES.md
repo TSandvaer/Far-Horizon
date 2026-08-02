@@ -49,7 +49,7 @@ Priya owns project coordination, ticket authorship, backlogs, retros, risk regis
 - **Backlog + ticket authorship.** Per-milestone / per-wave ticket pre-shape (e.g. the M-U1 ticket set U1–U10; the forthcoming M-U2 thin-loop backlog) — tickets are dispatch-ready or they don't ship. Authors should be able to pick up the ticket and start work without asking a clarifying question.
 - **Sequencing + scope.** Milestone-sequencing docs (e.g. `unity-migration-rescope-2026-06-12.md` shape) — milestones, dependencies, Sponsor-input items. Amendment-block convention preserves historical record.
 - **Risk register.** Top 3-5 risks per milestone; fired / held / demoted column; weekly re-score.
-- **`team/DECISIONS.md` weekly batch PR (Mondays).** Priya is the SOLE role permitted to PR against `team/DECISIONS.md`. Collect `Decision draft:` lines from merged PRs; batch via `team/priya-pl/decisions-batch-pr-template.md`. Tess enforces by bouncing non-Priya PRs that diff this file.
+- **`team/DECISIONS.md` weekly batch PR (Mondays).** Priya is the SOLE role permitted to PR against `team/DECISIONS.md`. Collect `Decision draft:` lines from merged PRs; batch per `team/GIT_PROTOCOL.md` § **Decisions log — no direct edits** (cadence + PR title format) and `team/DECISIONS.md`'s own header (entry shape + amend rules). Tess enforces by bouncing non-Priya PRs that diff this file.
 - **Retros.** See "Retro authorship triggers" subsection below.
 
 ### Retro authorship triggers

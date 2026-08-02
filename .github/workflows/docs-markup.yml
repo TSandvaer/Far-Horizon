@@ -1,0 +1,71 @@
+name: docs-markup
+
+# Leaked tool-call markup in committed *.md (ticket 86cayxtw8).
+#
+# WHY THIS WORKFLOW EXISTS AT ALL — the gap it closes, measured not assumed:
+#   ci.yml's `structure` job is the natural home for this guard (hosted, licence-free,
+#   repo-hygiene lane) and it DOES run the same script. But ci.yml carries a
+#   workflow-level `paths-ignore` listing '**/*.md', 'team/**', '.claude/**' and
+#   'docs/**' on BOTH its push and pull_request triggers. `paths-ignore` skips the
+#   WHOLE RUN, not just the heavy jobs — so a DOCS-ONLY PR produces no `structure`
+#   check at all.
+#   Ground truth (2026-07-30): PR #360 (files: team/TESTING_BAR.md +
+#   team/uma-ux/ui-toolkit-panels-ux-spec.md) and PR #358 (docs-only) each show
+#   exactly ONE check under `gh pr checks` — `auto-merge` — and no structure / build /
+#   capture. All five *.md files this guard was written for landed on docs-only PRs
+#   (#112, #125, #268, #282, #323), so a structure-job-only guard would have caught
+#   0 of 5 and been a pure false-confidence generator.
+#
+# WHY NOT just drop '**/*.md' from ci.yml's paths-ignore:
+#   that filter exists to stop docs-only pushes from firing the SELF-HOSTED Unity
+#   build, a known PackageCache-EPERM trigger when it races another build
+#   (unity-conventions.md §Process notes, ticket 86caahtbe;
+#   [[single-unity-build-slot-serializes-orchestration]]). Widening ci.yml's trigger
+#   would consume the single Unity build slot on every docs PR — the exact thing this
+#   ticket is forbidden from doing. A separate hosted workflow costs nothing and
+#   touches no runner label.
+#
+# THIS WORKFLOW: GitHub-hosted ubuntu-latest, no Unity, no licence, no self-hosted
+# label, ~10s. It runs the SAME script as the ci.yml step, so there is one behaviour
+# and one set of unit tests (tests/scripts/test_gate_scripts.sh, executed by ci.yml's
+# structure job).
+#
+# NO `concurrency` GROUP ON PURPOSE: it holds no shared resource, so it must never
+# queue behind — or be cancelled by — the Unity lanes.
+#
+# RESIDUAL HOLE, DISCLOSED: a red check here does not by itself BLOCK a merge.
+# `main` has no GitHub-enforced branch protection (private repo on the free plan;
+# `gh api .../branches/main/protection` returns 403 "Upgrade to Pro" —
+# [[main-has-no-github-enforced-protection]]), and auto-merge.yml merges immediately
+# on the `auto-merge` label via `gh pr merge --squash` with no `--auto` and no check
+# gate. So the guard's contract is "the offender goes RED and is visible on the PR",
+# which is AC2's destination; turning that red into a hard block is a Sponsor-side
+# branch-protection change and is out of this ticket's scope.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - .github/workflows/docs-markup.yml
+      - .github/workflows/scripts/check_docs_markup.sh
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - .github/workflows/docs-markup.yml
+      - .github/workflows/scripts/check_docs_markup.sh
+
+permissions:
+  contents: read
+
+jobs:
+  docs-markup:
+    name: docs-markup (hosted, no license)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docs tool-call-markup check
+        run: |
+          chmod +x .github/workflows/scripts/check_docs_markup.sh
+          .github/workflows/scripts/check_docs_markup.sh

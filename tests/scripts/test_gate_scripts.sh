@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood weaponfind; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood swings weaponfind; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -832,6 +832,236 @@ for g in settings loot water chop sky heldbelt invdragghostpos placement mine bo
     -- bash "$G" "$TMP/${g}_ha.sh" "$TMP/${g}_ha_caps" "$TMP/${g}_ha.log"
   assert_attempts "$TMP/${g}_ha.sh" 2 "verify_${g}: persistent 124-hang ran exactly TWICE (one retry, no loop)"
 done
+
+echo "=== verify_swings_gate.sh — evidence-presence check (86caynve9) ==="
+# THE bug class this guards, and why the exit code alone cannot: SwingVerifyCapture DELIBERATELY
+# makes a missing precondition LOUD IN THE LOG rather than RED. Its own source says so —
+# `_releaseOk` "defaults TRUE only so a SKIPPED pass cannot red the whole gate; a skip is LOUD in
+# the log instead" (SwingVerifyCapture.cs:593) — and the fold pass (:224), the two-hand grip pass
+# (:317), the left-arm pin (:276), the held-weapon force (:309) and the F9 panel (:749) each warn
+# verbatim "do NOT read a PASS here as proof …" while leaving their criterion flag at its `true`
+# initialiser. So `pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk` (:564) can be
+# TRUE on a build where the palm was never measured once — exit 0, green CI, and #354's headline
+# regression guard silently gating nothing. CI-wiring the exit code WITHOUT converting those
+# warnings into a red would ship exactly the rubber-stamp this ticket exists to remove.
+#
+# TWO-SIDED, on the #363 model: every case below states the expected verdict BEFORE the run, the
+# NEGATIVES are the real defect shapes (not synthetic strings), and case S3 is the load-bearing
+# CONTRASTIVE PAIR — it proves the false-green is real by showing that BOTH checks the
+# verify_boar_gate.sh template carries (exit code + frame backstop) PASS that same input, so the
+# evidence check is the only thing standing between it and a green.
+#
+# Fixture provenance: every token in the PASS body is copied from a REAL passing -verifySwings
+# Player.log (Drew's round-5 soak4-swings run: 12/12 frames, `releaseOk=True => PASS=True`), floats
+# included — the fixtures keep that run's COMMA decimal separator on purpose, so these cases also
+# pin the gate's locale-invariance (a numeric needle would false-red on a Danish-locale runner).
+SWINGS_GATE="$SCRIPTS/verify_swings_gate.sh"
+
+# Writes the 12 frames a full PASS run produces, under their real names (the gate's per-attempt
+# stale-clear globs swing_*.png, so the names are load-bearing).
+SWING_PNG_HELPER="$TMP/_make_swing_pngs.py"
+cat > "$SWING_PNG_HELPER" <<'PY'
+import os, sys, struct, zlib
+d = sys.argv[1]
+names = ["swing_axe", "swing_pickaxe", "swing_dagger", "swing_spear", "swing_sword",
+         "swing_pickaxe_fold", "swing_pickaxe_fold_side", "swing_pickaxe_twohand",
+         "swing_pickaxe_twohand_front", "swing_pickaxe_panel", "swing_pickaxe_release",
+         "swing_pickaxe_release_side"]
+n = int(sys.argv[2]) if len(sys.argv) > 2 else len(names)
+os.makedirs(d, exist_ok=True)
+def chunk(typ, data):
+    return struct.pack(">I", len(data)) + typ + data + struct.pack(">I", zlib.crc32(typ+data)&0xFFFFFFFF)
+def write_png(path, w=64, h=64):
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        for x in range(w):
+            base = (x*3) % 200 + 20
+            raw += bytes((base, base//2+30, 200-base//2))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                +chunk(b"IDAT", zlib.compress(bytes(raw)))+chunk(b"IEND", b""))
+for nm in names[:n]:
+    write_png(os.path.join(d, nm + ".png"))
+PY
+
+# write_swings_log <outfile> <mode> — a token-faithful -verifySwings Player.log body.
+# Modes are the real shapes: pass / skip-ik / skip-bones / skip-guard / palm-fail / release-fail / truncated.
+write_swings_log() {
+  local out="$1" mode="$2"
+  : > "$out"
+  if [ "$mode" = "skip-guard" ]; then
+    echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=False smr=True" >> "$out"
+  else
+    echo "[SwingVerifyCapture] agent on NavMesh: True castaway=True animator=True smr=True" >> "$out"
+  fi
+  for c in "0 (axe)" "1 (pickaxe)" "2 (dagger)" "3 (spear)" "4 (sword)"; do
+    echo "[SwingVerifyCapture] fired swing class=$c routed=True" >> "$out"
+  done
+  if [ "$mode" = "truncated" ]; then return 0; fi     # died before any verdict was reported
+  if [ "$mode" = "skip-guard" ]; then
+    # 86caynve9 (Drew's #369 review, comment 5136309565) — the WORST shape, and the reason the four
+    # in-block REQUIRED_NEEDLES may never be pruned as "redundant with the summary line". Models the
+    # PRE-else `if (castaway != null && animator != null)` guard being false with castaway NON-null:
+    # every measurement is skipped with ZERO log output — NO "fold pass SKIPPED", NO "two-hand grip pass
+    # SKIPPED", NO "[swing-release] SKIPPED", NO "no CastawayLeftArmHaftIk" — so EVERY ABSENT needle is
+    # silent and the ABSENT half of Check 2 cannot see this run at all. allRouted still computes TRUE
+    # (SwingVerifyCapture.cs:164 = `castaway != null`) and foldOk/gripOk/_releaseOk keep their `true`
+    # INITIALISERS, so the summary line below is a full-green PASS on a run that measured nothing, and
+    # the exe exits 0. ONLY the four in-block presence needles (pinEngaged / palmMeasured /
+    # leftPalmOnHaft / rightWristOnHaft) are missing here. If a future cleanup prunes them because
+    # "releaseOk=True already covers it", THIS case greens and the gate is a rubber stamp.
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
+  if [ "$mode" = "skip-bones" ]; then
+    # SwingVerifyCapture.cs:224 — Hips/Head unresolved, so the WHOLE fold+grip+panel+release block
+    # never runs and foldOk/gripOk/_releaseOk keep their `true` initialisers.
+    echo "[SwingVerifyCapture] fold pass SKIPPED — mixamorig:Hips/Head not found on the live rig; the mine-pose evidence is MISSING from this run (do not read a PASS here as proof the fold is fixed)." >> "$out"
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
+  if [ "$mode" = "skip-ik" ]; then
+    # :276 / :628 — the left-arm haft PIN is absent from the build, so both the grip pass's palm
+    # figures and the release pass are meaningless; the component says so and passes anyway.
+    echo "[swing-twohand] no CastawayLeftArmHaftIk in the shipped scene — the LEFT-HAND PIN this round delivers is ABSENT from this build. Every palm figure below would then be the clip's own unpinned hand; do NOT read a PASS as proof the left hand was moved." >> "$out"
+    echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+    echo "[swing-release] SKIPPED — no CastawayLeftArmHaftIk in the shipped scene, so there is nothing to release; do NOT read the PASS above as proof the left arm lets go." >> "$out"
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    return 0
+  fi
+  echo "[SwingVerifyCapture] pickaxe fold: peakTilt=42,1deg <= 50deg ceiling => foldOk=True" >> "$out"
+  echo "[swing-twohand] LEFT-ARM PIN: present=True peak weight 1,00 solved 82/156 frames, REACHING on 74, pole-fallback on 0" >> "$out"
+  case "$mode" in
+    palm-fail)
+      # The AC2 mutation shape: zero the left-arm pin weight and the palm leaves the haft. Round 3
+      # measured 0,615 SW = 28,2 cm here — the figure the Sponsor rejected by eye.
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=False (0,615 SW = 28,2 cm <= 0,293 SW = 13,0 cm, the mesh-measured touch bound) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=False." >> "$out"
+      echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=False releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=False" >> "$out";;
+    release-fail)
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+      echo "[swing-release] FAIL — crossfadeOutFrames=6 settleFrames=28 (peak pin weight 1,00). A NEGATIVE settle means the arm never let go, which IS the Sponsor's reported defect." >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=28 releaseBudgetFrames=11 releaseOk=False => PASS=False" >> "$out";;
+    *)
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+      echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True worstMeshGap=1,94u meshStayed=True pickaxePeakTilt=42,1deg foldOk=True worstLeftPALM=0,239SW=10,6cm palmMeasured=True pinPeakWeight=1,00 gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=True" >> "$out";;
+  esac
+}
+
+# make_swings_exe <exe> <log-body-file> <exit-rc> [frame-count]
+make_swings_exe() {
+  local exe="$1" body="$2" rc="$3" frames="${4:-12}"
+  local counter="$exe.attempts"; rm -f "$counter"
+  cat > "$exe" <<FAKE
+#!/usr/bin/env bash
+capdir=""; logf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -captureDir) capdir="\$2"; shift 2;;
+    -logFile)    logf="\$2"; shift 2;;
+    *) shift;;
+  esac
+done
+n=\$(( \$(cat "$counter" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$counter"
+python3 "$SWING_PNG_HELPER" "\$capdir" $frames
+cat "$body" >> "\$logf"
+exit $rc
+FAKE
+  chmod +x "$exe"
+}
+
+# S1 (positive) — a faithful PASS run: exit 0, 12 real frames, every criterion reported True and no
+# skip warning. PRE-REGISTERED: gate exits 0 and prints SWINGS CAPTURE GATE PASSED.
+write_swings_log "$TMP/swings_pass.body" "pass"
+make_swings_exe "$TMP/swings_pass.sh" "$TMP/swings_pass.body" 0
+assert_rc_and_grep 0 "SWINGS CAPTURE GATE PASSED" \
+  "verify_swings S1: faithful PASS run (all criteria True, no skips) → GREEN" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pass.sh" "$TMP/swings_pass_caps" "$TMP/swings_pass.log"
+
+# S2 — locale invariance, stated separately because it is the reason the needles are boolean-only.
+# S1's fixture carries the shipped Danish-locale COMMA decimals (0,239SW / 42,1deg) throughout; a
+# numeric needle would red that build on the real runner while greening an en-US one.
+assert_rc_and_grep 0 "evidence OK      : 'leftPalmOnHaft=True'" \
+  "verify_swings S2: comma-decimal (Danish-locale) floats do NOT disturb the boolean needles" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pass.sh" "$TMP/swings_locale_caps" "$TMP/swings_locale.log"
+
+# S3 (THE load-bearing negative + contrastive pair) — the left-arm haft IK is ABSENT from the build,
+# so the palm figures describe the clip's own unpinned hand and the release pass never ran. The
+# component says exactly that in two warnings and STILL exits 0 with PASS=True, by design.
+# PRE-REGISTERED: gate exits 1, naming the missing-pin evidence; and the two checks the
+# verify_boar_gate.sh template carries would BOTH have greened it (proven in S3b/S3c).
+write_swings_log "$TMP/swings_skipik.body" "skip-ik"
+make_swings_exe "$TMP/swings_skipik.sh" "$TMP/swings_skipik.body" 0
+assert_rc_and_grep 1 "evidence SKIPPED : 'no CastawayLeftArmHaftIk'" \
+  "verify_swings S3: exit-0 run whose left-arm PIN is absent → RED (the false-green this gate closes)" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipik.sh" "$TMP/swings_skipik_caps" "$TMP/swings_skipik.log"
+# S3b — the SAME input under an exit-code-only gate: the exe itself returns 0.
+assert_rc 0 "verify_swings S3b: contrastive — that same input EXITS 0 (an exit-code-only gate greens it)" \
+  -- bash "$TMP/swings_skipik.sh" -captureDir "$TMP/swings_ctl_caps" -logFile "$TMP/swings_ctl.log"
+# S3c — and its frames are real content, so the frame backstop greens it too. Exit code + frames are
+# the ENTIRE gate in the boar/mine template; only the evidence check separates S3 from S1.
+assert_rc_and_grep 0 "CAPTURE GATE PASSED" \
+  "verify_swings S3c: contrastive — that same input's frames PASS frame_check (the backstop greens it too)" \
+  -- python3 "$FRAME_CHECK" "$TMP/swings_ctl_caps" --min-frames 5
+
+# S4 — the OTHER skip shape: Hips/Head unresolved, so the whole fold+grip+panel+release block never
+# runs and all three flags keep their `true` initialisers. PRE-REGISTERED: exit 1, naming the fold skip.
+write_swings_log "$TMP/swings_skipbones.body" "skip-bones"
+make_swings_exe "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones.body" 0 5
+assert_rc_and_grep 1 "evidence SKIPPED : 'fold pass SKIPPED'" \
+  "verify_swings S4: exit-0 run whose fold/grip/release block never ran → RED" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipbones.sh" "$TMP/swings_skipbones_caps" "$TMP/swings_skipbones.log"
+
+# S4b (86caynve9, Drew's #369 review comment 5136309565) — the SILENT sibling of S4, and the anti-pruning
+# guard on the four in-block REQUIRED_NEEDLES. S4's skipped block at least SHOUTS ("fold pass SKIPPED"), so
+# the ABSENT half of Check 2 reds it. This shape shouts NOTHING: the whole measurement block is skipped by
+# the `castaway != null && animator != null` guard with castaway NON-null, so no skip warning of any kind is
+# written, EVERY ABSENT needle is silent, `allRouted` still computes TRUE and the summary line reports
+# `foldOk=True gripOk=True releaseOk=True => PASS=True` on a run that measured nothing. The ONLY detectors
+# left are the four in-block presence needles. PRE-REGISTERED: exit 1, naming a load-bearing in-block
+# criterion (pinEngaged) as MISSING — and it must be an `evidence MISSING`, never an `evidence SKIPPED`,
+# because proving the PRESENCE half is sufficient ALONE is the entire point of this case. Prune any of the
+# four needles and this test greens; that is the regression it exists to catch.
+write_swings_log "$TMP/swings_skipguard.body" "skip-guard"
+make_swings_exe "$TMP/swings_skipguard.sh" "$TMP/swings_skipguard.body" 0
+assert_rc_and_grep 1 "evidence MISSING : 'pinEngaged=True'" \
+  "verify_swings S4b: exit-0 run whose rig-guard skipped every check SILENTLY (no skip warning at all) → RED via the in-block needles alone" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_skipguard.sh" "$TMP/swings_skipguard_caps" "$TMP/swings_skipguard.log"
+
+# S5 — the AC2 mutation shape: zero the left-arm pin weight, the palm leaves the haft at the round-3
+# figure the Sponsor rejected (0,615 SW = 28,2 cm), gripOk=False, exe exits 1.
+# PRE-REGISTERED: exit 1, and the palm criterion is named as missing.
+write_swings_log "$TMP/swings_palm.body" "palm-fail"
+make_swings_exe "$TMP/swings_palm.sh" "$TMP/swings_palm.body" 1
+assert_rc_and_grep 1 "evidence MISSING : 'leftPalmOnHaft=True'" \
+  "verify_swings S5: left palm off the haft (the round-3 defect) → RED, naming the palm criterion" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_palm.sh" "$TMP/swings_palm_caps" "$TMP/swings_palm.log"
+assert_attempts "$TMP/swings_palm.sh" 1 "verify_swings S5: a real palm failure ran the exe ONCE (never retried)"
+
+# S6 — the round-5 term: the left arm does not let go inside its budget. PRE-REGISTERED: exit 1,
+# naming the release criterion. This is the #354 half that has no other automated coverage at all.
+write_swings_log "$TMP/swings_release.body" "release-fail"
+make_swings_exe "$TMP/swings_release.sh" "$TMP/swings_release.body" 1
+assert_rc_and_grep 1 "evidence MISSING : 'releaseOk=True'" \
+  "verify_swings S6: left arm never releases (the round-4 soak defect) → RED, naming the release term" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_release.sh" "$TMP/swings_release_caps" "$TMP/swings_release.log"
+
+# S7 — a run that dies before reporting a verdict but still exits 0 (frames present). Without the
+# "verification complete" needle this is indistinguishable from a pass. PRE-REGISTERED: exit 1.
+write_swings_log "$TMP/swings_trunc.body" "truncated"
+make_swings_exe "$TMP/swings_trunc.sh" "$TMP/swings_trunc.body" 0
+assert_rc_and_grep 1 "evidence MISSING : '[SwingVerifyCapture] verification complete'" \
+  "verify_swings S7: exit-0 run that never reached its verdict → RED" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_trunc.sh" "$TMP/swings_trunc_caps" "$TMP/swings_trunc.log"
+
+# S8 — a run that produces a perfect log but almost no frames still reds on the backstop, so the
+# evidence check cannot substitute for real swapchain content (the #287 false-empty class).
+make_swings_exe "$TMP/swings_fewframes.sh" "$TMP/swings_pass.body" 0 2
+assert_rc_and_grep 1 "SWINGS CAPTURE GATE FAILED" \
+  "verify_swings S8: perfect log but only 2 frames → RED (evidence check does not replace the frame backstop)" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_fewframes.sh" "$TMP/swings_few_caps" "$TMP/swings_few.log"
 
 echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs windowed overlay) ==="
 # THE bug class this guards: a HEADLESS-converted scene-content gate silently reverting to a windowed
@@ -915,11 +1145,17 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # verify_weaponset_gate.sh: BoarVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame,
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
+# verify_swings_gate.sh (86caynve9) is WINDOWED on BOTH halves of the boundary sentence:
+# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:962 - a
+# BACKBUFFER read, dead under -batchmode) AND its F9 mine-seat pass photographs a screen-space IMGUI
+# OVERLAY (swing_pickaxe_panel.png), which never composites into a camera RenderTexture. A "helpful"
+# headless conversion would silently produce BLACK frames while the logic half still exited 0 (the
+# #287 false-empty class). This entry reds that conversion.
 #
 # verify_weaponfind_gate.sh (86cah7y5b) registers WINDOWED for the same reason, and it is registered HERE
 # rather than on #351's own branch because the two changes never touched the same file: the glob-driven
 # gate-wiring loop below (86cav8y74) landed on main AFTER #351 forked, so git merged this file with ZERO
-# textual conflict while the loop's launch-mode-registration half went red on the new wrapper — a SEMANTIC
+# textual conflict while the loop's launch-mode-registration half went red on the new wrapper - a SEMANTIC
 # collision the merge itself cannot surface. Measured on the merged tree, not assumed: the wrapper carries
 # an ANCHORED '-screen-fullscreen 0' on its launch line (verify_weaponfind_gate.sh:63) and ZERO anchored
 # '-batchmode' hits, so it satisfies BOTH halves of the two-sided assert above (86caynve7). It must stay
@@ -927,7 +1163,8 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # weaponfind_side.png is the side-profile silhouette a human eyeballs before review.
 WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
                 verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
-                verify_buildmenu_gate.sh verify_boar_gate.sh verify_weaponfind_gate.sh)
+                verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh
+                verify_weaponfind_gate.sh)
 for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
 for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
 
@@ -1014,6 +1251,396 @@ assert_rc_and_grep 1 "TEST GATE FAILED" \
 assert_rc_and_grep 0 "TEST GATE PASSED" \
   "parse strict (no flag): all-Passed → GREEN (EditMode normal path unchanged)" \
   -- python3 "$PARSE" "$PT/pass.xml" EditMode
+
+echo "=== check_docs_markup.sh — leaked tool-call markup in committed *.md (86cayxtw8) ==="
+# THE BUG CLASS: an authoring agent's own tool-call closing tags land in a doc's BODY,
+# always as a bare tag alone on a line at column 0, always at the file's end. Five
+# committed *.md carried it at b9abf7b and every one had PASSED a peer review — the
+# blind spot is that reviewers read diff hunks, never the last two lines.
+#
+# Both DIRECTIONS are proven here, per team/TESTING_BAR.md § "Doc-staleness greps"
+# ("a staleness grep is not keepable until its RED has been DEMONSTRATED"): the guard
+# must go RED on a real offender AND GREEN on a clean tree. A guard proven only in the
+# passing direction proves nothing.
+#
+# The GREEN cases double as the EXIT-CODE-TRAP regression (#360): a grep-based guard
+# exits non-zero when it finds NOTHING, so a `$?`-gated implementation would red on a
+# clean tree. Every GREEN assertion below pins rc=0.
+DM="$SCRIPTS/check_docs_markup.sh"
+
+# mk_md_repo <dir> — a minimal tracked git tree the guard can enumerate with ls-files.
+# autocrlf pinned OFF so the CRLF fixture stays CRLF on disk on every platform.
+mk_md_repo() {
+  local d="$1"; mkdir -p "$d"
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" config core.autocrlf false
+  git -C "$d" config commit.gpgsign false
+}
+add_md() { # add_md <dir> <relpath>  (content on stdin) — writes then TRACKS the file
+  local d="$1" p="$2"; mkdir -p "$(dirname "$d/$p")"; cat > "$d/$p"
+  git -C "$d" add -- "$p" 2>/dev/null
+}
+
+DMT="$TMP/docsmarkup"
+
+# --- (1) GREEN: a clean tracked tree. Also the exit-code-trap guard (empty output ⇒ rc 0).
+mk_md_repo "$DMT/clean"
+printf '# Doc\n\nA normal paragraph.\n' | add_md "$DMT/clean" "team/a.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: clean tracked tree → GREEN (rc=0; empty grep output must NOT be read as failure)" \
+  -- bash "$DM" "$DMT/clean"
+
+# --- (2) RED: the real shipped shape — bare closing tags alone on a line, LF, at EOF.
+mk_md_repo "$DMT/lf"
+printf '# Doc\n\nBody.\n</content>\n</invoke>\n' | add_md "$DMT/lf" "team/b.md"
+assert_rc_and_grep 1 "leaked tool-call markup" \
+  "docs-markup: LF offender (the shipped 5-for-5 shape) → RED" \
+  -- bash "$DM" "$DMT/lf"
+assert_rc_and_grep 1 "team/b.md:4" \
+  "docs-markup: RED output NAMES the offending file:line (attribution, not just a count)" \
+  -- bash "$DM" "$DMT/lf"
+
+# --- (3) RED: CRLF offender. .gitattributes pins eol for *.sh/*.py/*.yml/*.yaml/*.ps1 and
+# packages-lock.json but NOT *.md, so a CRLF-in-blob *.md is possible. On a Linux runner
+# grep does NOT strip the CR, so a strict `>$` anchor would MISS it — a SILENT false
+# GREEN, the failure direction that never gets looked at. (Git-for-Windows grep 3.0 opens
+# text-mode and strips CR, so this case only DISCRIMINATES on the Ubuntu runner; the
+# static assertion in (7) is what keeps the tolerance from being "simplified" away.)
+mk_md_repo "$DMT/crlf"
+printf '# Doc\r\n\r\nBody.\r\n</content>\r\n</invoke>\r\n' | add_md "$DMT/crlf" "team/c.md"
+assert_rc_and_grep 1 "leaked tool-call markup" \
+  "docs-markup: CRLF offender → RED (trailing-CR tolerance; strict >\$ would false-GREEN on Linux)" \
+  -- bash "$DM" "$DMT/crlf"
+
+# --- (4) GREEN: an INDENTED fenced XML example. This is the column-0 anchor earning its
+# keep — the leak mechanism always emits at column 0, while a legitimate doc example is
+# almost always indented. Deliberately NOT solved with a fenced-block EXCLUSION: an
+# exclusion grows the exclusion set ⇒ false GREEN, silent (see the AC4 asymmetry).
+mk_md_repo "$DMT/fence"
+printf '# Doc\n\nExample:\n\n```xml\n <invoke>\n  <parameter>x</parameter>\n </invoke>\n```\n' \
+  | add_md "$DMT/fence" "team/d.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: INDENTED fenced XML example → GREEN (column-0 anchor discriminates)" \
+  -- bash "$DM" "$DMT/fence"
+
+# --- (5) GREEN: prose that MENTIONS the tags inline (backticked). The guard's own
+# documentation must not self-red, or the next author deletes the guard.
+mk_md_repo "$DMT/prose"
+printf '# Doc\n\nThe guard matches a bare `%s` or `%s` alone on a line.\n' '</content>' '</invoke>' \
+  | add_md "$DMT/prose" "team/e.md"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: inline backticked mention in prose → GREEN (guard docs don't self-red)" \
+  -- bash "$DM" "$DMT/prose"
+
+# --- (6) RED for the WIDE tag vocabulary, open AND close forms, incl. the antml: prefix.
+# None of these appear in the measured 5-file set; they are matched on purpose because
+# widening the MATCH set can only yield a false RED — loud, someone looks at it. One
+# assertion per variant so a narrowed vocabulary reds a NAMED case instead of silently
+# shrinking coverage. Tags are COMPOSED from parts, never written literally: writing a
+# bare closing tag into a file is how this whole bug class propagates (it truncated an
+# authoring call while this very test block was being written — the mechanism is live).
+CT='</'; OT='<'; GT='>'
+dm_variants=(
+  "${CT}parameter${GT}"
+  "${CT}function_calls${GT}"
+  "${CT}function_results${GT}"
+  "${OT}invoke${GT}"
+  "${CT}invoke${GT}"
+  "${CT}antml:invoke${GT}"
+  "${CT}antml:parameter${GT}"
+)
+vi=0
+for tag in "${dm_variants[@]}"; do
+  vi=$((vi + 1))
+  dmd="$DMT/v$vi"; mk_md_repo "$dmd"
+  printf '# Doc\n\nBody.\n%s\n' "$tag" | add_md "$dmd" "team/v.md"
+  assert_rc_and_grep 1 "leaked tool-call markup" \
+    "docs-markup: vocabulary variant '$tag' alone at column 0 → RED" \
+    -- bash "$DM" "$dmd"
+done
+
+# --- (7) STATIC assertions on the pattern itself. Behavioural case (3) only
+# DISCRIMINATES on Linux (Git-for-Windows grep 3.0 opens text-mode and strips the CR,
+# measured), so a static assert is what stops a future "simplification" from
+# reintroducing the silent CRLF false-GREEN. Mirrors assert_launch_windowed's
+# anchored-static-grep style earlier in this file.
+if grep -q 'PATTERN=' "$DM" && grep -q '\[\[:space:\]\]\*\$' "$DM"; then
+  ok "docs-markup: pattern keeps trailing-whitespace tolerance — a CRLF-in-blob *.md cannot false-GREEN on the Ubuntu runner"
+else
+  bad "docs-markup: pattern LOST its trailing-whitespace tolerance — a CRLF-in-blob *.md would silently pass on Linux"
+fi
+if grep -q "PATTERN='\^" "$DM"; then
+  ok "docs-markup: pattern stays anchored at column 0 — indented fenced XML examples stay GREEN"
+else
+  bad "docs-markup: pattern lost its column-0 anchor — indented XML examples will false-RED"
+fi
+
+# --- (8) The SCOPE claims are TESTED, not merely asserted in the header/PR body:
+# (a) an UNTRACKED offending *.md is out of scope (the guard enumerates git ls-files);
+# (b) a NON-.md offender is out of scope (AC3 scopes the guard to *.md).
+# Both are disclosed holes; a disclosed hole with a test is a bound, a disclosed hole
+# without one is a promise.
+mk_md_repo "$DMT/untracked"
+printf '# Doc\n\nok\n' | add_md "$DMT/untracked" "team/tracked.md"
+printf '# Stray\n%s\n' "${CT}content${GT}" > "$DMT/untracked/team/stray.md"   # written, NOT git-added
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: UNTRACKED offending *.md → GREEN (scope is TRACKED files — disclosed bound, not an oversight)" \
+  -- bash "$DM" "$DMT/untracked"
+mk_md_repo "$DMT/nonmd"
+printf '# Doc\n\nok\n' | add_md "$DMT/nonmd" "team/ok.md"
+printf 'notes\n%s\n' "${CT}content${GT}" | add_md "$DMT/nonmd" "team/notes.txt"
+assert_rc_and_grep 0 "no leaked tool-call markup" \
+  "docs-markup: offending *.txt → GREEN (scope is *.md only — the AC3 bound)" \
+  -- bash "$DM" "$DMT/nonmd"
+
+echo "=== check_committed_lineup.py — committed-bytes drift guard (86cayp0p9) ==="
+
+# THE bug class this guards: Assets/Resources/WeaponSetLineup.prefab is generated by
+# WeaponPackAssetGen but COMMITTED, and builds ship the COMMITTED snapshot. #304 added
+# the wood row to the generator without re-baking the prefab, and the drift sat live on
+# main because every Unity job bootstraps (re-bakes) before reading
+# ([[unity-procedural-committed-assets-go-stale]], 86cahvntg).
+#
+# These cases prove the guard is TWO-SIDED: it goes RED on a drifted commit, not merely
+# green on a matching one. A guard only ever observed green is indistinguishable from a
+# guard that cannot fail. Zero Unity dependency — throwaway git repos, real `git show`.
+LINEUP="$SCRIPTS/check_committed_lineup.py"
+
+# mk_lineup_prefab <out-file> <spec>...   spec = "<name>" | "<name>@<parent-name>"
+# Emits Unity prefab YAML: one root ("WeaponSetLineup") plus one GameObject+Transform
+# per spec. A spec with @parent is nested UNDER that node instead of under the root —
+# that's the depth-awareness fixture (a nested node must NOT satisfy the contract).
+mk_lineup_prefab() {
+  local out="$1"; shift
+  python3 - "$out" "$@" <<'PY'
+import sys
+out, specs = sys.argv[1], sys.argv[2:]
+ROOT_GO, ROOT_TF = 9001, 9002
+nodes = []            # (name, go_anchor, tf_anchor, parent_name_or_None)
+for i, spec in enumerate(specs):
+    name, _, parent = spec.partition("@")
+    nodes.append((name, 1000 + i, 2000 + i, parent or None))
+tf_of = {n[0]: n[2] for n in nodes}
+kids = {ROOT_TF: []}
+for name, go, tf, parent in nodes:
+    kids.setdefault(tf, [])
+    kids[tf_of[parent] if parent else ROOT_TF].append(tf)
+
+def go_block(anchor, name, tf):
+    return (f"--- !u!1 &{anchor}\nGameObject:\n  m_ObjectHideFlags: 0\n"
+            "  m_CorrespondingSourceObject: {fileID: 0}\n"
+            "  m_PrefabInstance: {fileID: 0}\n  m_PrefabAsset: {fileID: 0}\n"
+            "  serializedVersion: 6\n  m_Component:\n"
+            f"  - component: {{fileID: {tf}}}\n  m_Layer: 0\n  m_Name: {name}\n"
+            "  m_TagString: Untagged\n  m_Icon: {fileID: 0}\n  m_NavMeshLayer: 0\n"
+            "  m_StaticEditorFlags: 0\n  m_IsActive: 1\n")
+
+def tf_block(anchor, go, father):
+    children = kids.get(anchor, [])
+    body = ("  m_Children: []\n" if not children else
+            "  m_Children:\n" + "".join(f"  - {{fileID: {c}}}\n" for c in children))
+    return (f"--- !u!4 &{anchor}\nTransform:\n  m_ObjectHideFlags: 0\n"
+            "  m_CorrespondingSourceObject: {fileID: 0}\n"
+            "  m_PrefabInstance: {fileID: 0}\n  m_PrefabAsset: {fileID: 0}\n"
+            f"  m_GameObject: {{fileID: {go}}}\n  serializedVersion: 2\n"
+            "  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}\n"
+            "  m_LocalPosition: {x: 0, y: 0, z: 0}\n"
+            "  m_LocalScale: {x: 1, y: 1, z: 1}\n  m_ConstrainProportionsScale: 0\n"
+            + body + f"  m_Father: {{fileID: {father}}}\n"
+            "  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}\n")
+
+parts = ["%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n",
+         go_block(ROOT_GO, "WeaponSetLineup", ROOT_TF), tf_block(ROOT_TF, ROOT_GO, 0)]
+for name, go, tf, parent in nodes:
+    parts += [go_block(go, name, tf),
+              tf_block(tf, go, tf_of[parent] if parent else ROOT_TF)]
+open(out, "w", encoding="utf-8").write("".join(parts))
+PY
+}
+
+# The generator fixture — shaped like the real WeaponPackAssetGen: Dir + PrefabPath
+# consts, `Dir + "/x.fbx"` path consts, an ALIAS const with no literal, a RETIRED const
+# that no row set names, two row sets, and a BuildFamilyPrefab whose string literal
+# carries a { brace } (so the body brace-matcher must skip literals).
+mk_lineup_generator() {
+  cat > "$1" <<'CS'
+namespace FarHorizon.EditorTools
+{
+    public static class WeaponPackAssetGen
+    {
+        public const string Dir = "Assets/Art/Props/WeaponPack";
+
+        public const string AxeFbxPath = Dir + "/wpn_axe_stone_01.fbx";
+        public const string KnifeFbxPath = Dir + "/wpn_knife_stone_01.fbx";
+        public const string AxeWoodFbxPath = Dir + "/wpn_axe_wood_01.fbx";
+        public const string KnifeWoodFbxPath = Dir + "/wpn_knife_wood_01.fbx";
+        // Retired but still declared - rowed by nobody, so never demanded.
+        public const string RetiredFlintFbxPath = Dir + "/wpn_axe_flint_01.fbx";
+        // Alias const - carries no Dir + "..." literal of its own.
+        public const string HeroAxeFbxPath = AxeFbxPath;
+
+        public const string PrefabPath = "Assets/Resources/WeaponSetLineup.prefab";
+
+        private static readonly (string path, float x)[] StoneSet =
+        {
+            (AxeFbxPath,   -0.75f),
+            (KnifeFbxPath, -0.25f),
+        };
+
+        private static readonly (string path, float x)[] WoodSet =
+        {
+            (AxeWoodFbxPath,   -0.75f),
+            (KnifeWoodFbxPath, -0.25f),
+        };
+
+        private static void BuildFamilyPrefab(Material mat)
+        {
+            var root = new GameObject("WeaponSetLineup { not a brace }");
+            AddRow(root.transform, WoodSet, -1.1f, mat);
+            AddRow(root.transform, StoneSet, 0f, mat);
+            PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
+        }
+
+        private static void AddRow(Transform parent, (string path, float x)[] set, float z, Material mat)
+        {
+        }
+    }
+}
+CS
+}
+
+# mk_lineup_repo <dir> <prefab-spec>...  -> a committed throwaway repo
+mk_lineup_repo() {
+  local d="$1"; shift
+  mkdir -p "$d/Assets/Scripts/Editor" "$d/Assets/Resources"
+  mk_lineup_generator "$d/Assets/Scripts/Editor/WeaponPackAssetGen.cs"
+  mk_lineup_prefab "$d/Assets/Resources/WeaponSetLineup.prefab" "$@"
+  ( cd "$d" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A >/dev/null 2>&1 && git commit -qm fixture >/dev/null 2>&1 ) || return 1
+}
+guard_in() { bash -c "cd '$1' && python3 '$LINEUP' ${2:-HEAD}"; }
+
+# --- GREEN half: committed bytes match the generator contract -----------------
+# Also pins RETIRED-CONST IMMUNITY: RetiredFlintFbxPath is declared but rowed by no set,
+# so wpn_axe_flint_01 must NOT be demanded. A guard that keyed on "every *FbxPath const"
+# instead of the AddRow'd row sets would false-RED here.
+LU_OK="$TMP/lineup_ok"
+mk_lineup_repo "$LU_OK" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+assert_rc_grep_present_absent 0 "carries all 4 generator node(s)" "wpn_axe_flint_01" \
+  "lineup: matching commit GREEN + retired-const not demanded (86cayp0p9)" \
+  -- guard_in "$LU_OK"
+
+# --- RED half: the #304 shape - a whole row absent from the committed prefab ---
+LU_DRIFT="$TMP/lineup_drift"
+mk_lineup_repo "$LU_DRIFT" wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+assert_rc_and_grep 1 "is MISSING 2 generator node(s): [wpn_axe_wood_01, wpn_knife_wood_01]" \
+  "lineup: drifted commit REDS and NAMES the missing nodes (86cayp0p9)" \
+  -- guard_in "$LU_DRIFT"
+
+# --- RED: depth-awareness - a nested node must NOT satisfy the contract --------
+# The false-GREEN this kills: a flat `grep m_Name` over the file would count a node
+# parented one level deep, but AddRow parents every weapon DIRECTLY under the root.
+LU_NEST="$TMP/lineup_nested"
+mk_lineup_repo "$LU_NEST" wpn_axe_stone_01 wpn_knife_stone_01 wpn_axe_wood_01 \
+                          "wpn_knife_wood_01@wpn_axe_wood_01" StandLight
+assert_rc_and_grep 1 "is MISSING 1 generator node(s): [wpn_knife_wood_01]" \
+  "lineup: node present but NESTED still REDS (direct-child contract, 86cayp0p9)" \
+  -- guard_in "$LU_NEST"
+
+# --- RED: an extra/renamed weapon node is committed drift too -----------------
+LU_EXTRA="$TMP/lineup_extra"
+mk_lineup_repo "$LU_EXTRA" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 \
+                           wpn_knife_stone_01 wpn_axe_bronze_01 StandLight
+assert_rc_and_grep 1 "UNEXPECTED weapon node(s) not in the generator contract: [wpn_axe_bronze_01]" \
+  "lineup: extra wpn_ node REDS (86cayp0p9)" \
+  -- guard_in "$LU_EXTRA"
+
+# --- The COMMIT, never the working tree (the ticket's core constraint) --------
+# A working-tree read would pass on a dirty checkout no reviewer ever sees, and would
+# also be defeated by a bootstrap re-bake. Both directions are pinned.
+LU_WT_FIXED="$TMP/lineup_wt_fixed"
+mk_lineup_repo "$LU_WT_FIXED" wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+mk_lineup_prefab "$LU_WT_FIXED/Assets/Resources/WeaponSetLineup.prefab" \
+  wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+assert_rc_and_grep 1 "is MISSING 2 generator node(s)" \
+  "lineup: working-tree FIX does not green a drifted COMMIT (86cayp0p9)" \
+  -- guard_in "$LU_WT_FIXED"
+
+LU_WT_BROKEN="$TMP/lineup_wt_broken"
+mk_lineup_repo "$LU_WT_BROKEN" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 \
+                               wpn_knife_stone_01 StandLight
+mk_lineup_prefab "$LU_WT_BROKEN/Assets/Resources/WeaponSetLineup.prefab" \
+  wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+assert_rc_and_grep 0 "carries all 4 generator node(s)" \
+  "lineup: working-tree BREAKAGE does not red a clean COMMIT (86cayp0p9)" \
+  -- guard_in "$LU_WT_BROKEN"
+
+# --- The guard grades the NAMED ref, so a re-bake commit flips it green -------
+# This is the ticket's success test in miniature: drifted commit RED, re-bake commit GREEN,
+# on the same repo, discriminated only by ref.
+LU_REF="$TMP/lineup_ref"
+mk_lineup_repo "$LU_REF" wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+mk_lineup_prefab "$LU_REF/Assets/Resources/WeaponSetLineup.prefab" \
+  wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 wpn_knife_stone_01 StandLight
+( cd "$LU_REF" && git add -A >/dev/null 2>&1 && git commit -qm rebake >/dev/null 2>&1 )
+assert_rc_and_grep 1 "is MISSING 2 generator node(s)" \
+  "lineup: HEAD~1 (pre-re-bake commit) REDS (86cayp0p9)" \
+  -- guard_in "$LU_REF" 'HEAD~1'
+assert_rc_and_grep 0 "carries all 4 generator node(s)" \
+  "lineup: HEAD (re-bake commit) GREEN (86cayp0p9)" \
+  -- guard_in "$LU_REF" 'HEAD'
+
+# --- Parse failures are LOUD (exit 2), never a quiet pass ---------------------
+# A guard that silently narrows its expected set is the thing lying. Each of these
+# would otherwise be a false GREEN.
+#
+# Each negative fixture below is built by MUTATING the canonical generator, so each is
+# paired with an assertion that the mutation ACTUALLY LANDED. Caught live while writing
+# these: a sed whose whitespace didn't match the fixture no-op'd, the repo stayed
+# canonical, and the "red" case passed green while testing nothing. A mutation-driven
+# negative case must pin its own mutation, or it silently degrades into a second copy
+# of the positive case.
+# Prints `count=<n>` so the assertion is EXACT — a bare "0" needle would also match
+# an output of "10", which is the same silent-degradation shape this pins against.
+grep_count_in() {
+  local needle="$1" file="$2" n
+  n="$(grep -c -F -- "$needle" "$file" 2>/dev/null)" || n=0
+  printf 'count=%s\n' "$n"
+}
+
+LU_NOROW="$TMP/lineup_no_addrow"
+mk_lineup_repo "$LU_NOROW" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 \
+                           wpn_knife_stone_01 StandLight
+( cd "$LU_NOROW" \
+  && sed -i '/AddRow(root.transform/d' Assets/Scripts/Editor/WeaponPackAssetGen.cs \
+  && git add -A >/dev/null 2>&1 && git commit -qm no-addrow >/dev/null 2>&1 )
+assert_rc_and_grep 0 "count=0" "lineup fixture: AddRow-deletion mutation actually landed" \
+  -- grep_count_in "AddRow(root.transform" "$LU_NOROW/Assets/Scripts/Editor/WeaponPackAssetGen.cs"
+assert_rc_and_grep 2 "found ZERO \`AddRow(<parent>, <set>, ...)\` calls" \
+  "lineup: BuildFamilyPrefab with no AddRow calls fails LOUD, not empty-green (86cayp0p9)" \
+  -- guard_in "$LU_NOROW"
+
+LU_BADCONST="$TMP/lineup_bad_const"
+mk_lineup_repo "$LU_BADCONST" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 \
+                              wpn_knife_stone_01 StandLight
+( cd "$LU_BADCONST" \
+  && sed -i 's/(KnifeWoodFbxPath,/(GhostFbxPath,/' \
+       Assets/Scripts/Editor/WeaponPackAssetGen.cs \
+  && git add -A >/dev/null 2>&1 && git commit -qm ghost >/dev/null 2>&1 )
+assert_rc_and_grep 0 "count=1" "lineup fixture: ghost-const mutation actually landed" \
+  -- grep_count_in "(GhostFbxPath," "$LU_BADCONST/Assets/Scripts/Editor/WeaponPackAssetGen.cs"
+assert_rc_and_grep 2 "does not resolve to a" \
+  "lineup: unresolvable row-set member fails LOUD (would shrink the contract) (86cayp0p9)" \
+  -- guard_in "$LU_BADCONST"
+
+LU_NOPREFAB="$TMP/lineup_no_prefab"
+mk_lineup_repo "$LU_NOPREFAB" wpn_axe_wood_01 wpn_knife_wood_01 wpn_axe_stone_01 \
+                              wpn_knife_stone_01 StandLight
+( cd "$LU_NOPREFAB" && git rm -q Assets/Resources/WeaponSetLineup.prefab >/dev/null 2>&1 \
+  && git commit -qm drop-prefab >/dev/null 2>&1 )
+assert_rc_and_grep 2 "cannot read" \
+  "lineup: missing committed prefab fails LOUD (86cayp0p9)" \
+  -- guard_in "$LU_NOPREFAB"
 
 echo "==================================="
 printf '%d passed, %d failed\n' "$pass" "$fail"

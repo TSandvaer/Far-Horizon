@@ -2,8 +2,11 @@
 
 **Ticket:** `86caxjwb3` (feat(combat): enemy body-level hit feedback).
 **Owner (impl):** Drew · **Reviewer:** Devon · **Spec author:** Uma · **Lane:** Unity-build, soak-gated.
-**Work-type:** design spec (design-only; no code in this PR — docs-only, so **zero CI checks fire**,
-`[[ci-paths-ignore-skips-the-whole-run]]`).
+**Work-type:** design spec (design-only; no code in this PR — docs-only, so `ci.yml` does not start and there is
+**no `structure` / `build` / `capture` / `playmode` result**; the separate `docs-markup` workflow **does** run and
+gives one real hosted green. See `team/TESTING_BAR.md` § *What CI actually covers, by PR lane*.
+*Corrected 2026-07-31 — this line previously read "zero CI checks fire", which is false;
+`[[ci-paths-ignore-skips-the-whole-run]]` is `ci.yml`-scoped only.*)
 
 **Builds on, does NOT re-run:** `team/erik-consult/enemy-hit-feedback-hitflash-particle-flinch.md` — the
 TECHNIQUE research. Read its **CORRECTIONS block first**; where the block and the note's body disagree, the
@@ -14,6 +17,38 @@ questions the ticket leaves open, and it reports two findings that change what "
 **Sibling spec — read as ONE system:** [`enemy-hp-read-spec.md`](enemy-hp-read-spec.md) (`86caxhfg2`, PR #371 —
 the above-head pip row, deferred behind this ticket). §1 below is the divide-the-labour contract between them,
 and §1.3 **amends** that spec's §3.2 in one place. Everything else there is cited, not restated.
+
+> **📌 REVISION 2026-08-01 — §16 added: the body read audited as a bar-#10 CHANNEL.**
+> The pip-row re-audit (PR #406, `enemy-hp-read-spec.md` §15) established that **the pip row alone is a
+> ONE-channel cue** and that the enemy-damage read meets bar #10's ≥2 **only as pip-row + body read**. That
+> makes this spec's subject the channel the composed cue rests on, so **§16** states what the ticket never
+> asked for: **which axis the body contributes, its cued-vs-non-cued DELTA in pixels at the canonical
+> framing, and whether it survives C2 against the pip row.** Three of its findings are unwelcome and are
+> stated as findings rather than smoothed over — **§16.5** (the body is **ONE** failure domain, not the
+> three `enemy-hp-read-spec.md` §15.4 credits it with — that count is **withdrawn** here), **§16.4** (the
+> boar's flinch is a **1.7–3.2 px** channel at the framing the player actually plays at, and unlike the pip
+> row's, its verdict **turns on** which C1 floor is eventually chosen), and **§16.6** (§5's weapon-weight
+> differentiation is **sub-pixel-to-1.33 px** on the boar's flinch). **Every px figure below is recomputed
+> from source and shows its arithmetic; every source claim is pinned to `fb2ac24`, never to `origin/main`.**
+> ⚠ **The 2.4–3.2 px figure this banner carried in draft was a pre-arithmetic estimate and is retired** —
+> §16.4a computes 1.7085–3.1776 px. It is corrected here rather than quietly deleted, because a banner
+> number written before the arithmetic is exactly the shape §16 exists to catch.
+>
+> 🔴 **REVISION 2 — 2026-08-01, from the PR #413 peer review. §16.10a is the ledger; read it before quoting any
+> figure from a §16 draft.** Seven corrections, one of which moves a conclusion: **§16.4c's puff table mixed two
+> measurement planes** (frame-plane chunk extent ÷ foreshortened creature height, every %-of-height figure
+> inflated by `sec 55° = 1.7434×`), and with that fixed **§13 Q9's *"B is the only option"* is WITHDRAWN — no
+> option is eliminated.** That table is Sponsor-facing decision input, which is why it was fixed before merge
+> rather than deferred as a NIT. The other six move no verdict: §16.5's C2 framing is restated at its real
+> strength (the divergence is a granularity inconsistency in the sibling spec, **not** a silence in bar #10),
+> §16.7's snake-backstop hypothesis is **discharged as measured** (snake Cue C = 2), and four arithmetic /
+> counting corrections are logged in §16.10a. **A mirror onto PR #406 is OWED and filed there** — §16.10a's
+> closing note.
+> §16 changes no design value in §§0–15 — it measures them, and where a measurement contradicts a claim
+> §§0–15 made, the CLAIM is withdrawn rather than the number softened. Where it supplies a value that did
+> not exist (the puff's geometry, §16.4c), it says so and offers it as Sponsor options rather than settling
+> it. **The one edit §16 makes above itself is a disambiguation, not a value:** §4.3's snake head yaw
+> `±12°` is pinned as a PEAK excursion (§16.4b).
 
 **Also builds on:** [`combat-cluster-design-brief.md`](combat-cluster-design-brief.md) §1.2 / §2.4 / §2.5 / §4
 (mine; §3 and §5 below deliberately REFINE two lines of it — flagged where) · [`style-guide-v2.md`](style-guide-v2.md)
@@ -369,7 +404,9 @@ the calibration method, so the numbers are defensible rather than invented:
 - **Phase lag per segment** so the recoil *travels* backward (~0.02 s per link). A snake's whole body is its
   expression; a head-only recoil on a 13-segment chain reads as the head detaching from the body.
 - **Head yaw ±12°** added onto the per-frame `LookRotation` (`:292-295`) — lateral, never pitch (pitch is the
-  tell).
+  tell). *(**±12° is a PEAK excursion**, the same convention as the boar's head `−14°` in §4.2 — not a 24°
+  full swing. Pinned 2026-08-01 because §16.4b's magnitude doubles under the other reading and the wording
+  did not exclude it. No value changed; the ambiguity did.)*
 - **No vertical term at all.** Vertical is the rear/strike tell (§4.1).
 
 ### 4.4 Decay — and the one place bar #2 and the "no wobble" don't must be reconciled
@@ -433,9 +470,16 @@ can't run away with the amplitude budget.
 
 | Weapon (on a MEDIUM boar, `Max*0.5 = 20`) | Intent | `w` | flinch × | puff |
 |---|---|---|---|---|
-| `dagger_wood` 6 slash ×0.75 | 4.5 | 0.47 | **0.90** | 6 |
+| `dagger_wood` 6 slash ×0.75 | 4.5 | 0.4743 | **0.88** | 6 |
 | `axe` (stone) 14 slash ×0.75 | 10.5 | 0.72 | **1.08** | 8 |
 | `spear_iron` 12 pierce ×2.0 | 24.0 | 1.00 | **1.30** | 9 |
+
+*⚠ **Corrected 2026-08-01** (PR #413 review NIT 3): the `dagger_wood` flinch multiplier read **0.90** in a
+draft, which its own formula does not produce — `w = sqrt(4.5/20) = 0.474342` ⇒
+`Lerp(0.50, 1.30, 0.474342) = 0.879473` ⇒ **0.88**. **A derived display cell only.** The design value is the
+formula, which is unchanged; the ~1.5× spread claim is unaffected (`1.30 / 0.879473 = 1.478×`); the puff count
+is unchanged (`round(Lerp(4, 9, 0.474342)) = round(6.37) = 6`). §16.6's on-screen figures are recomputed from
+`0.879473`, not from `0.90`.*
 
 - **Flinch multiplier = `Lerp(0.50, 1.30, w)`** → a ~**1.5×** spread across the shipped weapon set.
 - **Puff count = `round(Lerp(4, 9, w))`**, hard cap **12** (brief §1.2) → a ~1.5× spread.
@@ -504,7 +548,7 @@ the least feedback in it, which is backwards.
   immunity cannot be authored.
 - `damageTakenMul` stays **1.0** on both enemies — `BoarEnemy.ApplyDifficulty` / `SnakeEnemy.ApplyDifficulty`
   write `Health.max`, gore and bite only.
-- Every one of the 15 `WeaponCatalog` defs has damage > 0 (4 … 21 base).
+- Every one of the 15 `WeaponCatalog` defs has damage > 0 (6 … 21 base).
 - There is no block, parry, guard, armour or shield system anywhere in `Runtime/Combat/`.
 
 **So `removed == 0` happens in exactly two situations, and NEITHER may produce body feedback:**
@@ -647,10 +691,20 @@ findings** — without them the soak can pass while the defect is live:
 
 **Bounded convergence claim** — bars **tested**: **#2** (eased, lively, never linear and never dead — §3.2,
 §4.4), **#7** (three tiers via the stagger — §4.5), **#9** (the telegraph read must NOT regress — §4.1's
-orthogonal-axis rule and §4.5's non-interruptible `Windup` exist for this), **#10** (the flash's ~1.5–1.8× luma
-step is hue-independent, so the desaturated capture must still show it — §3.1). Bars **NOT tested**: **#1**,
+orthogonal-axis rule and §4.5's non-interruptible `Windup` exist for this), **#10** — *sharpened by §16, and
+the sharpening narrows the claim rather than widening it*: **desaturate** and the **hue-independent-channel**
+clause are satisfied by construction (§3.1's multiply, §16.3a); **C1 magnitudes are stated and two of them do
+not clear two of the bar's four candidate floors** (§16.4a boar flinch 1.7085–3.1776 px, §16.6 weight
+0.7615–1.3276 px); **C2 returns ONE failure domain for the body alone** (§16.5); **C3 is a naming obligation
+with no consumer** and **C4 is unbuilt project-wide**, so neither is coverage. Bars **NOT tested**: **#1**,
 **#3**, **#4**, **#5**, **#6**, **#8** — no world, weapon-material, real-world-feature, in-hand-sizing or
 nudge-tool surface is touched.
+
+> ⚠ **What the soak CANNOT converge, stated so the PASS is not over-read.** A Sponsor PASS on this soak
+> settles *feel* — it does **not** settle §16.5's C2 verdict (an architectural property no amount of looking
+> reveals), nor the C1 floor (unset project-wide), nor C4 (unbuilt). **A soak PASS plus a one-domain C2 count
+> are not in conflict and neither overrides the other**; conflating them is how "it looked great" becomes a
+> claimed bar clearance.
 
 **AC6(c) — the `86caxhfg2` judgement item.** I am **not** pre-answering it (the ticket forbids that, and it is
 genuinely open). What I can do is hand the Sponsor the question cleanly separated from the pass/fail:
@@ -694,9 +748,35 @@ genuinely open). What I can do is hand the Sponsor the question cleanly separate
   lost-pip extinguish flash is **suppressed**; with a bleed-driven pip loss and no body flash, it **fires**
   (§1.3).
 
+**Added by §16 (the bar-#10 audit):**
+
+- 🔴 **C2 injection — the resource enumeration, run as a test, not asserted.** Null the material array ⇒ only
+  the flash stops; null `BoarBodyRig.parts` ⇒ only the flinch stops; null the pooled `ParticleSystem` ⇒ only
+  the dust stops. **All three must pass** — they are the evidence for the "3 at leaf granularity" half of
+  §16.5, and §15.3(iii) predicted them. **Separately assert the tie-breaker half:** suppress the gated
+  `Health.Changed` dispatch ⇒ **all three** stop together. *Both results are real; §16.5 explains why they
+  disagree and which one this spec adopts. The test records both rather than only the flattering one.*
+- **Flinch delta ≠ flinch extent (the C1 trap, §16.3b).** With the tail term active, assert the **difference**
+  between a flinched and an unflinched boar's tail yaw at the same `Time.time` is the flick's own 10°, and
+  **not** the 26° the same-instance extremes would show. Pins the one live absolute-≠-delta instance so a
+  future capture-based measurement cannot quietly claim 6.14 px.
+- 🔴 **Both creatures KEEP their death-path poll backstop (§16.7).** With the `Health.Died` subscription
+  removed, assert `BoarAI` **and** `SnakeAI` each still enter their dead state from the per-frame poll
+  (`SyncDeathState()`). **Both have it today — measured, not assumed:** `BoarAI.cs:204`/`:235` and
+  `SnakeAI.cs:206`/`:237` at `fb2ac24`. **Those lines ARE the death cue's second failure domain**: delete
+  either one as "dead code" and that creature's Cue C drops from 2 domains to 1 with nothing else changing and
+  nothing reporting it. *(A 2026-08-01 draft of this test read "discover whether the snake has a backstop" and
+  was labelled `Hypothesis, unverified`. It has one — §16.7 — so the test's job is now to KEEP it, which is
+  the more valuable job of the two.)*
+- **Puff chunk size is a named constant with a stated value, not an inline literal.** Whichever of §16.4c's
+  options ships, assert the value is reachable from one symbol — the audit above is recomputable only if the
+  number has a name.
+
 **Shipped-build capture** — the ticket's (a)…(f) list stands. **Add (g):** the boar **~1.5 s after a single
 axe hit, with the bleed still ticking**, showing base colour and a still body — the §2.1 discriminator, and the
-only capture that can fail on the strobe.
+only capture that can fail on the strobe. **Add (h) [§16.9]:** capture **(a)** re-framed so the **snake is in
+shot alongside the struck boar** — that frame IS C4's `cue_pair.png` for this cue, and (a) as the ticket words
+it does not require the second creature to be visible.
 
 ---
 
@@ -715,6 +795,31 @@ only capture that can fail on the strobe.
 - **Q7 — easy-tier stagger 0.35 s (§4.5).** *"I'm holding it off"* or *"the boar is broken"*?
 - **Q8 — `Windup` non-interruptible even on easy (§4.5).** Deliberate, and the one place I chose legibility
   over kid-forgiveness. Confirm or correct.
+- **Q9 — the dust chunk SIZE (§16.4c).** A value that never existed in §8, now priced as three options at the
+  default framing (55° / 14 u / 45° FOV / 1280×720). Each chunk's on-screen extent is quoted as the **pair**
+  `world-vertical – frame-plane`, because a 3-D chunk's own extent lies between them:
+  - **A — 0.05 u** (the house scale): **1.78 – 3.10 px**; **5.6 %** of the boar's on-screen height, **21.7 %**
+    of the snake's. Under 4 px on *both* readings ⇒ reads as speckle at 14 u if the C1 floor lands at 4 px.
+  - **B — 0.08 u**: **2.85 – 4.97 px**; **8.9 % / 34.8 %**. Clears 4 px in the frame plane, **fails it** on the
+    conservative vertical reading.
+  - **C — 0.12 u**: **4.27 – 7.45 px**; **13.3 % / 52.2 %**. The only option clearing 4 px on **both** readings;
+    clears 6.2080 px only in the frame plane.
+
+  **No option is eliminated and no recommendation is made** — it is a look call on an element nobody has seen
+  rendered. ⚠ **A 2026-08-01 draft of this item called B *"the only option"*. That is WITHDRAWN** — it rested
+  on a table that mixed measurement planes (§16.4c's correction notice; every %-of-height figure was inflated
+  by 1.7434×). Under a consistent reading the *"under a quarter of the boar"* clause eliminates **nothing**
+  (largest option = 13.3 %), and the 4 px clause favours **C**, not B. **The one thing no option fixes:** a
+  chunk is **3.91×** as large a fraction of the snake as of the boar *whatever* size ships (`0.90 / 0.23`,
+  invariant in `s`) — so if that disproportion matters, the answer is a bounds-derived scale (§16.4c), not a
+  smaller number here. `needs-soak`, and cheap to bake as a discrete PICKER rather than a slider
+  (`[[verify-soak-builds-or-bake-and-judge]]`).
+- **Q10 — the price of the AC6(c) "yes, close the pip row" branch (§16.8).** Not a taste question and **not a
+  re-ask of AC6(c)** — AC6(c) stays exactly as the ticket words it and stays his to answer at the soak. This
+  is the fact he should have in hand when he answers: `enemy-hp-read-spec.md` §15.4 told him **both** answers
+  were bar-#10-legal, and §16.5 shows that was wrong. *"Still want the row"* is legal as-is; *"close it"*
+  leaves the game's enemy-damage cue single-failure-domain and **costs one follow-up ticket** (a second
+  independent trigger path for one body channel). **Both outcomes remain clean; one is no longer free.**
 
 ---
 
@@ -826,6 +931,731 @@ lands second extends this one. Editing Erik's note or `team/DECISIONS.md` (§15 
   **`#B39472`**, lighter than every creature tone so it never reads as a piece coming off the body; never red.
   (`enemy-hit-feedback-spec.md` §8.)
 
+**Decision drafts ADDED by the 2026-08-01 revision (§16 — the bar-#10 audit):**
+
+- **Decision draft (🔴 withdraws a claim in a pending sibling spec):** **The enemy BODY read is a ONE
+  failure-domain cue, not the three `enemy-hp-read-spec.md` §15.4 credits it with.** All three channels
+  (flash / flinch / dust) fire from the single gated `Health.Changed` dispatch that **AC1 mandates** (*"one
+  shared path for every enemy"*) plus §2.1's magnitude gate and refractory — literally C2's own enumerated
+  *"one early return in one `Update` guarding both"* shared-domain form. §15.4's table named the material,
+  the `Transform[]` and the `ParticleSystem`: **leaf properties, the granularity C2's tie-breaker exists to
+  forbid.** §15.4's *verdict* (the composed pip-row + body cue meets ≥2) **survives** — but on the two
+  elements' **different triggers** (pip row ARMS from the strike seam, body fires from `Health.Changed`), at
+  **exactly 2**, not "with margin". §15.4's further claim that **"body-read-only-forever is a bar-#10-legal
+  outcome" is WITHDRAWN.** (`enemy-hit-feedback-spec.md` §16.5 / §16.8.)
+- **Decision draft (a live constraint on `86caxhfg2`, not an observation):** **the pip row must keep its
+  STRIKE-armed trigger** (`enemy-hp-read-spec.md` §3.1). It is the only thing separating its failure domain
+  from the body's, so re-plumbing ARM onto `Health.Changed` "for simplicity" would collapse the composed
+  enemy-damage cue from 2 domains to 1 — a bar-#10 failure that would look like a harmless refactor in review.
+  (`enemy-hit-feedback-spec.md` §16.8.)
+- **Decision draft (🔴 corrects a granularity inconsistency in a pending sibling spec — REPLACES a draft that
+  called this a bar gap):** **`enemy-hp-read-spec.md` §15.4 applied TWO granularities in ONE table**, and that,
+  not any silence in bar #10, is why C2 appeared to return two answers on the body. At `ad8a8bd` its
+  composed-cue table enters the pip row at **dependency** granularity (*"the row record / resolve predicate /
+  `enemy_hp_pips_enabled`"* ⇒ **1**, per its own §15.3) and the body's three channels at **leaf** granularity
+  (*"the material instance + the shader property"* / *"the part `Transform[]`"* / *"the pooled
+  `ParticleSystem`"* ⇒ **3**). Applied evenly, the table returns **1** for the body. **Bar #10 is not silent
+  here:** C2's enumerated shared-domain forms already include *"one early return in one `Update` guarding
+  both"* — the body's exact shape — and C2's injection clause is a **confirmation step for the tie-breaker**
+  (*"null the **named dependency**, assert **both** channels stop"*), not a rival resource-enumeration
+  procedure. **The enumeration is `enemy-hp-read-spec.md` §15.3(ii)'s own construction, attributed to C2 but
+  not defined by it.** ⚠ **A 2026-08-01 draft of this decision framed the divergence as *"a gap in bar #10 the
+  bar is silent on"*. WITHDRAWN as under-stated** (PR #413 review §2) — it made the finding weaker than the
+  evidence supports and invited an escalation the bar does not need. **What remains open is a smaller, honest
+  question, and it does not gate this verdict:** does bar #10 *want* a resource-enumeration procedure added?
+  That would be an **amendment** to C2, not a clarification. `/name-the-bar` candidate on that narrow question
+  only. (`enemy-hit-feedback-spec.md` §16.5.)
+- **Decision draft (proposes a bar-#10 addition):** **bar #10's framing table needs a third scale row for
+  world-HORIZONTAL displacement — `62.0798 × sin 55° = 50.8528 px/m`.** The table carries frame-plane
+  (62.0798) and world-vertical (35.6075) only, which is sufficient for a screen-space HUD surface and
+  insufficient for any world-space cue. The consequence inverts the intuition: **at pitch 55 a VERTICAL
+  displacement is the most foreshortened thing on screen**, and a horizontal one never falls below 1.43× it —
+  so a head-toss is the most expensive gesture per degree this camera can be shown and a tail flick the
+  cheapest. Also proposed: **C4 needs a TEMPORAL pair for the impact-cue class** (cued frame vs the same
+  instance pre-cue), because C3/C4 are built around a spatial one-frame pair and an impact cue's real
+  comparison is temporal. (`enemy-hit-feedback-spec.md` §16.2 / §16.9.)
+- **Decision draft (🔴 withdraws a visibility claim in THIS spec):** **§5's *"1.5× is plainly visible"* is
+  withdrawn for the boar's flinch.** The amplitude spread across the shipped weapon set is real, but the
+  on-screen delta between `dagger_wood` and `spear_iron` is **0.7615 px** (vertical reading) / **1.3276 px**
+  (frame-plane) on the head and **0.8173–0.9978 px** on the tail — under three of the bar's four candidate
+  floors. §5's DESIGN (emergent-from-damage weight, sqrt compression, the floor, no scaling on the flash) is
+  unchanged and rests on bar #9, not on px. The dial that answers it if the soak agrees is
+  **`enemy_hit_flinch_amp` or the puff count — never the flash.** (`enemy-hit-feedback-spec.md` §16.6.)
+- **Decision draft:** **§6's *"the kill's treatment is ABSENCE"* is ratified by bar #10, not merely by tone.**
+  Absence-of-motion (gait / wag / slither ceasing on `dead`) is a legitimate varying MOTION-axis channel, and
+  it is what gives the death cue its second axis over the FORM that settle + death-puff share. A kill
+  *flourish* — forbidden in §9 on tone grounds — would have added FORM on top of FORM and bought no channel.
+  (`enemy-hit-feedback-spec.md` §16.7.)
+
+---
+
+## 16. Bar #10 audit — the body read measured as a CHANNEL (added 2026-08-01)
+
+**What this audits against.** `team/quality-bars.md` § *"Bar 10 — the standard in full, and the four checks
+(`86caz5na6` + `86cazhjw4`, 2026-07-31)"*. **All source below was read at
+`fb2ac245fc419d442a474c5d2f970535fa884743`.** That SHA is one commit ahead of this branch's base (`39ee4e6`);
+the intervening commit (PR #387, a build-concurrency spike) touches
+`.claude/docs/unity-conventions.md`, `team/spikes/`, `tools/debug/` and **no file under `Assets/`**, verified by
+`git diff --name-only 39ee4e6 fb2ac24`. So every constant quoted here is identical on both. **Pinning a SHA
+rather than `origin/main` is not ceremony** — `origin/main` moved *during* this audit, and a figure attributed
+to a moving ref cannot be recomputed by a reviewer.
+
+**Why this section exists at all.** The ticket never asked for it. `enemy-hp-read-spec.md` §15 (PR #406) found
+the pip row is a **one-channel** cue and credited the body with **three independent failure domains**, on which
+its verdict *"the composed cue passes ≥2 with margin"* rests. That credit was written about **unimplemented
+code**, from this spec, and §15.3(iii) labelled it **"⚠ OWED, NOT DELIVERED"**. §16 pays it — and finds the
+credit was wrong. Auditing my own sibling spec's load-bearing claim and reporting that it fails is the whole
+point; a §16 that ratified §15 would have been worth nothing.
+
+### 16.1 Name the CUES first — the body answers THREE questions, and they do not share a channel set
+
+§15.1's error was counting channels without naming the cue. Same discipline here, and the body is worse: it
+carries **three** questions where the pip row carried two.
+
+| Cue | The player's question | The non-cued comparison (C3) | Where it is judged |
+|---|---|---|---|
+| **A — CONNECTION** | *"Did that land?"* | a creature **not** being hit, same frame | AC6(a); capture (a) |
+| **B — WEIGHT** | *"How hard did that land?"* | **a lighter hit** on the same creature | AC6 §11(ii); §13 Q3 |
+| **C — DEATH** | *"Is it down?"* | a **live** creature | AC6(a); capture (d) |
+
+**C3 step 1 is satisfiable for all three, and for A it is satisfiable IN THE SHIPPED SCENE** — `BuildCombat`
+authors one snake **and** one boar (`MovementCameraScene.cs`, `BuildSnake(player, groundLayer)` then
+`var boar = BuildBoar(player, groundLayer)`), so a struck boar and an unstruck snake occupy the same frame by
+construction. They share the material family (both `Shader.Find("FarHorizon/LowPolyVertexColor")`) and the
+chunky-faceted silhouette family, which is C3 **step 2**'s test — so the pair qualifies at step 1 *and* would
+survive step 2 if anyone contested "same kind". **No purpose-built rig is needed for this surface**, the same
+happy property §15.5 found for the pip row and for the same underlying reason: the world already contains the
+comparison.
+
+### 16.2 The framing — cited, plus ONE derived row the bar's table does not carry
+
+Framing values quoted verbatim from the bar's § *"The default gameplay framing"*: pitch **55°**, distance
+**14 u**, FOV **45°**, capture **1280 × 720**, frame-plane **62.0798 px/m**, world-vertical (foreshortened)
+**35.6075 px/m** = `62.0798 × cos 55°`. **The ruler is not this doc's to re-derive** (§14.1's rule, carried).
+
+**The bar's two rows are not sufficient here, and the gap is not pedantry.** The pip row is screen-space IMGUI,
+so §15.2 could say *"the pill's px **are** px"*. Every channel in §16 is a **world-space** displacement, and two
+of them (the boar's tail flick, the snake's whip) are world-**HORIZONTAL** — a direction the bar's table does
+not price. Derived from the same framing, for a unit world direction `d` the on-screen scale is
+`62.0798 × sqrt(1 − (d·f)²)` where `f` is the camera forward:
+
+| Displacement direction | Scale | Arithmetic |
+|---|---|---|
+| In the frame plane (upper bound, any extent) | **62.0798 px/m** | the bar's own figure |
+| World **HORIZONTAL**, worst bearing (along the camera's forward-horizontal) | **50.8528 px/m** | `62.0798 × sin 55° = 62.0798 × 0.819152` |
+| World **VERTICAL** (any bearing) | **35.6075 px/m** | `62.0798 × cos 55° = 62.0798 × 0.573576` |
+
+> **Read the consequence, because it inverts the intuition.** At pitch 55 a **vertical** displacement is the
+> *most* foreshortened thing on screen — worse than any horizontal one. A world-horizontal displacement is
+> bearing-dependent but never falls below **50.8528 px/m**, i.e. **1.43×** the vertical scale. **So a head-toss
+> is the most expensive gesture per degree that this camera can be shown, and a tail flick is the cheapest** —
+> which is the opposite of what §4.2 assumed when it ranked the head as the primary term and the tail as the
+> "cheapest" afterthought. §4.2's *conclusion* (keep the tail flick) survives; its *reason* (occlusion from
+> behind) is now the second reason, not the first.
+>
+> **Proposed as a bar addition, not asserted as one.** This row is arithmetic over the bar's own framing table,
+> but it is not IN that table, and world-space cues are a whole class (`86cah7y5b`, the rock/ore/driftwood
+> posture candidate) that will need it. Decision draft in §15; `/name-the-bar` candidate.
+
+**Rotation convention, quoted:** *"a point at horizontal radius `r` from that axis travels a chord
+`2 · r · sin(Δ/2)`"*, `r` = *"the measured horizontal distance from the rotation axis to the vertex the author
+claims the read from, **never the object's bounding radius**"*, reading = **peak-to-peak**. Every `r` below
+names a real vertex from the mesh builder and says which vertex was **not** claimed.
+
+**Derived vs measured — the same honesty line the bar draws.** Everything in §16 is arithmetic over serialized
+constants and mesh-builder source. **No build was run** (this is the non-build lane; Drew holds the Unity
+slot). Geometry cannot see occlusion, fog, contrast or AA — a geometry-green channel can still be invisible,
+and a geometry-red one is dead regardless. Both directions matter below.
+
+### 16.3 Cue A — CONNECTION. The three channels, their axes, and their deltas
+
+**All three vary between cued and non-cued, and the variance is pinned by tests this spec already wrote** —
+§12's *"Flinch is identity at rest"* (every transform bit-identical to the no-feature build), the shader's
+inert default (AC2 `[DFC-1]`/Claim 2), and the puff's absence at rest. So the **free invariance pre-filter**
+passes all three with no build, which is what that pre-filter is for.
+
+#### 16.3a Flash — the **VALUE** channel. Area and luminance stated separately, never traded
+
+C1 forbids quoting an area claim as though it were a displacement figure, so the flash owes **two** numbers in
+**two** units.
+
+**AREA (px²).** The flash is a per-material albedo write reaching every part (AC2's 🔒 — all 7 boar / all 13
+snake materials), so the repainted area is **100 % of the creature's rendered silhouette by construction**.
+Upper-bounded by the §14.2 bounding boxes: boar `93.74 × 32.05 = 3004.4 px²`, snake
+`120.43 × 8.19 = 986.3 px²`. **The silhouette fill fraction is NOT derivable from source** — it needs the
+rendered backstop, and inventing one here would be the pond-in-a-mound move. What survives the unknown: at any
+fill ≥ 30 % the boar's repainted area is **≥ 901 px²**, i.e. **≥ 5.0×** the pip row's strongest channel
+(CH1, 180 px²), and the ordering does not invert at any plausible fill.
+
+**LUMINANCE (ΔL, Rec.709 `0.2126R + 0.7152G + 0.0722B`), on §3.1's own shipped tone table.** This is a
+different claim in different units and is quoted as such:
+
+| Tone | L base | L flashed | **ΔL** | ratio |
+|---|---|---|---|---|
+| `BoarBrown` (the dominant area) | `0.2126×0.42 + 0.7152×0.32 + 0.0722×0.22 = 0.334040` | `0.2126×0.798 + 0.7152×0.5504 + 0.0722×0.33 = 0.587127` | **0.2531** | 1.758× |
+| `SnakeRust` | `0.165828+0.271776+0.011552 = 0.449156` | `0.195592+0.467455+0.017328 = 0.680375` | **0.2312** | 1.515× |
+| `BoarEye` | `0.012756+0.035760+0.002888 = 0.051404` | `0.024236+0.061507+0.004332 = 0.090076` | **0.0387** | 1.752× |
+| `BoarTusk` | `0.191340+0.629376+0.056316 = 0.877032` | `0.92 × (0.2126+0.7152+0.0722) = 0.920000` | **0.0430** | 1.049× |
+
+> *⚠ **Computed from §3.1's `gain = (1.90, 1.72, 1.50)` / `ceil = 0.92` EXPRESSION, not from its display-rounded
+> flashed column** (corrected 2026-08-01, PR #413 review NIT 3). A draft took the flashed tones from §3.1's
+> table as printed — `(0.80, 0.55, 0.33)` / `(0.92, 0.65, 0.24)` / `(0.11, 0.09, 0.06)` — and read
+> **0.2532 / 0.2286 / 0.0407**. The exact lifts are `(0.798, 0.5504, 0.33)`, `(0.92, 0.6536, 0.24)` and
+> `(0.114, 0.086, 0.060)`. **`BoarEye` was the one that mattered** (0.0407 → **0.0387**, ~5 % generous), and
+> the correction makes its own conclusion — the eye contributes almost nothing — hold **a fortiori**.
+> `BoarBrown` moved 1e-4, which is noise. **`BoarTusk` was already exact**: all three ceiling clamps fire, so
+> the flashed tone is exactly `(0.92, 0.92, 0.92)`. **No verdict and no downstream ratio in §16 moves** — the
+> §16.8 comparisons against the pip row still read 0.64× and 1.42× at the precision they are quoted to.
+> Recorded because the next doc that quotes these numbers should know which decimal is load-bearing.*
+
+> **🔴 Claim the flash's read from the BODY-BROWN mass, never from the tusk.** The tusk moves **ΔL 0.0430** —
+> a 1.049× step. That is real in the data and renders as near-nothing, and §3.1 *chose* it: the tusk sits
+> near the 0.92 ceiling precisely so the ivory stays the brightest thing on the animal. **The cost is
+> explicit now: the boar's two identity features (tusk 0.0430, eye 0.0387) contribute almost nothing to the
+> flash's magnitude.** The channel is carried by the brown body mass at ΔL 0.2531 and by nothing else.
+> `1.758× / 1.515×` are luma ratios, so **desaturate is satisfied by construction** (§3.1's multiply is
+> hue-preserving) — that clause was already right and is the one bar-#10 clause this element passes trivially.
+>
+> **Against the pip row:** the flash's ΔL 0.2531 is **0.64×** the pip row's best-case CH2 depth (0.3929) and
+> **1.42×** its worst per-hit depth (0.1786) — but delivered on **≥5×** the area. Neither element dominates
+> the other on value; they trade depth for area. **Which is exactly why they collide — see §16.8.**
+
+#### 16.3b Flinch — the **MOTION** channel. Three terms, each measured against the vertex it claims
+
+`BoarBodyRig.LateUpdate` writes each part's `position` from its captured `_homePos` and its `rotation` from
+`_homeRot × Quaternion.Euler(...)` — so **each part rotates about its own origin and no part's origin moves.**
+Every `r` below is therefore measured inside one mesh, from that mesh's local origin.
+
+| Term (§4.2) | Δ (peak) | `r` — vertex claimed | Source of `r` | chord `2·r·sin(Δ/2)` |
+|---|---|---|---|---|
+| Head **pitch −14°** | 14° | **0.2100 u** — the snout front-cap centre | `BoarHead` emits `new Vector3(0, 0, halfL)`, `halfL = BoarHeadLength/2 = 0.42/2` | `2×0.2100×sin 7° = 2×0.2100×0.1218693 = ` **0.0511851 u** |
+| Body **pitch −5°** | 5° | **0.5500 u** — the rump cap centre | `BoarBody` emits `new Vector3(0, radius×rings[0][3], −halfL)`, `rings[0][3] = 0.00`, `halfL = BoarBodyLength/2 = 1.1/2` | `2×0.5500×sin 2.5° = 2×0.5500×0.0436194 = ` **0.0479813 u** |
+| Tail **yaw +10°** | 10° | **0.2200 u** — the tail tip | `BoarTail` emits `tip = new Vector3(0, −radius×0.6, −length)`, `length = 0.22`; yaw radius = `sqrt(x²+z²) = 0.22` | `2×0.2200×sin 5° = 2×0.2200×0.0871557 = ` **0.0383485 u** |
+
+> **⚠ PIN THE PIVOT — a plausible implementation choice DOUBLES every head figure above** (added 2026-08-01,
+> PR #413 review §6b). `BoarHead`'s rings run `zFrac −1.00 → +1.00` scaled by `halfL = 0.21` about **the part's
+> own origin** (`Assets/Scripts/Editor/LowPolyMeshes.cs:1550-1596` at `fb2ac24`: the neck back cap is
+> `new Vector3(0, 0, −halfL)`, the snout front cap `new Vector3(0, 0, +halfL)`), and `BoarBodyRig`
+> right-multiplies `Quaternion.Euler` onto `_homeRot[i]` — so the head pivots at its **middle**, and `r = 0.21`
+> is the snout's true distance from the axis. **An implementer who builds the toss at the anatomically natural
+> NECK JOIN (local `z = −0.21`) puts the snout at `r = 0.42` and doubles every head figure in this audit** —
+> 1.8226 → **3.6452** px vertical, 3.1776 → **6.3552** px frame-plane — which flips §16.4a's 1.7804 px row for
+> the head from marginal (×1.02) to comfortable and **changes its 4 px verdict**. **`r = 0.21` is correct as
+> shipped, and pinning the pivot is a CONSTRAINT on AC3's implementation, not merely a measurement note.** Not
+> a defect in the arithmetic — a trap the arithmetic makes visible.
+
+**Vertices deliberately NOT claimed, and why** — this is where a bounding-radius cheat would live:
+- The head's **ear apex** sits at local `(±0.1364, 0.26048, −0.1861)` (`EmitBoarEar`: `baseCentre +
+  (0, r×1.4, −r×0.5)`, `r = neckR×0.26 = 0.0572`, base `(±neckR×0.62, neckR×0.82, −halfL×0.75)`), giving
+  `sqrt(0.26048² + 0.1861²) = sqrt(0.067850+0.034633) = ` **0.32013 u** — **52 % larger than the claimed
+  0.2100**. It is a 3-triangle sliver whose own on-screen area is a fraction of a pixel. Claiming the head's
+  read from it would inflate the figure by half and is precisely what C1's *"never the object's bounding
+  radius"* forbids.
+- The head's **snout-ring top vertex** (`z = 0.21`, `y ≤ neckR×0.42 = 0.0924`) gives `0.22943 u`. Also larger,
+  also not claimed — the front-cap centre is the honest representative of the face that moves.
+- The body's **rump-top vertex** gives `sqrt(0.55² + 0.154²) = 0.57115 u`. Not claimed; the cap centre is.
+
+**Converted at §16.2's scales.** The head and body terms are **pitches**, so their displacement at the claimed
+vertex is ~vertical (at `(0,0,z)` under a pitch, the tangent is `±Y`; the chord's bearing tilts off vertical by
+only `Δ/2` = 7° / 2.5°). The tail is a **yaw**, so its displacement is world-horizontal:
+
+| Term | Operative reading | **px** | Frame-plane upper bound |
+|---|---|---|---|
+| Head pitch | vertical, 35.6075 | `0.0511851 × 35.6075 = ` **1.8226** | `0.0511851 × 62.0798 = ` **3.1776** |
+| Body pitch | vertical, 35.6075 | `0.0479813 × 35.6075 = ` **1.7085** | `0.0479813 × 62.0798 = ` **2.9787** |
+| Tail yaw | horizontal, 50.8528 → 62.0798 | `0.0383485 × 50.8528 = ` **1.9501** | `0.0383485 × 62.0798 = ` **2.3807** |
+
+**⚠ The tail is the one term where ABSOLUTE ≠ DELTA, and it is a LIVE instance of the bar's example 2.** The
+non-cued boar's tail is **already moving**: `wag = Mathf.Sin(Time.time × 3.1f) × 8f` (`BoarBodyRig.LateUpdate`,
+tail branch). So the same-instance extremes pair — the rendered backstop — would read `(8+10) − (−8) = 26°`
+⇒ `2×0.22×sin 13° = 2×0.22×0.2249511 = 0.0989785 u` ⇒ **6.1446 px** frame-plane. The **difference signal** is
+the flick's own 10°, i.e. **2.3807 px**. That is a **2.58× overstatement**, on shipped values, from the
+instrument the bar names as C1's rendered backstop. The bar asked for an example where the two differ; the
+project has one, in code, today. **Consequence for AC7: the flinch's `cue_ext_a`/`cue_ext_b` pair is a valid
+delta stand-in for the HEAD and BODY terms (their non-cued value is exactly zero, pinned by §12's
+identity-at-rest test) and is NOT valid for the TAIL.** Grade the tail from geometry only.
+
+**With the ≤15 % counter-overshoot at its cap** (§4.4) the head's p2p difference signal is `14 + 2.1 = 16.1°`
+⇒ `2×0.2100×sin 8.05° = 2×0.2100×0.1400372 = 0.0588156 u` ⇒ **2.0943 px** vertical / **3.6513 px**
+frame-plane. Quoted at the **guaranteed** 14° above, because the overshoot is a cap and not a promise.
+
+#### 16.3c Dust — the **FORM** channel, whose magnitude **does not exist yet**
+
+§8 specifies the puff's count (`4–9`, cap 12), lifetime (~0.35–0.45 s), colour (`#B39472`), shape (upward-
+and-outward gravity cone, never radially symmetric) and material discipline. **It specifies no particle SIZE,
+no cone half-angle, no initial speed and no spawn radius.** Without a size there is no on-screen extent, and
+without an extent there is **no C1 magnitude** — the channel cannot be counted, only named. That is a gap in
+**my** spec, found by auditing it, and it is filled in §16.4c as Sponsor options rather than settled here.
+
+#### 16.3d ❌ Candidates the free invariance pre-filter kills — named so nobody counts them later
+
+- **The creature's base colour and silhouette.** Present on every boar, cued or not ⇒ *style, not a cue*. It
+  answers *"what kind of thing is this"*, never *"which one was just hit"*.
+- **The idle breathe bob.** `breatheAmplitude = 0.015f`, a body-part positional term present on every live
+  boar. Killed **twice**: invariant, **and** `0.015 × 35.6075 = 0.5341 px` — sub-pixel under every candidate
+  floor. Two independent reasons, either sufficient.
+- **The leg gait and the tail wag.** Same shape as the breathe — present on both instances. The tail's
+  *flick* survives as a delta (16.3b); the *wag* it rides on does not.
+- **`_HitFlashTime` as a channel distinct from the flash amplitude.** They are one write on one axis; counting
+  the stamp and the amplitude separately would be leaf-splitting.
+
+**Cue A axis count: 2 COUNTED axes — VALUE (flash) + MOTION (flinch)** — both hue-independent. That clears the
+row's ≥2 **on axes**. **FORM (dust) is NAMED but NOT COUNTED:** §16.3c refuses it for want of a magnitude, and
+crediting it here would be crediting exactly what that section just declined. *(A 2026-08-01 draft read
+*"= 3 distinct axes"*; **withdrawn** — PR #413 review NIT 1. No verdict moves: 2 still clears ≥2, and §16.8's
+composed count is per-element-**domain**, not per-axis. Corrected because it is the one line in §16 that credits
+what the section above it scrupulously refuses to, and it is quotable out of context.)* FORM becomes a third
+counted axis the moment §13 Q9 sets a size — §16.4c prices what it would then be worth. **C2 is the binding
+constraint and it does not clear — §16.5.**
+
+### 16.4 🔴 The magnitudes that do not clear, and the one that does not exist
+
+#### 16.4a The boar's flinch is a **1.7085 – 3.1776 px** channel, and the verdict TURNS on the unset floor
+
+§15.2 was able to close with *"the verdict does not depend on which floor is eventually chosen"*. **This
+section cannot say that, and saying it anyway would be the single easiest way to make §16 worthless.**
+Against the four candidate floors the bar itself discusses:
+
+| Candidate floor | Head 1.8226 / 3.1776 | Body 1.7085 / 2.9787 | Tail 1.9501 / 2.3807 | Verdict |
+|---|---|---|---|---|
+| **1 px** | pass / pass | pass / pass | pass / pass | **channel survives** |
+| **1.7804 px** (`game-juice.md` §1's ±0.05 u, peak-foreshortened) | pass (×1.02) / pass | **FAIL** (×0.96) / pass | pass / pass | **marginal — one term reds** |
+| **4 px** | **FAIL / FAIL** | **FAIL / FAIL** | **FAIL / FAIL** | **🔴 channel is GONE** |
+| **6.2080 px** | **FAIL / FAIL** | **FAIL / FAIL** | **FAIL / FAIL** | **🔴 channel is GONE** |
+
+> **State the consequence plainly.** If the C1 floor lands at **4 px**, the boar's flinch is not a channel,
+> Cue A on the boar collapses to VALUE (flash) + FORM (dust), and **§0's tonal anchor — *"if they'd describe
+> it as 'it flinched', it landed"* — is describing something the arithmetic says they cannot see at 14 u.**
+> §16 does **not** set the floor (the bar does not, and picking one to make my own spec pass is bar-gaming).
+> It states the magnitudes so a reviewer recomputes them against whatever floor is set, and it states that
+> **two of the four candidates red this channel** — which §15 never had to say about the pip row.
+>
+> **What §16 explicitly does NOT do about it: raise the amplitudes.** §4.2's peaks are calibrated as fractions
+> of Sponsor-PASSED amplitudes on the same rig (head 41 % of `headLowerDeg`, body 42 % of `chargeLeanDeg`),
+> and §4.1's orthogonal-axis rule plus bar #9's telegraph read are what bound them. Cranking degrees to clear
+> a floor that has not been set would trade a *confirmed* bar (#9, the boar soak PASS) for an *unset* one.
+> **The lever, if the soak agrees the flinch is invisible, is `enemy_hit_flinch_amp` (§10) — a dial that
+> already exists and that the Sponsor rides live.** That is the honest response: measure, report, hand him
+> the knob.
+>
+> **What the geometry cannot settle, in the charitable direction.** The bar is explicit that geometry sees
+> neither contrast nor motion salience. A 2 px displacement of a **high-contrast silhouette edge against a
+> saturated green field**, sustained over ~0.22 s at 60 fps, is a temporal signal the px figure does not
+> price. §16 does not claim the flinch is invisible — it claims the **magnitude is 1.7–3.2 px** and that this
+> is the band in which the bar's own floor question is unresolved. **AC6's soak is the arbiter, and §13 Q2/Q5
+> are already the right questions to ask him.**
+
+#### 16.4b The snake's flinch is **2.35× the boar's**, which reverses §13 Q5's worry
+
+`SnakeBodyChain` applies its lateral term as a **positional** write (`p += lateral × ...`; `lateral =
+Vector3.Cross(Vector3.up, tangent).normalized`), so §4.3's `0.09 u` peak on segment 0 is a displacement
+directly, world-**horizontal**:
+
+| Term | Delta (u) | px @ 50.8528 | px @ 62.0798 |
+|---|---|---|---|
+| Lateral whip, segment 0 (§4.3) | **0.09** | `0.09 × 50.8528 = ` **4.5768** | `0.09 × 62.0798 = ` **5.5872** |
+| Head yaw, peak 12° (§4.3, pinned) | `2×0.13×sin 6° = 2×0.13×0.1045285 = 0.0271774` | **1.3820** | **1.6872** |
+
+`r = 0.13 u` = `SnakeHeadLength/2 = 0.26/2`. *(Under the discarded 24°-full-swing reading the head yaw would be
+`2×0.13×sin 12° = 0.0540570 u` ⇒ 2.7490 / 3.3559 px — which is why §4.3's wording was pinned rather than left.)*
+
+**⚠ Same absolute-≠-delta trap as the tail, and worse.** The non-cued snake is already swinging laterally:
+`slitherAmplitude = 0.055f` at full crawl, `idleSwayAmplitude = 0.012f` stationary. The same-instance extremes
+pair reads `(0.055 + 0.09) − (−0.055) = 0.20 u` ⇒ up to **12.42 px** frame-plane — a **2.22×** overstatement
+of the 0.09 u difference signal. **The snake's rendered backstop is invalid for the same reason the tail's is.**
+
+> **The finding: the snake's whip clears every candidate floor except 6.2080 px, at 4.5768–5.5872 px — while
+> the boar's best term clears only 1 px unambiguously.** §13 **Q5** asks whether the snake needs a *bigger*
+> share of the amplitude budget than the boar. On C1 magnitude the answer is **no — it already has 2.35× the
+> boar's** (`4.5768 / 1.9501`). Q5's real worry is **legibility at ground level under occlusion**, which is a
+> different question that geometry cannot answer (the snake's on-screen *height* is 8.19 px, §14.2 — a body
+> that thin can be displaced 5 px and still be hard to see against grass). **Q5 stays on the Sponsor list,
+> re-worded: not "is the amplitude enough" — the numbers say it is — but "does a 5 px lateral snap read on a
+> body 8 px tall lying in green".**
+
+#### 16.4c The puff's geometry — three options, priced; **no pick made here**
+
+> ### 🔴 **CORRECTED 2026-08-01 — the table below replaces one that MIXED TWO MEASUREMENT PLANES**
+>
+> (PR #413 review, NIT 2 — graded non-blocking there; **treated as blocking here, because this table is
+> Sponsor-facing decision input for §13 Q9 and it eliminated an option that is not actually eliminated.**)
+>
+> The draft quoted each chunk's extent at the **frame-plane** `62.0798 px/m` and then divided it by creature
+> heights derived at the **world-vertical** `35.6075 px/m`. Every %-of-height figure was therefore inflated by
+> `62.0798 / 35.6075 = ` **1.7434×** — which is exactly `sec 55°`, i.e. the *only* factor separating the bar's
+> two scale rows (`35.6075 = 62.0798 × cos 55°`, §16.2). **A single hidden `sec 55°` is why the mix was
+> invisible: both numbers looked like "px".**
+>
+> **Two stated conclusions do not survive it, and one of them told the Sponsor which option to pick.** They
+> are restated at the foot of this section rather than quietly patched.
+>
+> ⚠ **§16.3a's `93.74 × 32.05 = 3004.4 px²` box is NOT the same error and is left alone.** An on-screen
+> bounding box is width × height, and those are **two different world directions**: a broadside length reads
+> in the frame plane, a vertical extent foreshortens. *Composing* them into a box is correct; *dividing* one
+> by the other is not. Only the height column below was wrong.
+
+**The population for every px figure in this section:** pitch **55°**, distance **14 u**, FOV **45°**, capture
+**1280 × 720** — the bar's default gameplay framing, quoted in §16.2 and not re-derived here. A world extent `s`
+reads `s × 35.6075 px` along **world-vertical** and `s × 62.0798 px` in the **frame plane** (the upper bound over
+all directions). A dust chunk is a 3-D faceted solid, so its own on-screen extent lies **between** the two
+depending on how it happens to be rotated — **the pair is the honest quote, which is what §16.3b, §16.4a and
+§16.4b already do for every other magnitude in this audit. This table was the one place that did not.**
+
+**The %-of-height column needs no px conversion at all — and that is the tell.** Chunk-vertical over
+creature-vertical is `(s × k) / (H × k) = s / H`: the scale **cancels**, so the fraction is identical in either
+plane and is a pure world-space ratio. Getting a *different* answer out of it is only possible by using two
+different `k`s. Creature heights from `enemy-hp-read-spec.md` §14.2, **which carries both readings** — boar
+**0.90 m** (32.05 px vertical / 55.87 px frame-plane), snake **0.23 m** (8.19 / 14.28). Burst `n = 6` = §10's
+`enemy_hit_puff_count` default.
+
+| Option | `s` | vertical extent | frame-plane extent | ≤ px²/chunk | ≤ px², n=6 | **% of boar height** | **% of snake height** |
+|---|---|---|---|---|---|---|---|
+| **A** | 0.05 u (the `game-juice.md` §1 house scale) | **1.7804** | **3.1040** | 9.63 | 57.8 | **5.6 %** | **21.7 %** |
+| **B** | 0.08 u | **2.8486** | **4.9664** | 24.67 | 148.0 | **8.9 %** | **34.8 %** |
+| **C** | 0.12 u | **4.2729** | **7.4496** | 55.50 | 333.0 | **13.3 %** | **52.2 %** |
+
+*Arithmetic, shown: `0.05 × 35.6075 = 1.78038`, `0.05 × 62.0798 = 3.10399`; `0.05 / 0.90 = 5.56 %`,
+`0.05 / 0.23 = 21.74 %`; likewise at 0.08 and 0.12. **Cross-check that the ratio really is scale-free:** at
+frame-plane on both terms, `3.1040 / 55.87 = 5.56 %` and `3.1040 / 14.28 = 21.7 %` — same answers. The px²
+column is the chunk's **frame-plane bounding box**, an upper bound twice over (a rotated faceted tri-chunk
+covers roughly half to two-thirds of its box, and a chunk presenting one axis vertically covers `cos 55° =
+0.574` of the box's area). It is compared against no foreshortened quantity here.*
+
+**Against the same four candidate floors §16.4a uses**, read `vertical / frame-plane`:
+
+| Option | 1 px | 1.7804 px | 4 px | 6.2080 px |
+|---|---|---|---|---|
+| **A** (1.7804 / 3.1040) | pass / pass | **ties exactly** / pass | **FAIL / FAIL** | **FAIL / FAIL** |
+| **B** (2.8486 / 4.9664) | pass / pass | pass / pass | **FAIL** / pass | **FAIL / FAIL** |
+| **C** (4.2729 / 7.4496) | pass / pass | pass / pass | pass / pass | **FAIL** / pass |
+
+*Option A ties the 1.7804 px floor **exactly**, and not by luck: that floor **is** `game-juice.md` §1's ±0.05 u
+read at the vertical scale, and option A's `s` is that same 0.05 u.*
+
+**What the corrected numbers say, without choosing:**
+
+- **🔴 *"B is the only option"* does NOT survive — and it was this table's load-bearing claim.** The draft's
+  §13 Q9 called B *"the only option where each chunk clears a 4 px floor **and** stays under a quarter of the
+  boar's on-screen height."* **Both halves fail:**
+  - **The quarter-of-the-boar clause eliminates NOTHING.** At a consistent reading the *largest* option, C, is
+    **13.3 %** of the boar's height — every option is already under a quarter, by roughly a factor of two. That
+    clause discriminated only because of the 1.7434× inflation.
+  - **Clearing 4 px is reading-dependent, and B is on the WRONG side of it under the conservative reading.**
+    Frame-plane: **B and C** clear, A does not — *two* survivors. World-vertical: **only C** clears (4.2729) —
+    a *single* survivor, and it is **not B**. ⇒ **B is eliminated under the conservative reading and merely
+    tied-with-C under the generous one. It is never uniquely correct.**
+- **No option clears 6.2080 px on the vertical reading.** The draft's *"C is the only option clearing every
+  candidate floor including 6.2080 px"* holds **only** as a frame-plane statement (7.4496 vs 4.2729) and is
+  re-labelled as one.
+- **A is the only option under 4 px on BOTH readings** — so the *"reads as speckle at 14 u if the floor lands
+  at 4 px"* worry about A is the one conclusion that survives unchanged, and it now survives **without**
+  depending on which plane you read it in.
+- **🔴 The snake disproportion is REAL, and it is a CONSTANT — which is a more useful finding than the 91 %
+  was.** The ratio between the two creatures' shares is `0.90 / 0.23 = ` **3.91× for every option**, because
+  `s` cancels there too: whatever chunk size ships, a chunk is 3.91× as large a fraction of the snake as of the
+  boar. **So Q9's answer cannot fix the disproportion — no size pick reaches it.** (The draft's *"even option A
+  is 37.9 % of the snake"* overstated the size; at **21.7 %** the inversion is a fifth of the body's height
+  rather than two-fifths. It is still the sharpest single number in this table, and it is §14.3's inversion
+  again on a different element.)
+  *(The height-only qualifier is carried deliberately, exactly as `enemy-hp-read-spec.md` §14.3 carries it
+  after Devon's N3: the snake's on-screen presence is dominated by its **120.43 px length**, against which even
+  option C's chunk is **6.2 %** — `7.4496 / 120.43`. **That figure was already consistent** (both terms
+  frame-plane; `0.12 / 1.94 = 6.19 %` scale-free) and is unchanged by this correction — which is itself
+  confirmation of the diagnosis: only the height column mixed planes. The inversion is real and
+  one-dimensional; "the puff swamps the snake" full stop would be the same overstatement.)*
+- **The forward rule that falls out is unchanged, and is now better supported:** a per-creature puff scale is
+  the obvious fix and is **rejected** — it re-introduces the per-enemy fork AC1 forbids and makes enemy #3
+  wrong by default. If the disproportion matters at the soak, the lever is a **bounds-derived** scale (the §8
+  spawn point is already renderer-bounds-derived, so enemy #3 stays correct for free), not a `SnakeChunkSize`
+  constant. **The 3.91× constant is the reason it has to be bounds-derived: it is invariant under every value
+  Q9 could return.**
+- **The size bound §8 is missing is still missing — and the tone argument for it is now WEAKER, not stronger.**
+  C at **13.3 %** of the boar's height is not *"approaching a piece came off the animal"* on the arithmetic;
+  that phrasing was the inflated reading talking, and it is withdrawn. §8 still guards the tone with COLOUR
+  only (*"lighter than every creature tone"*) and never with a size bound, and **that gap is what this row
+  exposes** — independent of which option wins, and no longer propped up by a number that was wrong.
+
+**Sponsor-input item §13 Q9.** No recommendation is made — this is a look call on an element that has never
+been rendered, and the honest state is *"three priced options, **none eliminated**, and a missing size bound"*.
+**The draft's state was "B, by elimination". That elimination was an artifact of the mixed scale and is
+withdrawn.**
+
+### 16.5 🔴 C2 — the body is **ONE** failure domain. `enemy-hp-read-spec.md` §15.4's three-domain count is WITHDRAWN
+
+§15.4's table named the flash's domain as *"the material instance + the shader property"*, the flinch's as
+*"the part `Transform[]`"*, the dust's as *"the pooled `ParticleSystem`"*, concluded *"null any one and the
+other three survive"*, and rested its verdict on that. **Those three names are LEAF properties — exactly the
+granularity C2's tie-breaker was added to forbid.**
+
+C2's tie-breaker, verbatim: *"Name the **nearest common dependency on the code path both channels actually
+traverse** — never a leaf property."* #351 is the bar's own demonstration of the difference: at leaf
+granularity its channels name `visual.localPosition` and `visual.localRotation` ⇒ 2, while one
+`if (visual == null) return;` kills both ⇒ 1.
+
+**Applied honestly to the body:**
+
+| Channel | Leaf name (§15.4's answer — the tempting, WRONG one) | Nearest common dependency on the shared path |
+|---|---|---|
+| Flash (VALUE) | the material instance + `_HitFlash*` property | **the gated `Health.Changed` dispatch** |
+| Flinch (MOTION) | `BoarBodyRig.parts` / `SnakeBodyChain` segments | **the gated `Health.Changed` dispatch** |
+| Dust (FORM) | the pooled `ParticleSystem` | **the gated `Health.Changed` dispatch** |
+
+All three fire from **one** handler, and the ticket **mandates** that they do: AC1's 🔒 *"fire from
+`Health.Changed` on a damage delta, never from the attacker. **One shared path for every enemy**… No
+`BoarEnemy` / `SnakeEnemy` branches."* On top of that path this spec adds §2.1's **magnitude gate** (2.0 % of
+`Health.Max`) and **0.12 s refractory**, and §2.2's **pre-clamp intent** read. That is not an abstraction I
+imposed to reach a verdict — **it is literally one of the four shared-domain forms C2 enumerates: *"one early
+return in one `Update` guarding both."*** ⇒ **count = 1. The body read alone does NOT meet bar #10's ≥2.**
+
+**Two procedures return different answers here — and the difference is NOT a hole in bar #10.** §15.3(ii)
+settled the pip row by **resource enumeration**: enumerate every resource each channel reads and null each in
+turn. Run that same procedure on the body and it returns **three** resources, each killing exactly one channel —
+which is precisely why §15.3(iii) offered the body as *the control that proves the procedure can return ≥2*.
+**That prediction is CONFIRMED: the resource enumeration returns 3.** The tie-breaker returns 1.
+
+> ### ⚠ **CORRECTED 2026-08-01 — the "the bar is silent on which governs" framing is WITHDRAWN as UNDER-stated**
+>
+> (PR #413 review, §2 — the reviewer's disagreement makes this finding **stronger**, and a draft of this
+> section had it weaker than the evidence supports. Stating it at full strength.)
+>
+> **The bar is not silent on this case. Two things in its own text reach it directly:**
+>
+> 1. **C2's enumerated shared-domain forms explicitly include a HANDLER, not just a rendering resource** —
+>    *"one early return in one `Update` guarding both."* That is exactly the body's shape, and it is cited two
+>    paragraphs above. This case is inside the bar's worked list, not outside it.
+> 2. **C2's injection clause is a CONFIRMATION STEP for the tie-breaker, not a rival procedure.** Read its
+>    words: *"null or disable **the named dependency** and assert **both channels stop**."* It verifies the
+>    collapse the naming rule has already named. **It nowhere instructs anyone to enumerate every resource and
+>    count the survivors.** That procedure comes from `enemy-hp-read-spec.md` §15.3(ii)'s own construction,
+>    which attributes itself to C2 — **the bar never defines it.** ⇒ **The two halves do not disagree. One of
+>    them is not C2.**
+>
+> **What the divergence actually is — a granularity inconsistency inside the sibling spec, verifiable at a
+> pinned sha.** At **`ad8a8bd`**, `enemy-hp-read-spec.md` §15.4's composed-cue table enters the pip row at
+> **dependency** granularity — *"the row record / resolve predicate / `enemy_hp_pips_enabled`"*, counted as
+> **one** per its own §15.3 — and then enters the body's three channels at **leaf** granularity — *"the
+> material instance + the shader property"*, *"the part `Transform[]`"*, *"the pooled `ParticleSystem`"*,
+> counted as **three**. **Two granularities, four rows, one table.** Apply the pip row's own granularity to
+> the body's rows and the table returns 1.
+>
+> **That inconsistency IS the finding. No bar gap is needed to reach it** — and claiming one weakened a
+> conclusion that already stands on the sibling doc's own reasoning, applied evenly.
+
+> **This section adopts ONE, and states why, and states what would overturn it.**
+> **Adopted: 1.** (a) The tie-breaker's *"never a leaf property"* is unambiguous, and material / `Transform[]`
+> / `ParticleSystem` are leaves by the same standard that makes `visual.localPosition` one. (b) The shared
+> dispatch is not an incidental convenience — AC1 **requires** it, so the coupling is architectural and
+> permanent, not an implementation choice a reviewer could ask to be undone. (c) The alternative reading is not
+> a second clause of the bar competing with the first — it is a procedure a sibling spec constructed and
+> attributed to C2. **Adopting it would be taking the count that makes my own spec pass on the strength of my
+> own sibling doc's construction: the bar-gaming its history section warns about, one step removed.**
+> **What would overturn it:** the bar **ADOPTING** the resource enumeration as a defined C2 procedure. That
+> would be an **amendment**, not a clarification, because C2's text does not contain it today — and §16 does
+> not propose it. **On bar #10 as written, the count is 1**, and the live question is not "which half governs"
+> but "does the bar want an enumeration procedure at all". `/name-the-bar` candidate either way, and the
+> verdict does not wait on it.
+>
+> **⚠ Not a defect in the design, and not a reason to add a channel.** All three channels are correct, in
+> tone, and doing distinct jobs (§0: *"one event seen three ways"*). C2 measures how they FAIL, not how they
+> read. Adding a fourth channel on a fourth trigger to reach ≥2 would be bar-gaming; re-plumbing one channel
+> off `Health.Changed` would break AC1. **The right response to a one-domain verdict is to state it.**
+
+### 16.6 🔴 Cue B — WEIGHT. The differentiation is sub-pixel-to-1.33 px on the boar's flinch
+
+§5 promises a *"~1.5× spread"* across the shipped weapon set and asserts *"1.5× is plainly visible"* in the
+flinch and the dust. The **amplitude** spread is real; the **on-screen** spread is not what that sentence
+implies. Cue B's delta is `dagger_wood` vs `spear_iron` — **computed from §5's formula, not from its display
+table**: `w = sqrt(4.5/20) = 0.474342` ⇒ flinch `×0.879473`, against `w = 1.00` ⇒ `×1.30`.
+
+| Term | at ×0.8795 | at ×1.30 | Δ chord (u) | **Δ px (operative)** | Δ px (frame-plane) |
+|---|---|---|---|---|---|
+| Boar head | `2×0.21×sin 6.1563° = 0.0450411` | `2×0.21×sin 9.1° = 0.0664264` | 0.0213853 | **0.7615** | 1.3276 |
+| Boar tail | `2×0.22×sin 4.3974° = 0.0337369` | `2×0.22×sin 6.5° = 0.0498093` | 0.0160724 | **0.8173** | 0.9978 |
+| Snake lateral | `0.09×0.879473 = 0.0791526` | `0.09×1.30 = 0.117` | 0.0378474 | **1.9246** | 2.3496 |
+| Puff count | 6 chunks | 9 chunks | — (FORM/area) | +3 chunks; ≤74 px² at option B (frame-plane bbox) | — |
+
+*⚠ **Recomputed 2026-08-01** (PR #413 review NIT 3). A draft rode §5's display cell `×0.90`, which that
+section's own formula does not produce (see §5's correction note). At the exact `×0.879473` every figure rises
+~5 %: head 0.7242 → **0.7615** / 1.2626 → **1.3276**, tail 0.7774 → **0.8173** / 0.9490 → **0.9978**, snake
+1.8307 → **1.9246** / 2.2349 → **2.3496**. **The draft UNDERSTATED the deltas and every floor verdict below is
+unchanged** — which is the direction that matters: the finding was not an artifact of the error.*
+
+> **The finding: on the boar, the weapon-weight difference between the weakest and the strongest shipped
+> weapon is 0.76–1.33 px of displacement.** That fails 1.7804, 4 and 6.2080 px and clears 1 px only under the
+> frame-plane upper bound **and only on the head term** (the tail's frame-plane delta, 0.9978, is still under
+> 1 px). **§5's "1.5× is plainly visible in the flinch" is not supported by C1 arithmetic on the boar.** It may
+> well hold on the **puff count** (a FORM/area channel, +3 chunks = a 50 % more populous burst, which is a
+> countable change rather than a measured displacement) and it does hold better on the **snake**
+> (1.92–2.35 px).
+>
+> **§5's DESIGN is not withdrawn — its visibility CLAIM is.** The emergent-from-damage architecture, the sqrt
+> compression, the floor, and the no-scaling-on-the-flash call are all still right and rest on bar #9, not on
+> px. What is withdrawn is the sentence *"where 1.5× is plainly visible"* as applied to the boar's flinch.
+> **§13 Q3 already asks the Sponsor the exact right question** — *"does a spear read heavier than a dagger
+> without the flash helping?"* — and §16 now tells him what to expect and which dial answers it: **the flinch
+> RANGE (`Lerp(0.50, 1.30, w)`) or the puff count, never the flash** (§3.4/§5 hold that line for reasons
+> unrelated to this finding).
+>
+> **Cue B's axis count is 2 (MOTION + FORM) and its C2 count is 1** — both channels are driven by the single
+> weight scalar `w` computed inside the same gated dispatch as §16.5. Same verdict, same reason.
+
+### 16.7 Cue C — DEATH. The only body cue that passes ≥2 — **on BOTH creatures** — and **ABSENCE is why**
+
+| Channel | Axis | Varies vs a live creature? | Nearest dependency |
+|---|---|---|---|
+| The settle pose + the death puff | **FORM** | yes — head drops (`headDrop = 0.6` ⇒ 20.4°), body `breathe = −0.04`, and a burst appears | one axis ⇒ **counts as ONE** |
+| Idle motion **CEASES** — gait, tail wag, slither all stop | **MOTION** | yes — `dead ? 0f : …` on the leg, tail and slither branches | `BoarAI.State` / `SnakeAI.State` / the `dead` flag |
+| Death puff (as a failure domain) | (FORM, above) | — | the pooled `ParticleSystem` + `Health.Died` |
+
+**Two things make Cue C the strong one, and neither was designed for bar #10:**
+
+1. **Absence-of-motion is a legitimate MOTION-axis channel.** The non-cued (live) creature carries continuous
+   idle motion; the cued (dead) one carries none. That varies, it is hue-independent, and it is already
+   shipped in the `dead ?` branches. **So §6's *"the kill's treatment is ABSENCE"* is not merely tonally right
+   — it is what gives Cue C its second axis.** A kill *flourish* (forbidden in §9) would have added FORM on
+   top of FORM and bought nothing.
+2. **The failure domains genuinely differ.** The settle rides `BoarAI`'s `Dead` state, which has **two**
+   independent entries: the `Health.Died` subscription (`_health.Died += OnDied`) **and** a per-frame poll
+   backstop (`if (State != BoarState.Dead && _health != null && _health.IsDead) OnDied();`). The death puff,
+   as §6/AC4 specify it, hangs on `Health.Died` alone. **An injection exists that kills exactly one:**
+   unsubscribe `Died` ⇒ the puff never fires, the settle still happens via the poll. ⇒ **count = 2.**
+
+> **⚠ Do not read (2) as a design win — it is an accident of `BoarAI`'s defensiveness.** Recorded here so that
+> whoever implements AC4's death puff knows the poll backstop is what the count rests on, and does not "tidy"
+> the puff onto the same single subscription.
+>
+> ### ✅ **DISCHARGED 2026-08-01 — the snake has the same pair. Measured, not assumed.**
+>
+> A draft of this section carried `Hypothesis, unverified:` — *"the `SnakeAI` equivalent was not read for this
+> audit; if it has no poll backstop the snake's Cue C is 1, not 2."* **It has been read**, at this audit's pin
+> `fb2ac245fc419d442a474c5d2f970535fa884743`:
+>
+> - `SnakeAI.cs:206` — `if (_health != null) _health.Died += OnDied;`
+> - `SnakeAI.cs:237` — `if (State != SnakeState.Dead && _health != null && _health.IsDead) OnDied();`,
+>   inside the **public** `SyncDeathState()` (`:234-240`), which `SnakeAI.Update()` calls **every frame**
+>   (`:242`).
+>
+> Structurally identical to `BoarAI.cs:204` / `:235`. ⇒ **The snake's Cue C is 2, on the same injection:
+> unsubscribe `Died` and the death puff never fires while the settle still happens via the poll.** The
+> hypothesis is promoted to **measured** and the caveat is struck. *(Independently reproduced at the same pin
+> by PR #413's reviewer — same two lines.)*
+>
+> **This makes the §12 success-test MORE valuable, not redundant.** It is re-scoped from *"discover whether the
+> snake has a backstop"* to ***"pin that BOTH creatures keep one"***: the death cue's second failure domain is
+> now known to be exactly those two lines per creature, and either could be deleted as dead code by someone who
+> does not know they are load-bearing for bar #10. **A count that rests on a defensive line nobody has been
+> told is load-bearing is one refactor from being wrong.**
+
+### 16.8 What this means for the COMPOSED cue, and for AC6(c) — information, not a decision
+
+**The composed cue (pip row + body) still passes ≥2 — but on a different, and much tighter, basis than
+§15.4 gave.** §15.4's margin came from three body domains. There is one. The composed count is:
+
+| Element | Its one failure domain | Injection that kills exactly it |
+|---|---|---|
+| **Pip row** | the row record, ARMED from the **strike seam** (`MeleeAttack.cs:229-231`, `enemy-hp-read-spec.md` §3.1 — *"ARM comes from the STRIKE, not from `Health.Changed`"*) | suppress the strike-arm ⇒ no row; the body still flashes, flinches and puffs |
+| **Body** | the **gated `Health.Changed` dispatch** (§16.5) | suppress the gate ⇒ no body feedback; the row still arms on the strike and updates from `Changed` |
+
+⇒ **exactly 2, not "≥2 with margin".** `Health` itself is the pair's common ancestor, but naming it is the
+over-proving existence-gate move §15.3 already rejected — nulling `Health` removes the enemy's ability to take
+damage at all.
+
+> **🔴 Three consequences, and the third is the one that matters.**
+>
+> 1. **§15.4's verdict survives; its reasoning is replaced.** *"The enemy-damage read meets ≥2 only as
+>    pip-row + body"* is still true. It is true because the two elements have **different triggers on
+>    different code paths**, not because the body has three domains.
+> 2. **It is now a LIVE CONSTRAINT on `86caxhfg2`'s implementation, not just an observation.** The composed
+>    ≥2 depends entirely on the pip row keeping its **strike-armed** trigger. If that spec's §3.1 were ever
+>    re-plumbed onto `Health.Changed` "for simplicity", the composed cue would collapse to **1** — and the
+>    change would look like a harmless refactor. **§15 decision draft filed accordingly.**
+> 3. **`enemy-hp-read-spec.md` §15.4's claim that *"body-read-only-forever is a bar-#10-legal outcome"* is
+>    WITHDRAWN.** It rested on three body domains. With one, closing `86caxhfg2` at this soak would leave the
+>    game's entire enemy-damage cue **single-failure-domain** — the thing bar #10 forbids outright.
+>
+> **This does NOT pre-answer AC6(c), and the ticket is right to forbid that.** *"Is 'is it nearly down?'
+> already answered by the body?"* stays genuinely open and stays the Sponsor's. What changed is the shape of
+> the information he gets: §15.4 told him *both* answers were bar-legal. **They are not.** *"No, still want
+> the row"* is bar-legal as-is. *"Yes, close it"* is bar-legal **only if something gives the body a second
+> failure domain** — and the honest statement is that **no such remedy exists inside this ticket's scope**:
+> a second trigger is an architecture change, and inventing a fourth channel to reach a count is bar-gaming.
+> **So the correct hand-off is: either answer is still a clean outcome, and the "yes, close it" branch
+> carries one follow-up ticket (a second independent trigger path for one body channel) rather than being
+> free.** That is information for the decision, priced — not the decision. **§13 Q10.**
+
+### 16.9 C3 and C4 for an IMPACT cue — the artifact the ticket already specifies, and the one clause that does not fit
+
+- **C3 is satisfied at step 1 by the shipped scene** (§16.1) — a struck boar and an unstruck snake in one
+  frame. **Named comparison members for the Self-Test Report:** the snake (same shader, same faceted family),
+  and at step 2 the warm-brown scatter rocks and chop-tree trunks that share `BoarBrown`'s hue family. C3
+  **collects**; it returns no discrimination verdict (the bar is explicit), so this is a naming obligation, not
+  a pass to cite.
+- **C4's `cue_pair.png` is already in the ticket's capture list** — capture **(a)** *"a landed axe hit on a
+  boar at gameplay framing showing flash + puff"* **is** the pair frame, provided the snake is in shot.
+  **One addition needed, and it is cheap:** the ticket's (a) does not require the second creature to be
+  visible. **Say so in the Self-Test Report and frame it deliberately**, or the capture satisfies four
+  obligations and silently misses the fifth (`enemy-hp-read-spec.md` §15.5's N6 lesson).
+- **The human half, unwaivable, with this element's question:** show `cue_pair.png` to someone who has not
+  read the PR and ask, **before any number** — ***"point at the animal that was just hit."*** Right first
+  try, no second look = pass. Record who and what they said.
+- **`cue_ext_a` / `cue_ext_b` are LIVE and valid here — for the head and body terms only.** The flinch is a
+  motion channel whose non-cued value is exactly **zero** (§12's identity-at-rest test pins it), which is the
+  precise condition the bar sets for the same-instance extremes pair to stand in for the delta. **Invalid for
+  the tail (idle wag) and for the snake's lateral (slither/idle-sway)** — §16.3b/§16.4b.
+- **Desaturate: passes by construction on all three channels** — the flash is a hue-preserving multiply
+  (§3.1), the flinch is geometry, the dust is geometry. This element satisfies that clause trivially and it
+  is worth saying it is the only one it satisfies trivially.
+- **⚠ The clause that does not fit, stated as a bar gap rather than a waiver.** C3/C4 are built around a
+  **spatial** pair in one frame. **An impact cue's real comparison is TEMPORAL** — the animal a moment ago vs
+  the animal now. The spatial pair is available here and is not being waived, but it answers *"which animal
+  is cued"* rather than *"did that hit land"*, which is Cue A's actual question. **The temporal pair the cue
+  is really judged on is also already in the ticket:** capture **(a)** at impact and capture **(f)** at
+  ~0.5 s. Proposed as a C4 extension for the impact-cue class (`/name-the-bar` candidate, §15 decision draft),
+  **not** as a reason to skip the spatial pair.
+- **C4 remains UNBUILT project-wide.** Nothing above is coverage; it is specification. Labelled per the bar's
+  own rule.
+
+### 16.10 What §16 changes elsewhere in this spec
+
+| Where | Change |
+|---|---|
+| **§4.3** | `±12°` pinned as a PEAK excursion (disambiguation, no value moved) |
+| **§5** | the sentence *"where 1.5× is plainly visible"* is withdrawn **for the boar's flinch** (§16.6); the design stands. **Plus one DERIVED display cell corrected** — `dagger_wood`'s flinch multiplier `0.90 → 0.88`, the value §5's own formula produces (`Lerp(0.50, 1.30, sqrt(4.5/20)) = 0.879473`) |
+| **§8** | a **size bound** is missing from the puff spec and is now a Sponsor-input item (§13 Q9), not a silent default |
+| **§11** | bar-#10 line in the bounded-convergence claim sharpened — see below |
+| **§12** | four success-tests added — see below |
+| **§13** | **Q9** (puff chunk size) and **Q10** (the AC6(c) branch cost) added |
+| **§15** | five decision drafts added |
+| **`enemy-hp-read-spec.md` §15.4** | its three-domain table and its *"body-read-only-forever is bar-#10-legal"* claim are **withdrawn** by §16.5/§16.8. That spec is PR #406 and unmerged; **this is a finding against it, not an edit to it** — I do not edit a sibling doc from this branch. Whoever lands second reconciles, and §15's decision draft says which way. |
+
+**Nothing in §§0–10 changes a DESIGN value.** No amplitude, colour, duration, cap or dial moved. **One derived
+display cell in §5 is corrected** (`0.90 → 0.88`) — arithmetic over an unchanged formula, not a design change,
+and called out here rather than folded in silently because §§0–10 are otherwise pinned.
+
+#### 16.10a Corrections applied 2026-08-01 from the PR #413 peer review
+
+Recorded as a table because each one is a claim this doc made and had to take back. **No verdict in §16 moves.**
+
+| § | What was wrong | Corrected to | Does a verdict move? |
+|---|---|---|---|
+| **§16.4c / §13 Q9** | 🔴 **the %-of-height column mixed measurement planes** — frame-plane chunk extent ÷ foreshortened creature height, inflating every figure by `sec 55° = ` **1.7434×** | consistent (scale-free) ratios: A **5.6 / 21.7 %**, B **8.9 / 34.8 %**, C **13.3 / 52.2 %**, with each option's extent quoted as the vertical–frame-plane **pair** | **YES — the only one that does.** *"B is the only option"* is **WITHDRAWN**; no option is eliminated. Sponsor-facing, which is why this was treated as blocking |
+| **§16.5** | the C2 divergence framed as *"a gap the bar is silent on"* — **UNDER-stated** | the divergence is `enemy-hp-read-spec.md` §15.4's **two granularities in one table**; the bar reaches this case in its own text | no — count stays **1**, on firmer ground |
+| **§16.7** | the snake's death backstop was `Hypothesis, unverified` | **measured** at `fb2ac24`: `SnakeAI.cs:206`/`:237` mirror `BoarAI.cs:204`/`:235` ⇒ snake Cue C = **2** | no — it confirms the stated count for both creatures |
+| **§16.3d** | credited FORM (dust) toward *"3 distinct axes"* after §16.3c refused to count it | **2 counted axes**, FORM named-but-unmeasured pending Q9 | no — 2 still clears ≥2 |
+| **§16.3a** | ΔL table computed from §3.1's **display-rounded** flashed column | computed from §3.1's gain/ceiling **expression**; `BoarEye` **0.0407 → 0.0387** | no — the eye's *"contributes almost nothing"* holds a fortiori |
+| **§5 / §16.6** | rode a display cell (`×0.90`) that §5's own formula does not produce | `×0.879473`; weight deltas **0.7615–1.3276 px** on the boar | no — the draft **understated** the deltas; every floor verdict is unchanged |
+| **§16.3b** | the head's pivot was measured but never **pinned** | pivot pinned at the part's own origin (`r = 0.21`); a neck-join build doubles every head figure | no — it forecloses a silent doubling at implementation time |
+
+> **🔴 MIRROR OWED onto `enemy-hp-read-spec.md` (PR #406) — filed, not performed.** My own accepted working rule
+> is that **a withdrawal in one sibling spec must be mirrored into the other before either merges — a finding
+> filed against a doc is not a fix to it.** That rule cuts **both** ways, and it now points at PR #406: its
+> mirror of §16.5 (added at `dc1fea5`) quotes the framing this section has just withdrawn, in two places —
+> §15.3(iii)'s mirror blockquote (*"the bar does not say which governs"*) and §15.4's struck-table notice
+> (*"when a bar is silent"*). **Neither is wrong about the count (1); both are wrong about WHY.** The correction
+> is owed **on that branch**, by the same rule that says I do not edit a sibling doc from this one — filed here
+> so merge order cannot lose it, and it is small: replace the "bar is silent" clause with the two-granularities
+> reading above. **Whichever PR merges second must carry it.**
+
 ---
 
 ## Cross-references
@@ -869,7 +1699,25 @@ lands second extends this one. Editing Erik's note or `team/DECISIONS.md` (§15 
   `combat-cluster-design-brief.md` §1.2 (refined by §3.1) / §2.4 (refined by §5) / §2.5 / §2.6 / §4 ·
   `style-guide-v2.md` §5 (sub-1.0) / §6 (warm bias + saturation) · `hp-hud-polish-spec.md` §2.3-§2.4 (the
   player-side wince + DoT debounce this deliberately does not copy).
-- **Bars / memories:** `team/quality-bars.md` **#2 / #7 / #9 / #10** · `[[difficulty-settings-easy-medium-hard]]`
+- **Code read for §16 only, at `fb2ac245fc419d442a474c5d2f970535fa884743`** (one commit ahead of this branch's
+  base `39ee4e6`; `git diff --name-only 39ee4e6 fb2ac24` touches no file under `Assets/`, so every constant is
+  identical on both): `Assets/Scripts/Editor/MovementCameraScene.cs` — the `BuildBoar` const block
+  (`BoarBodyLength 1.1`, `BoarBodyRadius 0.28`, `BoarHeadLength 0.42`, `BoarHeadNeckR 0.22`,
+  `BoarGroundClearance 0.62`), the part offsets (head `(0, 0.02, 0.72)`, tail `(0, 0.14, −0.58)`), the snake
+  consts (`SnakeBodyLinks 12`, `SnakeLinkSpacing 0.14`, `SnakeNeckRadius 0.115`, `SnakeHeadLength 0.26`), and
+  `BuildCombat`'s `BuildSnake` → `BuildBoar` ordering (the §16.1 C3 pair) ·
+  `Assets/Scripts/Editor/LowPolyMeshes.cs` — `BoarBody` / `BoarHead` ring tables, `BoarTail` (`tip =
+  (0, −radius×0.6, −length)`), `EmitBoarTusk` (`apex = base + (0, height, height×0.35)`), `EmitBoarEar`
+  (`apex = base + (0, r×1.4, −r×0.5)`) · `BoarBodyRig.cs` — the `LateUpdate` pose loop (per-part
+  `localRot × Quaternion.Euler`, `part.position` from `_homePos`), the tail `wag = Sin(Time.time×3.1)×8f`,
+  `breatheAmplitude 0.015` · `BoarAI.cs` — `_health.Died += OnDied` **and** the per-frame poll backstop
+  (`if (State != Dead && _health.IsDead) OnDied()`), the §16.7 second domain · `SnakeBodyChain.cs` —
+  `slitherAmplitude 0.055`, `idleSwayAmplitude 0.012`, the `p += lateral × …` positional write, the
+  `k = 1 − i/(telegraphLinks+1); k²` taper.
+- **Bars / memories:** `team/quality-bars.md` **#2 / #7 / #9 / #10 (§ Bar 10 — the standard in full, and the
+  four checks; C1 amplitude / C2 failure-independence / C3 comparison set / C4 two-sided artifact + the
+  default-gameplay-framing table)** · `enemy-hp-read-spec.md` **§14 / §15** (PR #406 — §16 audits and partly
+  withdraws §15.4) · `[[difficulty-settings-easy-medium-hard]]`
   · `[[sponsor-prefers-natural-lively-motion]]` · `[[active-input-not-proximity-auto-for-actions]]` ·
   `[[served-unverified-soaks-need-played-verification]]` · `[[verify-grounding-soaks-by-gameplay-cam-visual]]` ·
   `[[sponsor-rejects-unsoakable-placeholders]]` · `[[claim-removed-soak-shows-present-investigate-foundation]]`
