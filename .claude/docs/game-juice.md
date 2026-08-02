@@ -37,7 +37,23 @@ The incident, because the near-miss is the instructive part: `86cah7y5b` shipped
 
 **Apply it as:** model placement explicitly (an enum on the component, with the STILL kind as the zero value so a forgotten placement is quiet rather than broken), gate both channels through it, and **keep the authored amplitudes non-zero and inert** rather than zeroing them in the scene — zeroing moves the rule out of the code and into serialized data, where the next author retypes a value and the defect returns silently. Verify it by **sampling the transform in the shipped build**, not by reading the placement field: measuring the frame also catches a bypassed gate or a second component writing the same transform. Live implementation: `WorldWeaponFind.FindPlacement` / `MotionAllowedFor`.
 
-**Corollary for the cue that's left:** a still item has lost a channel, so don't assume its findability survived. `86cah7y5b`'s soak PASSED "reads as special at default framing" — on the *moving* sword. That pass does **not** transfer to the still one; it has to be re-asked.
+**Corollary for the cue that's left:** a still item has lost a channel, so don't assume its findability survived. `86cah7y5b`'s soak PASSED "reads as special at default framing" — on the *moving* sword. That pass did **not** transfer to the still one; it had to be re-asked. It then passed — see §1.5b.
+
+### 1.5b Subtended pixel height UNDER-predicts legibility for a distinctive silhouette
+
+The re-soak of the still sword **passed**, refuting the prediction that preceded it. Worth recording because that prediction was made carefully with the right method and was still wrong: the arithmetic was sound, the inference drawn from it was not.
+
+The estimate used §2b properly — visible sword above the stump top = `1.075 − 0.475 = 0.60u`, vertical so foreshortened by `cos 55° = 0.574`, × the `62.080 px/m` frame-plane scale ⇒ **≈ 21 px** at 720p, against a stump reading **≈ 43 px** wide (horizontal, unforeshortened). From "the sword subtends half the extent of the thing it sits in" came the prediction: *not spotted at a glance; the stump registers first.*
+
+Sponsor, at default framing, before touching the camera: *"holding S for 4 seconds after spawn: yes the sword caught my eye."*
+
+**Why the inference failed:** subtended size predicts how much retina an object occupies, **not how fast it is recognised**. A silhouette that is *unique in its scene* — an upright, straight, bright, bilaterally-symmetric blade in a world whose whole vocabulary is rounded organic rock, bush and tree — is found by shape-contrast against its surroundings, which operates well below the size at which you would consciously read the object. The stump was twice the size and lost, precisely because a dark rounded lump is what the surrounding scatter already looks like.
+
+**Rules:**
+- **Never spend a channel because a px estimate says the cue is too small.** Ask *"is this silhouette unique in this scene?"* first. If yes, ~20 px can be plenty. `86cah7y5b` had a marker mesh scoped and ready to build; the soak proved it unnecessary, and building it pre-emptively would have added a permanent world object to solve a problem that did not exist.
+- **A px figure bounds the WEAK case, not the strong one.** It is good evidence that something *generic* will be missed; it is weak evidence that something *distinctive* will be.
+- **Distinctiveness is relative to the scene, never to the object.** The same 21 px of blade in a scene full of fence posts and tool racks would genuinely be lost.
+- **This does not weaken §2b.** State the plane and the framing with every px figure exactly as before — the arithmetic was correct and reproducible. What is bounded is the *conclusion* the number licenses.
 
 Next tier (apply where the surface exists): T4 Cinemachine **Impulse** (NOT Noise) at micro amplitude (~0.05–0.10u, single-frame decay) on axe impact; T5 squash/stretch + progressive-appearance on props/UI; T8 coyote-time + input-buffer on jump; T9 grow-from-scale-0 on spawns; T10 +5° sprint FOV. See the note for the full ranked table + surface mapping.
 
