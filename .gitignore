@@ -93,3 +93,8 @@ __pycache__/
 # Downloaded CI build artifacts (held-pose capture source — never commit)
 team/devon-dev/_ci_build*/
 /ci-local/
+
+# Machine-local orchestration state — managed by the auto-status skill, never hand-edited.
+# Tracking it turned every away-loop toggle into a commit and was part of what made the
+# retired orch/coordination branch noisy (2026-08-02).
+.claude/auto-status.state
