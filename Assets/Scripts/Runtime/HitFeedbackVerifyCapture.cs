@@ -249,15 +249,37 @@ namespace FarHorizon
             //     frame. Assert the MINIMUM across every part-material is lit — ALL parts together. ---
             int emitsBefore = emitter.EmitCount;
             attack.PerformAttack(weapon, hp);
-            // ONE pinned frame: the impulse's eased rise reaches full amplitude at 22 % of the flash window, so
-            // at 1/60 s per frame into an 0.08 s flash this lands at ~0.21 — essentially the peak. (Frame 0 is
-            // the strike frame itself, where the curve is 0 BY DESIGN — it starts at rest.)
-            yield return null;
-            float minFlash = fb.MinMaterialFlash();
-            float maxFlash = fb.MaxMaterialFlash();
-            _flashedAllTogether = _seenMaterials == expectedMaterials && minFlash > 0.0001f;
             _puffed = emitter.EmitCount > emitsBefore;
-            ShotTo(Path.Combine(dir, prefix + "_impact.png"));
+
+            // SAMPLE ACROSS THE RISE, do not spot-check one frame. Two frame-phase facts make a single sample
+            // wrong, and the SECOND one is why the first version of this gate reported a flash of 0 while the
+            // flinch — same curve, same LateUpdate — measured 0.146:
+            //   (a) `yield return null` resumes in the UPDATE phase of the next frame, so the freshest value it
+            //       can read is the PREVIOUS frame's LateUpdate write; and
+            //   (b) the previous frame is the STRIKE frame, where the impulse is 0 BY DESIGN — the curve starts
+            //       at rest. So exactly one yield after the strike always reads 0, on a perfectly working flash.
+            // The flinch loop below never had this problem because it takes a MAX over many frames. So does this
+            // now: sample every frame across the rise, keep the peak, and shoot the impact frame on the FIRST
+            // frame the flash is actually visible (with the eased snap that is ~99 % of peak).
+            float minFlash = 0f, maxFlash = 0f;
+            bool shotImpact = false;
+            for (int i = 0; i < 8; i++)
+            {
+                yield return null;
+                float mx = fb.MaxMaterialFlash();
+                if (mx > maxFlash) { maxFlash = mx; minFlash = fb.MinMaterialFlash(); }
+                if (!shotImpact && mx > 0.0001f)
+                {
+                    shotImpact = true;
+                    ShotTo(Path.Combine(dir, prefix + "_impact.png"));
+                    yield return new WaitForEndOfFrame();
+                }
+                if (!fb.FlashActive && shotImpact) break;
+            }
+            // Always leave the artifact behind, even on a failure — a missing frame is worse evidence than a
+            // frame showing an un-flashed creature.
+            if (!shotImpact) ShotTo(Path.Combine(dir, prefix + "_impact.png"));
+            _flashedAllTogether = _seenMaterials == expectedMaterials && minFlash > 0.0001f;
             yield return new WaitForEndOfFrame();
             yield return null;
 
