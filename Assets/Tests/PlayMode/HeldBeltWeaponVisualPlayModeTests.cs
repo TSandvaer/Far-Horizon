@@ -313,5 +313,73 @@ namespace FarHorizon.PlayTests
                 "CROSSED-STATE (wood flavour): selecting the wood AXE after the other four wood tools were " +
                 "displayed must return the WOOD-AXE index, never leave the last tool's mesh in the hand");
         }
+
+        // 86caxjx26 — the STONE-BLADE pair at the same component seam (the wood table's shape, extended rather
+        // than paralleled per AC4). dagger_stone + sword_stone were the LAST two roster ids with no held-visual
+        // map row: crafting a Stone Dagger and selecting it rendered EMPTY hands in the shipped build. This
+        // drives the REAL Inventory.Changed -> SyncHeldVisualToSelection -> HeldAxe.Apply chain, so it fails if
+        // the new map is added but not composed into HeldVisualIndexFor / IsHeldVisualWeaponSelected.
+        //
+        // SCOPE SPLIT — identical to the wood test above and for the same reason: VISIBILITY + INDEX only, NOT
+        // mesh identity. A no-bootstrap run can read a committed lineup prefab whose nodes drifted, in which case
+        // ApplyCurrent legitimately falls back to the axe mesh while the index + visibility contract this test
+        // owns is still correct. Do not "strengthen" this into an identity assert — it would red for the stale-
+        // prefab reason rather than the behaviour it guards. Mesh identity for these two is covered one layer out
+        // by the shipped-build capture in this PR's Self-Test Report.
+        [UnityTest]
+        public IEnumerator EveryStoneBlade_Selected_ShowsInHand_AtItsOwnStoneIndex()
+        {
+            yield return null; // OnEnable wiring
+            Assert.IsFalse(_renderer.enabled, "spawn: nothing owned -> hidden");
+
+            var blades = new (string id, int index, string label)[]
+            {
+                (ItemCatalog.DaggerStoneId, HeldWeaponCycleDebug.DaggerStoneFamilyIndex, "stone dagger"),
+                (ItemCatalog.SwordStoneId,  HeldWeaponCycleDebug.SwordStoneFamilyIndex,  "stone sword"),
+            };
+            Assert.GreaterOrEqual(_inv.BeltSlotCount, blades.Length + 1,
+                "precondition: the belt holds both stone blades AND a spare slot to deselect into");
+
+            var slots = new int[blades.Length];
+            for (int n = 0; n < blades.Length; n++)
+            {
+                var placed = _inv.Model.AddToolToBelt(_inv.Catalog.ById(blades[n].id));
+                Assert.IsTrue(placed.HasValue, blades[n].label + " acquired onto the belt (a belt-eligible Tool)");
+                Assert.AreEqual(SlotArea.Belt, placed.Value.Area,
+                    blades[n].label + " landed on the BELT, not the pack (a pack landing would make the SelectBelt " +
+                    "below select an unrelated slot and the assertions would judge a state never driven)");
+                slots[n] = placed.Value.Index;
+            }
+
+            for (int n = 0; n < blades.Length; n++)
+            {
+                _inv.Model.SelectBelt(slots[n]);
+                yield return null;
+                Assert.IsTrue(_renderer.enabled,
+                    "EMPTY-HANDS CLASS (4th occurrence): " + blades[n].label + " selected -> seat SHOWN. The defect " +
+                    "was nothing in the hand for both stone blades — HeldAxe.ShouldShow reads " +
+                    "IsHeldVisualWeaponSelected, which must now cover this pair too.");
+                Assert.AreEqual(blades[n].index, _cycle.CurrentIndex,
+                    blades[n].label + " selected -> ITS OWN stone family index is displayed. A blade missing from " +
+                    "the composed map leaves the PREVIOUS selection's weapon in the hand — the WRONG weapon, not " +
+                    "empty hands, which a visibility-only assert would pass straight through.");
+                Assert.IsFalse(_cycle.DebugViewActive,
+                    "the BELT SELECTION owns the visual for " + blades[n].label + " (not the [B] debug view)");
+            }
+
+            // The crossed-state regression in its stone-blade flavour, then the deselect->hidden half (the wood
+            // test could not cover deselect: five wood tools fill the five belt slots, leaving none empty).
+            _inv.Model.SelectBelt(slots[0]);
+            yield return null;
+            Assert.AreEqual(HeldWeaponCycleDebug.DaggerStoneFamilyIndex, _cycle.CurrentIndex,
+                "CROSSED-STATE (stone-blade flavour): re-selecting the stone DAGGER after the sword was displayed " +
+                "must return the stone-DAGGER index, never leave the sword's mesh in the hand");
+
+            _inv.Model.SelectBelt(_inv.BeltSlotCount - 1); // a slot neither blade occupies
+            yield return null;
+            Assert.IsFalse(_renderer.enabled,
+                "an empty slot selected -> the seat is HIDDEN again (ownership is not selection; the new map must " +
+                "not latch the seat on once a stone blade has been held)");
+        }
     }
 }

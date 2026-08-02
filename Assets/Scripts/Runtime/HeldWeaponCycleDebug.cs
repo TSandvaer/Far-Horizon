@@ -139,6 +139,14 @@ namespace FarHorizon
 
         /// <summary>The axe's family index (0 — the Sponsor-LOCKED default seat).</summary>
         public const int AxeFamilyIndex = 0;
+        /// <summary>The stone DAGGER's cycle index (86caxjx26 — the wpn_knife_stone_01 mesh, "dagger" per §6a).
+        /// NAMING an already-shipped slot, not adding one: indices 1 and 2 were the only unnamed slots in the
+        /// 0-14 range (the const block used to jump from <see cref="AxeFamilyIndex"/> 0 straight to
+        /// <see cref="SpearFamilyIndex"/> 3), which is precisely why the two stone blades were the last ids
+        /// with no held-visual map row — there was no constant to map them TO.</summary>
+        public const int DaggerStoneFamilyIndex = 1;
+        /// <summary>The stone SWORD's cycle index (86caxjx26 — the wpn_sword_stone_01 mesh).</summary>
+        public const int SwordStoneFamilyIndex = 2;
         /// <summary>The spear's index in <see cref="WeaponNodeNames"/> (86cahngdg — the belt-selection sync
         /// maps IsSpearSelectedInBelt to THIS index; pinned by an EditMode contract test so a family
         /// reorder cannot silently cross the held visual again).</summary>
@@ -258,21 +266,82 @@ namespace FarHorizon
                                      inv.IsSwordIronSelectedInBelt, inv.IsSpearIronSelectedInBelt);
 
         /// <summary>
+        /// 86caxjx26 — the STONE-BLADE selection → family-index map (the ADDITIVE stone-blade sibling of
+        /// <see cref="WoodSelectionIndexFor(bool,bool,bool,bool,bool)"/> and
+        /// <see cref="IronSelectionIndexFor(bool,bool,bool,bool)"/>, same shape).
+        ///
+        /// THE SHIPPED DEFECT THIS CLOSES: `dagger_stone` + `sword_stone` have been craftable at the table since
+        /// #294 ② (Recipe.cs "Stone Dagger" / "Stone Sword"), but no map knew their ids —
+        /// <see cref="SelectionIndexFor"/> covers only stone axe/spear + BOTH pickaxe tiers,
+        /// <see cref="WoodSelectionIndexFor(Inventory)"/> only wood, <see cref="IronSelectionIndexFor(Inventory)"/>
+        /// only the iron blades. So a stone dagger selected in the belt resolved -1 everywhere,
+        /// <see cref="IsHeldVisualWeaponSelected"/> returned false, and <see cref="HeldAxe.ShouldShow"/> left the seat
+        /// renderers DISABLED: EMPTY HANDS. FOURTH occurrence of one class — I-2's pickaxe (86cakkmr0), soak-3's
+        /// wood tier (86caffwv5), #351's iron blades (86cah7y5b), and now the last two stone blades. The EditMode
+        /// <c>HeldVisualNoOrphanTests</c> guard added with this fix is why there will not be a fifth.
+        ///
+        /// Kept SEPARATE from the three existing maps so every already-soaked decision table is BYTE-UNCHANGED (no
+        /// regression); the stone blades only fill a previously-EMPTY case, and this map is tried LAST for the same
+        /// reason. Indices 1-2 are the mesh slots that have shipped in <see cref="WeaponNodeNames"/> since the
+        /// original stone tier, and their seats already carry the 86caffwv5 round-7 per-CLASS dial ("same dial for
+        /// rock and metal" — dagger 0.771, sword 0.950), so they seat exactly like their wood/iron counterparts with
+        /// no re-derive. Only one belt slot is selected in play, so at most one flag is ever true; the tie-break
+        /// order (dagger &gt; sword) is pinned by the contract test. -1 = no stone blade selected.
+        /// </summary>
+        public static int StoneBladeSelectionIndexFor(bool daggerStoneSelected, bool swordStoneSelected)
+            => daggerStoneSelected ? DaggerStoneFamilyIndex
+             : swordStoneSelected ? SwordStoneFamilyIndex
+             : -1;
+
+        /// <summary>86caxjx26 — the stone-blade selection → family-index map read straight off an
+        /// <see cref="Inventory"/> (the belt sync + the [B]-refusal both need it). Composes
+        /// <see cref="StoneBladeSelectionIndexFor(bool,bool)"/> from the inventory's 2 stone-blade predicates.
+        /// -1 if the inventory is null or no stone blade is selected.</summary>
+        public static int StoneBladeSelectionIndexFor(Inventory inv)
+            => inv == null ? -1
+             : StoneBladeSelectionIndexFor(inv.IsDaggerStoneSelectedInBelt, inv.IsSwordStoneSelectedInBelt);
+
+        /// <summary>
+        /// 86caxjx26 — THE ONE PLACE the four selection→family-index maps are composed, and the ONLY thing a new
+        /// weapon tier has to be added to. Returns the family index of the mesh the SELECTED belt item should put in
+        /// the castaway's hand, or -1 when the selection drives no held weapon (empty / berry / water / a weapon
+        /// sitting in the pack rather than selected on the belt).
+        ///
+        /// WHY IT WAS EXTRACTED. <see cref="IsHeldVisualWeaponSelected"/> (the visibility+grip predicate) and
+        /// <see cref="SyncHeldVisualToSelection"/> (the mesh swap) each composed this SAME fallback chain
+        /// independently, kept in step BY HAND. Two hand-synced copies of a chain that has now been extended four
+        /// times is a standing drift hazard: a tier added to one and not the other yields a weapon that is VISIBLE
+        /// but shows the previous selection's mesh, or an invisible weapon whose fingers curl around nothing.
+        /// One composer, two callers. Behaviourally IDENTICAL to the pair it replaces — the fallback ORDER is
+        /// preserved exactly (stone/pickaxe → wood → iron → stone-blade), so every soaked decision is byte-unchanged;
+        /// the stone-blade map is appended LAST precisely so it can only fill cases that used to be -1.
+        /// </summary>
+        public static int HeldVisualIndexFor(Inventory inv)
+        {
+            if (inv == null) return -1;
+            int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
+                                            inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
+            if (desired < 0) desired = WoodSelectionIndexFor(inv);
+            if (desired < 0) desired = IronSelectionIndexFor(inv);
+            if (desired < 0) desired = StoneBladeSelectionIndexFor(inv);
+            return desired;
+        }
+
+        /// <summary>
         /// 86cav8xu8 — TRUE when the SELECTED belt item owns a held-visual weapon mesh (any tier that
-        /// <see cref="SyncHeldVisualToSelection"/> maps to a family index): the stone/spear/pickaxe set
-        /// (<see cref="SelectionIndexFor"/> ≥ 0) OR any wood tier (<see cref="WoodSelectionIndexFor"/> ≥ 0). This is
-        /// the SINGLE source of truth for "a haft is shown in the hand" — <see cref="HeldAxe.ShouldShow"/> (the mesh
-        /// visibility gate) AND <see cref="CastawayFingerCurl"/> (the grip that closes around the haft) both read it,
-        /// so the finger-curl can never drift from the mesh it wraps. Widens the finger-curl past the old stone-axe/
-        /// spear-only read (the wood/iron/pickaxe held-visual then read as an OPEN 'mangled' hand around the haft).
-        /// 86cah7y5b: the IRON BLADES join the OR the same additive way the wood tier did — without them a
-        /// selected iron sword (crafted OR found) satisfied no branch and the seat stayed hidden (empty hands).</summary>
-        public static bool IsHeldVisualWeaponSelected(Inventory inv)
-            => inv != null
-               && (SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
-                                     inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt) >= 0
-                   || WoodSelectionIndexFor(inv) >= 0
-                   || IronSelectionIndexFor(inv) >= 0);
+        /// <see cref="HeldVisualIndexFor"/> maps to a family index). This is the SINGLE source of truth for "a haft
+        /// is shown in the hand" — <see cref="HeldAxe.ShouldShow"/> (the mesh visibility gate) AND
+        /// <see cref="CastawayFingerCurl"/> (the grip that closes around the haft) both read it, so the finger-curl
+        /// can never drift from the mesh it wraps. Widens the finger-curl past the old stone-axe/spear-only read
+        /// (the wood/iron/pickaxe held-visual then read as an OPEN 'mangled' hand around the haft).
+        /// 86cah7y5b: the IRON BLADES joined the same additive way the wood tier did — without them a selected iron
+        /// sword (crafted OR found) satisfied no branch and the seat stayed hidden (empty hands).
+        /// 86caxjx26: the two STONE BLADES join the same way, and the composition itself moved into
+        /// <see cref="HeldVisualIndexFor"/> so this predicate and the mesh sync can no longer disagree about which
+        /// tiers exist. <c>HeldVisualNoOrphanGuardAnchor</c>: EditMode
+        /// <c>HeldVisualNoOrphanTests</c> now iterates the WeaponCatalog id set and reds if ANY obtainable weapon
+        /// fails this predicate — so a fifth occurrence of the empty-hands class cannot merge.</summary>
+        public static bool IsHeldVisualWeaponSelected(Inventory inv) => HeldVisualIndexFor(inv) >= 0;
 
         // Per-weapon mesh-holder compensation (look-soak — read proportionate to the AXE in the hand; the
         // exact precise grip is OOS, the later equip ticket). Index 0 (axe) is ALWAYS zero/identity — the axe
@@ -625,17 +694,12 @@ namespace FarHorizon
             var inv = ResolveInventory();
             if (inv == null || _meshHolder == null) return;
 
-            int desired = SelectionIndexFor(inv.IsAxeSelectedInBelt, inv.IsSpearSelectedInBelt,
-                                            inv.IsPickaxeStoneSelectedInBelt, inv.IsPickaxeIronSelectedInBelt);
-            // 86caffwv5 soak-3 — ADDITIVE wood fallback: a crafted WOOD weapon selected in the belt used to return
-            // -1 here (SelectionIndexFor knows only stone/iron) → the seat stayed EMPTY (the Sponsor's blocker). The
-            // stone/iron path above is byte-unchanged; wood only fills the previously-empty case.
-            if (desired < 0) desired = WoodSelectionIndexFor(inv);
-            // 86cah7y5b — ADDITIVE iron-BLADE fallback, the same shape as the wood one above and for the same
-            // reason: an iron axe/dagger/sword/spear selected in the belt returned -1 from BOTH maps above, so the
-            // seat stayed EMPTY. (The iron PICKAXE already resolves via SelectionIndexFor.) Tried LAST so the
-            // soaked stone/pickaxe + wood decisions are byte-unchanged.
-            if (desired < 0) desired = IronSelectionIndexFor(inv);
+            // 86caxjx26 — the fallback CHAIN (stone/pickaxe → wood → iron → stone-blade) now lives in the ONE
+            // composer HeldVisualIndexFor, which IsHeldVisualWeaponSelected also reads. It used to be spelled out
+            // here AND again in that predicate, kept in step by hand — so a tier added to one and not the other
+            // rendered a visible weapon showing the PREVIOUS selection's mesh, or an invisible weapon whose fingers
+            // curled around nothing. Order is preserved exactly, so every soaked decision is byte-unchanged.
+            int desired = HeldVisualIndexFor(inv);
             if (desired >= 0)
             {
                 _debugView = false; // selection owns the held visual
