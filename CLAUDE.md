@@ -41,31 +41,131 @@ A 3D survival game built in **Unity 6 (6000.4.11f1) / URP**, desktop-first (Wind
 - **Sponsor soak = direct artifact.** Any soak ask includes the exact exe path + the expected HUD build stamp.
 - **Never fabricate, never guess, never extrapolate** (sub-agent inheritance surface). Concrete values — URLs, IDs, SHAs, file paths, command output, ticket/run IDs — must be fetched from a real source, never invented or pattern-extrapolated. Fetch, don't guess: PR URL via `gh pr view`, SHA via `git rev-parse`, ticket state via ClickUp MCP. Observed-symptom claims in tickets/PRs/reports need a verifiable source in the same paragraph; label hypotheses explicitly (`Hypothesis:` / `Likely:`). **The creating turn is never the referencing turn:** never batch a producer call (ticket create, Agent dispatch, `gh pr create`, `git commit`) with a consumer that writes the produced value; if a value hasn't been seen in a tool result, write the literal token `<pending>`.
 
-## Autonomous orchestration (away + standing dispatch)
+## Orchestration doctrine (rewritten 2026-08-02 — Sponsor decision, 12 rulings)
 
-> Backstop prose. The load-bearing behavior lives in the global `auto-status` away/local prompts (read verbatim each tick) + `.claude/settings.json` (`defaultMode: bypassPermissions` + `permissions.deny` + the `block-destructive-bash.sh` deny-hook). If this section and those disagree, those win.
+> **What this section is for.** The team exists to produce **results the Sponsor can see in a
+> build**. It does not exist to test exhaustively, document thoroughly, or keep everyone busy.
+> If the shape below stops producing visible results, it gets retired (see § Kill switch) —
+> a single hands-on session beats an orchestration that generates its own work.
 
-- **⛔ "Idle capacity is a bug" is RETIRED (Sponsor-approved 2026-08-01). Idle personas are free; an UNJUSTIFIED DISPATCH is the bug.** The retired rule said: scan every tick and fill every free slot, and the non-build lane must never idle. An independent audit traced that rule as the **generator** of a 10-day gameplay drought — last `feat` commit **2026-07-22** (`0dc4844`); the 72 commits since are **46 docs, 9 fix, 8 test, 8 chore, 1 spike, zero feat** (`git log origin/main --since=2026-07-22`). Mechanism: idling was made *impossible* by `orchestrator-anti-idle-stop.sh`, so the loop filled slots from the only inexhaustible supply — **meta-work** (citation audits, NITs-on-NITs chains, multi-round reviews of docs PRs). ⚠ **The Unity-build cap was NOT the cause** — 20 of 23 overnight merges skipped Unity CI entirely, so they never competed for the slot; an orchestrator diagnosis blaming the cap was wrong. **The hook has been removed from `.claude/settings.json`.**
-  **The rules that replace it:**
-  - **Rank the dispatchable set by player-visible value, never by readiness.** A shipped gameplay bug outranks every doc ticket, even when the doc ticket starts faster. **Prefer leaving a slot idle to manufacturing work** — one substantial dispatch beats three cheap ones.
-  - **≤3 agents in flight** — one dev, one reviewer, one justified support.
-  - **Docs/meta moratorium.** Documentation work only when it *blocks* live code (e.g. a doc that would mislead an agent about to touch that code). **One round of review on a docs PR** — then merge with the residue ticketed, or stop and ask. **No line-anchor audits.**
-  - **The board SCAN survives; the auto-FILL does not.** Still never conclude "all gated" from the active-ticket model (the 2026-06-28 idle-3h failure) — but having scanned, dispatch only what earns its cost. Capacity remains **≤1 Unity-build ticket in flight**; the mechanism and what would lift it are in the **Unity-build cap** bullet below, which is the ONLY authoritative statement of why. Sequence tickets that touch overlapping files. See [[orchestrator-fill-nongated-slots-scan-whole-board]] + [[token-waste-hard-line]].
-- **Unity-build cap = 1 — the mechanism, and the ONLY authoritative statement of it.** ⛔ **The number is a Sponsor decision. Nothing in this bullet authorises changing it; a docs or CI PR is never where it moves.** Two independent things hold the cap, both machine-checkable in one command each — **measured 2026-07-31 on `origin/main` @ `721701d`; re-measure before citing, do not carry these figures forward on trust**:
-  - **(a) An absolute concurrency group.** `.github/workflows/ci.yml:226-228` puts every `build` job in `concurrency: group: unity-build` with **NO ref suffix** and `cancel-in-progress: false`. All `build` jobs repo-wide therefore QUEUE into ONE lane — **regardless of how many runners exist or how they are labelled**. (Why absolute rather than ref-scoped: the `86caammpq` orphan-hold fix, rationale in-line at `ci.yml:194-221`.)
+### The measured failure this replaces
+
+Last `feat` on `origin/main`: **2026-07-22** (`0dc4844`, wild boar). **79 commits since —
+47 docs, 12 chore, 10 fix, 8 test, 1 spike, 1 ci, ZERO feat** (`git log 0dc4844..origin/main`,
+measured 2026-08-02). Nine of ten open PRs were non-gameplay. An unattended loop burned four
+rate-limit windows and then the weekly account cap producing documentation.
+
+The cause was not the build cap and not laziness. It was a **demand engine** (an anti-idle
+hook that forbade the orchestrator from ending a tick without dispatching) feeding on
+**supply engines** that manufacture work from work. The anti-idle hook is removed. The supply
+engines are named and killed below.
+
+### The rules
+
+- **Idle is free; an unjustified dispatch is the bug.** Rank the dispatchable set by
+  **player-visible value**, never by readiness. A bug in the shipped build outranks every doc
+  ticket. **Prefer leaving a slot idle to manufacturing work.** Scan the whole board so you
+  never wrongly conclude "all gated" (the 2026-06-28 idle-3h failure) — but having scanned,
+  dispatch only what earns its cost. [[orchestrator-fill-nongated-slots-scan-whole-board]],
+  [[token-waste-hard-line]].
+- **Hard team ceiling: ONE developer + ONE reviewer + at most ONE support.**
+  - **Developer** — Devon or Drew, in the build slot, on the gameplay ticket.
+  - **Reviewer/QA** — Tess on dev PRs, Devon/Drew peer on Tess's. Dispatched **when a PR
+    exists**, never before, never speculatively.
+  - **Support (optional, needs a named concrete need)** — Priya for a batched once-daily board
+    pass; Uma only when a feature ticket needs a spec this week; Erik only against a consumer
+    ticket a developer is actually blocked on.
+  Five-agents-out is retired. Nobody is "cut" — personas are prompts, not salaries — but
+  standing dispatch is.
+- **Unity-build cap = 1 — the mechanism, and the ONLY authoritative statement of it.** ⛔ **The number is a Sponsor decision. Nothing in this bullet authorises changing it; a docs or CI PR is never where it moves.** ⚠ With the one-developer ceiling above, this cap is **no longer the binding constraint** — do not spend effort trying to lift it. Two independent things hold it, both machine-checkable in one command each — **measured 2026-07-31 on `origin/main` @ `721701d`; re-measure before citing, do not carry these figures forward on trust**:
+  - **(a) An absolute concurrency group.** `.github/workflows/ci.yml` puts every `build` job in `concurrency: group: unity-build` with **NO ref suffix** and `cancel-in-progress: false`. All `build` jobs repo-wide therefore QUEUE into ONE lane — **regardless of how many runners exist or how they are labelled**. (Why absolute rather than ref-scoped: the `86caammpq` orphan-hold fix, rationale in-line in `ci.yml`.)
   - **(b) One registered runner.** `gh api repos/TSandvaer/Far-Horizon/actions/runners` → **`total_count: 1`**: `far-horizon-local`, `status: online`, labels `[self-hosted, Windows, X64, unity, capture]`.
-  - **To lift the cap, BOTH (a) and (b) must change** — a 2nd runner must be registered **AND** the `unity-build` group widened or removed. A 2nd runner ALONE buys nothing: the group would still serialize the builds. ⚠ A third question rides along — `build`'s label set (`[self-hosted, windows, unity]`, `ci.yml:225`) is a strict SUBSET of the one runner's, so a `build` job is *eligible for the capture-pinned runner*; protecting captures under two runners needs `build` given a disjoint label.
-  - **⛔ Three stale reasons are still in circulation, each with its own believer. NONE of them is why the cap is 1:** (1) *"a CI-split of headless-build from captures is the prerequisite"* — **that split SHIPPED** (`86cafz9tg`); `ci.yml` now has separate `build` (`:223`) and `capture` (`:501`) jobs and **no `unity` job exists at all**. Anyone told to go build it would be rebuilding something already merged. (2) *"PackageCache EPERM / shared-cache contention forces serialization"* — the `unity-build` group is **cache-independent**, so cache work cannot move the cap; the `86cabkhjg` spike (PR **#387**) additionally found EPERM **absent** in its resolving legs. (3) *"there are two runners / the 2-runner topology"* — `far-horizon-local-2` is **history, not current state**; `total_count: 1` today.
-  - **Still true and still load-bearing — do NOT delete or act against:** a 2nd runner's PRESENCE breaks WINDOWED captures (**A/B-CONFIRMED 2026-06-29**: 4/4 clean single-runner vs 3/3 flaked with runner-2 online — the D3D12 first-frame present loop wedges under contention). That is why the `capture` job is pinned via the extra `capture` label (`ci.yml:503`) and serialized by an absolute `unity-capture` group (`:507-509`). **Do not unpin it.** Memory: `[[single-unity-build-slot-serializes-orchestration]]`; deeper CI shape in `.claude/docs/unity-conventions.md` § CI architecture.
-- **Dependency-aware pivot.** A ticket gated on the sponsor (soak, testing-bar call, destructive/infra action, any sponsor decision) blocks ONLY its hard-dependents — never the whole board. Tag it `sponsor-gate` (or `needs-soak` for feel/look), write the decision to `.claude/away-queue.md`, and dispatch the next dispatchable ticket by priority. Priority orders dispatchable tickets; it is NEVER a reason to idle.
-- **Away-mode autonomy.** Do NOT auto-merge to protected `main` — the auto-mode classifier blocks admin-merge-to-main EVEN under bypassPermissions (it tags it "Production Deploy"), and merge-to-main is sponsor-gated by policy. Instead **STAGE** any PR with ALL machine gates green (CI SUCCESS + a peer-reviewer APPROVE verdict + Tess QA PASS + Self-Test Report) AND no `needs-soak`/`sponsor-gate` label to `away-queue.md` as a one-click merge item (the exact `gh pr merge <n> --admin --squash --delete-branch` command + gate evidence). Raise **zero** interactive popups — queue every sponsor item to `away-queue.md` (`/sponsor-questions-walkthrough` drains on return) and pivot; go quiet only if literally everything is sponsor-blocked. Run full board hygiene (status reconcile, AC-flesh on dispatch, mechanical follow-ups, dupe-close), logging autonomous moves to `.claude/decisions-while-away.md`. Subjective soak / priority / strategy / destructive / external-post / merge-to-`main` actions are NEVER auto-decided — they stage for the sponsor.
-- **Local/present mode** runs the same scan + fill + hygiene but SURFACES gate/merge decisions to the present sponsor (popups OK) instead of auto-deciding.
-- **Priya owns the board.** Status reconciliation, AC-flesh, mechanical follow-ups, dupe-close, ticket authoring, and STATE/DECISIONS upkeep are PRIYA's job — NOT the orchestrator's. When the scan finds board work, **dispatch Priya** (background, her worktree) for the hygiene slice; don't do it inline (inline board writes + the get_tasks overflow are what make the orchestrator unresponsive). The orchestrator keeps ONLY: the board scan (what to dispatch), the merge-time `in review→complete` flip (same tool round as `gh pr merge`), and orchestrator-level decision logging. Brief Priya with the exact ticket IDs + the rule to **separate `get_tasks` (read) from `update_task` (write) across turns** (the `no-unseen-clickup-ids` PreToolUse hook emits `ask` on a same-turn read+write, which a background agent can't answer). Precedent: ClaudeTeam/Nora + MarianLearning/Matt run the same PL-owns-board split.
-- **Board statuses** (list `901523878268`): `to do` → `in progress` → `in review` → `ready for qa test` → `complete`. No "blocked" status exists — gated tickets keep their functional status + a `sponsor-gate` tag (do not add a `blocked` status without sponsor sign-off).
+  - **To lift the cap, BOTH (a) and (b) must change** — a 2nd runner must be registered **AND** the `unity-build` group widened or removed. A 2nd runner ALONE buys nothing: the group would still serialize the builds. ⚠ A third question rides along — `build`'s label set (`[self-hosted, windows, unity]`) is a strict SUBSET of the one runner's, so a `build` job is *eligible for the capture-pinned runner*; protecting captures under two runners needs `build` given a disjoint label.
+  - **⛔ Three stale reasons are still in circulation, each with its own believer. NONE of them is why the cap is 1:** (1) *"a CI-split of headless-build from captures is the prerequisite"* — **that split SHIPPED** (`86cafz9tg`); `ci.yml` now has separate `build` and `capture` jobs and **no `unity` job exists at all**. Anyone told to go build it would be rebuilding something already merged. (2) *"PackageCache EPERM / shared-cache contention forces serialization"* — the `unity-build` group is **cache-independent**, so cache work cannot move the cap; the `86cabkhjg` spike (PR **#387**) additionally found EPERM **absent** in its resolving legs. (3) *"there are two runners / the 2-runner topology"* — `far-horizon-local-2` is **history, not current state**; `total_count: 1` today.
+  - **Still true and still load-bearing — do NOT delete or act against:** a 2nd runner's PRESENCE breaks WINDOWED captures (**A/B-CONFIRMED 2026-06-29**: 4/4 clean single-runner vs 3/3 flaked with runner-2 online — the D3D12 first-frame present loop wedges under contention). That is why the `capture` job is pinned via the extra `capture` label and serialized by an absolute `unity-capture` group. **Do not unpin it.** Memory: [[single-unity-build-slot-serializes-orchestration]]; deeper CI shape in `.claude/docs/unity-conventions.md` § CI architecture.
+- **⛔ Reviews may NEVER create a ticket.** `APPROVE_WITH_NITS` is deleted. Two verdicts:
+  `APPROVE` (merge) or `REQUEST_CHANGES` (fixed **in this PR**, reviewer re-checks the diff
+  once, done). Nits are fixed now or dropped; dropping them is an accepted cost.
+  **Docs-only and test-only PRs get NO reviewer at all** — CI green, merge. **Code PRs get one
+  reviewer, one round**; a would-be third round escalates to the Sponsor with the
+  ship-with-documented-defect option instead ([[offer-ship-with-documented-defect-escape]]).
+  Verified generator this kills: #383 → #394 ("#383 NITs") → #401 ("#394 NITs").
+- **⛔ Documentation requires a paid-for incident.** A doc entry may be written only by naming
+  **the incident it would have prevented and what that incident cost** (a rebuild, a soak
+  round, a dead agent-hour). No named incident with a cost → no doc. "Useful", "non-obvious",
+  and "future Claude would benefit" are not incidents — that bar was already written down and
+  it did not hold. `maintain-docs` is **manual-only**; its Stop hook is removed from
+  `.claude/settings.json` and **must not be re-added**. No line-anchor audits — cite by
+  section heading or stable slug, never `file:line`.
+- **⛔ Agents may not create tickets**, except for a bug **reproduced in a built exe**. Every
+  other ticket — features, refactors, research, hygiene, follow-ups — needs the Sponsor's yes
+  first. An unbounded ticket source plus any board scan guarantees the team never runs out of
+  non-gameplay work.
+- **⛔ Do not test the test infrastructure.** No tests guarding capture components, no guards
+  on guards. A verify-capture component ships **CI-wired in its own PR or it does not ship**;
+  of 37 built, only 13 were ever wired. When a feature PR next touches an unwired one, wire it
+  or delete it in that PR — do not file tickets for the rest.
+- **Scoped pre-reads.** The blanket "read every `.claude/docs/*.md`" rule is retired; briefs
+  name the 1–3 docs the task class needs (table in `team/orchestrator/dispatch-template.md`).
+- **Away/unattended mode is OFF.** Orchestration runs Sponsor-attended only, until **three
+  gameplay `feat`s have shipped** under these rules. Do not re-arm `auto-status away`. Gate
+  decisions surface to the present Sponsor via popups rather than being auto-decided.
+- **Dependency-aware pivot.** A ticket gated on the Sponsor blocks ONLY its hard-dependents,
+  never the whole board. Tag it `sponsor-gate` (or `needs-soak` for feel/look) and move on.
+  Priority orders dispatchable tickets; it is never a reason to idle — nor a reason to invent
+  work.
+- **Merging.** `main` is protected and the auto-mode classifier blocks admin-merge-to-main
+  (it tags it "Production Deploy"). Verify the live merge mechanism before acting; never
+  assume a label name. [[classifier-blocks-merge-to-protected-main]].
+- **Board statuses** (list `901523878268`): `to do` → `in progress` → `in review` →
+  `ready for qa test` → `complete`. No "blocked" status exists — gated tickets keep their
+  functional status + a `sponsor-gate` tag.
+- **Coordination docs stay small.** `team/STATE.md` is a resume header, not a log.
+  `team/DECISIONS.md` is append-only history. `.claude/away-queue.md` and
+  `.claude/decisions-while-away.md` are archived under `team/log/` — away mode is off, so they
+  have no consumer. Do not grow them back.
+
+### Kill switch (automatic — not a judgement call)
+
+**Any calendar week with zero `feat` merges retires the standing team.** Check:
+
+```
+git log origin/main --since="7 days ago" --pretty=%s | grep -c "^feat"
+```
+
+`0` → collapse to a single hands-on session + an on-demand QA agent, and stop dispatching
+personas. No debate, no appeal. This exists because the last drought ran ten days before
+anyone named it, and it took an independent audit to surface.
+
+### Current destination (2026-08-02)
+
+**Close out the weapon/combat line.** PR #351 — find `sword_iron` in a stump, E-loot it — is
+the only open gameplay PR and is one merge from visible. Finish that thread (find a weapon →
+fight the boar with it), then the Sponsor picks the next milestone deliberately.
+
+⚠ Note for whoever reads `team/survival-roadmap.md`: its plan of record **stops at M-U2**
+(one need → axe → chop → campfire) while the team has shipped combat, enemies and weapons well
+past it. The roadmap is stale as a plan. Do not treat it as the destination; ask the Sponsor.
 
 ## Detailed Documentation
 
-Auto-loaded at session start via `.claude/hooks/session-start-read-docs.sh`. **Sub-agents do NOT inherit the auto-load — Read every `.claude/docs/*.md` before starting work.** **`unity6-mastery.md` is the MANDATORY pre-work read for ALL Unity code (Sponsor-stressed 2026-06-16) — Drew/Devon read it before every task, every action.** **`blender-asset-pipeline.md` is the equivalent MANDATORY pre-work read before ANY Blender / weapon / tool / prop / asset task (Sponsor-directed "build into the memory of every developer" 2026-06-19).** **`procedural-animation-verbs.md` is the equivalent MANDATORY pre-work read before ANY action-verb animation work (chop / pick-up / drink / throw, or any `CastawayArmPose` / `HeldAxeRig` / held-prop-seating change).** The `maintain-docs` Stop hook captures new findings each turn.
+Auto-loaded into the orchestrator session at start via `.claude/hooks/session-start-read-docs.sh`.
+
+**Sub-agents do NOT inherit the auto-load — but they no longer read all twelve.** The blanket
+read-everything rule was retired 2026-08-02 (Sponsor decision): ~1,855 lines of context on
+every dispatch including trivial ones, paid in full by ~13 agents that died mid-task in a
+single week. **Dispatch briefs NAME the 1–3 docs the task class requires** — the routing table
+lives in `team/orchestrator/dispatch-template.md` § "Read BEFORE any code". Reading a doc
+outside your list is fine when you have a reason; reading all of them by default is not.
+
+Still non-negotiable within their scope: **`unity6-mastery.md` for ALL Unity code**
+(Sponsor-stressed 2026-06-16), **`blender-asset-pipeline.md` before ANY Blender / weapon /
+tool / prop / asset task** (Sponsor-directed 2026-06-19), **`procedural-animation-verbs.md`
+before ANY action-verb animation work** (chop / pick-up / drink / throw, or any
+`CastawayArmPose` / `HeldAxeRig` / held-prop-seating change).
+
+**These docs do not grow on their own any more.** `maintain-docs` is manual-only and gated on
+a named incident with a named cost — see § Orchestration doctrine.
 
 - [Asset-Class Routing Index](.claude/docs/asset-routing.md) — **read FIRST on any "model / create a new X" task**: the index table mapping asset class → route (Procedural / Blender / Hyper3D-Mixamo / action-verb-animation) → that route's MANDATORY doc → a one-line when/when-not rule, plus the "source when procedural fights the style" route-switch rule. A routing slip ABOVE the per-route docs; it does not duplicate their content.
 - [Art Direction](.claude/docs/art-direction.md) — Sponsor's inspiration board (`inspiration/*.png`): warm/lush, human-scale landmarks, small-player/big-alive-world; **look at the actual images before any visual work** (engine-agnostic carry from RandomGame)
