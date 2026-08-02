@@ -623,13 +623,13 @@ jobs:
                 ci-out/verify-heldbelt.log ci-out/verify-sky.log ci-out/verify-invdragghostpos.log \
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
                 ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log \
-                ci-out/verify-heldwood.log
+                ci-out/verify-heldwood.log ci-out/verify-swings.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
                  ci-out/boulder-caps ci-out/buildmenu-caps ci-out/boar-caps \
-                 ci-out/heldwood-caps
+                 ci-out/heldwood-caps ci-out/swings-caps
 
       # Pull the exe the BUILD job produced (it ran on a possibly-different runner).
       # The capture gates launch Build/Windows/FarHorizon.exe; download-artifact
@@ -1283,6 +1283,64 @@ jobs:
           path: |
             ci-out/heldwood-caps/*.png
             ci-out/verify-heldwood.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 20. SWING shipped-build capture gate -- the 5 per-class swings, the pickaxe deep-fold ceiling, the
+      #     MINE TWO-HAND GRIP palm assert and the round-5 ARM-RELEASE term (ticket 86caynve9 -- the
+      #     CI-wiring follow-up from Devon's PR #354 round-5 review, NIT 6, verbatim: "`git grep
+      #     verifySwings -- .github/workflows/ci.yml` = 0 today; the capture job's log on run 30540738473
+      #     never emits [swing-twohand]/[swing-release], so #354's own headline regression guard never
+      #     runs"). PR #354 names its Regression guard as "the shipped -verifySwings palm assert
+      #     (pinEngaged + palmMeasured + leftPalmOnHaft + rightWristOnHaft, exit code = verdict)" -- and
+      #     that assert is the only thing standing between the codebase and a silent return of the round-3
+      #     defect the Sponsor rejected BY EYE (left hand 28.2 cm off the shaft while round-3's own gate
+      #     was GREEN at its then-cap of 0.80 SW). Until this step existed the guard was a manual ritual:
+      #     the generic -captureGate (step 7) shoots only the default SPAWN frame, where nothing is swung
+      #     and no tool is in hand, so nothing about the swing chain is exercised -- the identical
+      #     #165 chop / -verifyMine / -verifyBoulder / -verifyBoar gap class.
+      #     This launches the SAME built exe WINDOWED with -verifySwings, driving SwingVerifyCapture: fire
+      #     all 5 per-class swings through the production TriggerAttack seam (asserting routing + that the
+      #     skinned mesh stays at the player, the Generic-rig cone-explosion guard 86ca8rdkp); measure the
+      #     LIVE composed pickaxe torso fold against its 50deg ceiling; score the LEFT PALM (not the wrist
+      #     5.6 cm behind it) against the mesh-derived touch bound on the worst frame of a 156-frame sweep;
+      #     prove the F9 mine-seat panel draws with real rows; then fire one more mine swing with the panel
+      #     CLOSED and watch the left-arm pin RELEASE frame by frame. The component Quit(1)s on any failed
+      #     criterion, so the exe's exit code IS the gate verdict. The wrapper adds an EVIDENCE-PRESENCE
+      #     check on top, which is load-bearing and not decoration: SwingVerifyCapture deliberately makes a
+      #     missing precondition LOUD IN THE LOG rather than RED (its own source: _releaseOk "defaults TRUE
+      #     only so a SKIPPED pass cannot red the whole gate; a skip is LOUD in the log instead"), so a
+      #     build where Hips/Head, the arm bones, the left-arm IK or the F9 tool fail to resolve exits 0
+      #     with the palm never measured once. The wrapper converts each of those documented warnings into
+      #     a red. frame_check.py is the swapchain-content backstop.
+      #     WINDOWED (-screen-fullscreen 0), NOT -batchmode: SwingVerifyCapture captures via
+      #     ScreenCapture.CaptureScreenshot (backbuffer) AND photographs an IMGUI overlay for the F9 panel
+      #     pass -- both halves of unity-conventions.md §Headless's boundary sentence for "MUST stay
+      #     WINDOWED". A headless conversion yields BLACK frames while the logic half still exits 0 (the
+      #     #287 false-empty class); tests/scripts/test_gate_scripts.sh WINDOWED_GATES reds that.
+      #     Runs only when the build produced an exe; frames + log upload AFTER (if: always()) so the swing
+      #     evidence survives a fail.
+      - name: Swing capture gate (5 class swings + pickaxe fold + two-hand palm grip + arm release)
+        if: always()
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_swings_gate.sh
+            .github/workflows/scripts/verify_swings_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/swings-caps ci-out/verify-swings.log
+          else
+            echo "[verify-swings] no exe at Build/Windows/FarHorizon.exe -- build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload swing frames + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-swings-caps-${{ github.sha }}
+          path: |
+            ci-out/swings-caps/*.png
+            ci-out/verify-swings.log
           if-no-files-found: warn
           retention-days: 3
 
