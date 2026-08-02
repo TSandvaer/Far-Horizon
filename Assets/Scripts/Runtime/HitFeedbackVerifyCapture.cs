@@ -133,6 +133,12 @@ namespace FarHorizon
             // ---------------- DEATH: the softer dust beat (AC4) ----------------
             // Back to the boar and finish it. Without a death puff the soak's death moment has NO feedback at
             // all and the "is it nearly down?" read is only half-testable.
+            // Re-ARM the boar's AI first. MeasureCreature parked it so the before/after frames were comparable,
+            // but BoarAI subscribes to Health.Died in OnEnable — leaving it parked would mean the kill never
+            // transitions to BoarState.Dead and hit_boar_death.png would show a live-posed boar with no settle,
+            // silently gutting the AC7 "death settle + death puff" frame while every assertion still passed.
+            if (boarAi != null) boarAi.enabled = true;
+            for (int i = 0; i < 5; i++) yield return null;
             YawAt(cam, boarAi != null ? boarAi.transform : null);
             int deathPuffsBefore = boarFb.DeathPuffCount;
             int hits = 0;
@@ -156,9 +162,12 @@ namespace FarHorizon
             float poolDeadline = Time.time + 6f;
             while (emitter.LiveCount > 0 && Time.time < poolDeadline) yield return null;
             int emitted = emitter.EmitCount - emitsBefore;
-            bool poolRecycled = emitter.ReleaseCount > 0 && emitter.LiveCount == 0 &&
-                                emitter.CreatedCount <= emitter.maxPoolSize;
-            bool poolBounded = emitted <= 0 || emitter.CreatedCount < Mathf.Max(2, emitted);
+            // RECYCLED = every checked-out instance came home through OnParticleSystemStopped. BOUNDED = the
+            // pool created strictly FEWER instances than it served bursts, i.e. it genuinely reused them.
+            // (Deliberately NOT `CreatedCount <= maxPoolSize`: ObjectPool's maxSize bounds RETAINED instances,
+            // not concurrently-live ones — that assert would red on a legitimate burst overlap.)
+            bool poolRecycled = emitter.ReleaseCount >= emitted && emitter.LiveCount == 0;
+            bool poolBounded = emitted < 2 || emitter.CreatedCount < emitted;
             Debug.Log($"[HitFeedbackVerifyCapture] pool: emitted={emitted} created={emitter.CreatedCount} " +
                       $"released={emitter.ReleaseCount} live={emitter.LiveCount} maxPoolSize={emitter.maxPoolSize} " +
                       $"recycled={poolRecycled} bounded={poolBounded}");
@@ -216,6 +225,18 @@ namespace FarHorizon
             YawAt(cam, target);
             for (int i = 0; i < 5; i++) yield return null;
 
+            // --- PIN THE CLOCK for the measurement window. MEASURED, not guessed: the FIRST run of this gate
+            //     reported peakFlinchOffset=0 and minFlash@impact=0 on BOTH creatures while the puff fired
+            //     normally — because ScreenCapture.CaptureScreenshot stalls a frame hard, and the resulting
+            //     wall-clock hitch is LONGER than the whole 0.08 s flash and 0.22 s flinch. Both phases are
+            //     Time.time-anchored, so they began and completed inside one hitched frame and every sample
+            //     read a resting body. The feature was fine; the RULER was broken. Time.captureDeltaTime pins
+            //     Time.time to a fixed virtual step per frame no matter how long the frame really takes
+            //     (unity-conventions.md §Headless — the documented remedy for exactly this class), so the
+            //     captures land at deterministic points on the curve and are comparable run to run. ---
+            float prevCaptureDt = Time.captureDeltaTime;
+            Time.captureDeltaTime = 1f / 60f;
+
             // --- (e) UN-HIT CONTROL: no residual tint before anything has happened. ---
             _seenMaterials = fb.MaterialCount;
             float restFlash = fb.MaxMaterialFlash();
@@ -228,7 +249,10 @@ namespace FarHorizon
             //     frame. Assert the MINIMUM across every part-material is lit — ALL parts together. ---
             int emitsBefore = emitter.EmitCount;
             attack.PerformAttack(weapon, hp);
-            yield return null;                 // let LateUpdate write the amplitude
+            // ONE pinned frame: the impulse's eased rise reaches full amplitude at 22 % of the flash window, so
+            // at 1/60 s per frame into an 0.08 s flash this lands at ~0.21 — essentially the peak. (Frame 0 is
+            // the strike frame itself, where the curve is 0 BY DESIGN — it starts at rest.)
+            yield return null;
             float minFlash = fb.MinMaterialFlash();
             float maxFlash = fb.MaxMaterialFlash();
             _flashedAllTogether = _seenMaterials == expectedMaterials && minFlash > 0.0001f;
@@ -263,6 +287,7 @@ namespace FarHorizon
             ShotTo(Path.Combine(dir, prefix + "_after_decay.png"));
             yield return new WaitForEndOfFrame();
             yield return null;
+            Time.captureDeltaTime = prevCaptureDt; // unpin — the walk to the NEXT creature runs at real time
 
             Debug.Log($"[HitFeedbackVerifyCapture] {prefix}: materials={_seenMaterials}/{expectedMaterials} " +
                       $"restFlash={restFlash:F4} minFlash@impact={minFlash:F4} maxFlash@impact={maxFlash:F4} " +

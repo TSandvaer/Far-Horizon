@@ -78,6 +78,17 @@ namespace FarHorizon.Combat
                  "flinch STAGGER reads live. Null → Medium.")]
         public DeathHandler deathHandler;
 
+        [Header("Impact discrimination — the DoT-STROBE guard (found by -verifyHitFeedback, see the class note)")]
+        [Tooltip("Ignore a detected HP drop smaller than this FRACTION of max HP. A damage-over-time tick is a " +
+                 "genuine HP drop applied EVERY FRAME, so the previous-value guard alone passes it straight " +
+                 "through and the creature strobes. Expressed as a fraction of max HP so it is scale-free " +
+                 "across creatures (a 40 HP boar and a 20 HP snake need no separate tuning).")]
+        public float minDamageFractionToReact = 0.01f;
+        [Tooltip("Minimum seconds between two impulses. Bounds the VISUAL rate no matter what drives Health — " +
+                 "belt-and-braces behind the fraction floor above. Well under any weapon's swing cadence, so a " +
+                 "real second strike is never swallowed.")]
+        public float minRetriggerSeconds = 0.12f;
+
         [Header("Flash (AC2 — ~0.08s, eased out, warm white, sub-1.0)")]
         [Tooltip("Flash duration in seconds (Sponsor-soak dial).")]
         public float flashSeconds = 0.08f;
@@ -176,6 +187,7 @@ namespace FarHorizon.Combat
         private float _flashStartAt;
         private float _flinchStartAt;
         private float _staggerUntil;
+        private float _lastStrikeAt = float.NegativeInfinity; // -inf so the FIRST hit is never refracted away
         private bool _initialized;
         private bool _subscribed;
 
@@ -342,14 +354,50 @@ namespace FarHorizon.Combat
             float dropped = _prevHp - now;
             _prevHp = now;
             if (dropped <= 1e-4f) return;   // heal / RestoreFull / init / a pure max-dial — NOT a hit
+            if (!IsImpactShaped(dropped, _health.Max, Time.time - _lastStrikeAt)) return;
             Strike();
         }
+
+        /// <summary>
+        /// Is this HP drop an IMPACT, or a damage-over-time tick? — the STROBE guard, and the one thing here
+        /// that was found by running the gate rather than by reading the ticket.
+        ///
+        /// The driver deliberately cannot ask the attacker (AC1 🔒 fires from <see cref="Health.Changed"/>,
+        /// never from the attacker), so it has to discriminate on the SHAPE of the signal. The previous-value
+        /// guard [DFC-B] names heal / RestoreFull / init as the false-positives to exclude — a DoT tick is a
+        /// FOURTH source it does not cover, and one the guard passes through BY DESIGN because it is a genuine
+        /// damage delta. <see cref="StatusEffectController"/> ticks an active bleed through
+        /// <see cref="Health.ApplyDamage"/> EVERY FRAME, and the shipped stone axe applies a 2 dps / 3 s bleed
+        /// on hit (<see cref="WeaponCatalog"/>) — so one axe swing re-armed the whole package ~180 times a
+        /// second for three seconds. MEASURED in the shipped exe before this guard existed: 409 dust bursts
+        /// across one -verifyHitFeedback run (`emitted=409 created=70`). That is a strobing creature and a
+        /// particle storm — precisely the "violent or chaotic" read `game-juice.md` §0 forbids.
+        ///
+        /// The two shapes are cleanly separable, and the separation is ~250×, not marginal:
+        ///   • a bleed tick is `2 dps × ~0.016 s ≈ 0.03 HP` — a stream of tiny drops;
+        ///   • an axe hit on the boar is ~8 HP — one large, isolated drop.
+        /// So: a FRACTION-of-max floor (scale-free across creatures) plus a refractory window that bounds the
+        /// visual rate whatever the source. Pure + static so the truth table is EditMode-testable with no scene.
+        /// </summary>
+        public static bool IsImpactShaped(float dropped, float maxHp, float secondsSinceLastStrike,
+                                          float minFraction = 0.01f, float minRetrigger = 0.12f)
+        {
+            if (dropped <= 0f) return false;
+            if (secondsSinceLastStrike < minRetrigger) return false;
+            if (maxHp <= 0f) return true;                       // no scale to judge against — treat as an impact
+            return dropped / maxHp >= Mathf.Max(0f, minFraction);
+        }
+
+        // The instance-configured form of the guard above (the fields are the Sponsor-visible surface).
+        private bool IsImpactShaped(float dropped, float maxHp, float sinceLast)
+            => IsImpactShaped(dropped, maxHp, sinceLast, minDamageFractionToReact, minRetriggerSeconds);
 
         // The one impulse: flash + flinch + puff + stagger, all off one detected HP drop.
         private void Strike()
         {
             EnsureInit();
             HitCount++;
+            _lastStrikeAt = Time.time;
             if (!feedbackEnabled) return;
 
             ApplyDifficulty(ActiveTier);       // read the LIVE tier on every hit (the per-gore idiom)

@@ -94,6 +94,11 @@ namespace FarHorizon.EditTests
                 // Reading Current forces Health's lazy seed (which itself fires Changed) — the init case.
                 Assert.AreEqual(40f, hp.Current, 1e-3f);
                 fb.ResetVisuals();
+                // The shipped refractory window (0.12 s) bounds the VISUAL rate of the DoT-strobe guard.
+                // This test needs two DELIBERATELY SEPARATE hits inside one method, where EditMode's
+                // Time.time barely advances — so the window is opened for the fixture. The MAGNITUDE half
+                // of the guard stays live (every damage below is well above the fraction floor).
+                fb.minRetriggerSeconds = 0f;
                 int baseline = fb.HitCount;
 
                 hp.ApplyDamage(10f, DamageType.Slash);
@@ -134,6 +139,68 @@ namespace FarHorizon.EditTests
                 Assert.Less(hp.Current01, before01, "precondition: the normalized value really did drop");
                 Assert.AreEqual(baseline, fb.HitCount,
                     "an HP-max dial is NOT a hit — the guard must compare absolute HP, not Current01");
+            }
+            finally { Destroy(go); }
+        }
+
+        [Test]
+        public void ABleedDoTTick_DoesNotStrobeTheCreature_TheGuardTheGateFound()
+        {
+            // THE DEFECT THIS PINS, measured in the shipped exe before the guard existed: one axe swing applies
+            // a 2 dps / 3 s Bleed (WeaponCatalog), StatusEffectController ticks it through Health.ApplyDamage
+            // EVERY FRAME, and every tick is a genuine damage delta — so the [DFC-B] previous-value guard passes
+            // it through BY DESIGN and re-arms the whole package ~180×/second for three seconds. The first
+            // -verifyHitFeedback run logged `emitted=409 created=70` for a handful of swings: a strobing
+            // creature and a particle storm, the exact "violent or chaotic" read game-juice.md §0 forbids.
+            //
+            // The driver cannot ask WHO dealt the damage (AC1 🔒 forbids firing from the attacker), so it
+            // discriminates on the SHAPE: an impact is one large isolated drop, a DoT is a stream of tiny ones.
+            const float boarMaxHp = 40f;
+            float bleedTick = 2f * (1f / 60f);   // the shipped stone-axe bleed, one 60 fps frame
+            const float axeHit = 8f;             // an axe hit on the boar, post-resistance, order of magnitude
+
+            Assert.IsFalse(EnemyHitFeedback.IsImpactShaped(bleedTick, boarMaxHp, 10f),
+                "a per-frame bleed tick must NOT read as an impact (it is " +
+                (bleedTick / boarMaxHp * 100f).ToString("0.000") + "% of max HP)");
+            Assert.IsTrue(EnemyHitFeedback.IsImpactShaped(axeHit, boarMaxHp, 10f),
+                "a real axe hit MUST read as an impact (" + (axeHit / boarMaxHp * 100f).ToString("0.0") + "% of max HP)");
+
+            // The separation is ~250×, not marginal — state it so a future tuner can see the headroom.
+            Assert.Greater(axeHit / bleedTick, 100f,
+                "the impact/tick magnitude separation must stay comfortably wide, not knife-edge");
+
+            // The refractory window is the belt-and-braces half: it bounds the VISUAL rate whatever drives
+            // Health, including a hitched frame where a single bleed tick IS large.
+            Assert.IsFalse(EnemyHitFeedback.IsImpactShaped(axeHit, boarMaxHp, 0.01f),
+                "a second impulse inside the refractory window is suppressed (rate bound)");
+            Assert.IsTrue(EnemyHitFeedback.IsImpactShaped(axeHit, boarMaxHp, 0.5f),
+                "…and a genuinely later strike fires normally — the guard must not swallow real hits");
+
+            // Scale-free: the SAME thresholds must work on the 20 HP snake with no per-creature tuning.
+            Assert.IsFalse(EnemyHitFeedback.IsImpactShaped(bleedTick, 20f, 10f), "snake: a tick is still a tick");
+            Assert.IsTrue(EnemyHitFeedback.IsImpactShaped(axeHit, 20f, 10f), "snake: a hit is still a hit");
+        }
+
+        [Test]
+        public void SustainedBleed_FiresTheImpulseAtMostOnce_NotOncePerTick()
+        {
+            // The end-to-end form of the guard above, driven through the REAL Health seam: 120 bleed-sized
+            // ticks (2 seconds of a shipped axe bleed at 60 fps) must not produce 120 impulses.
+            var go = MakeCreature(3, out var fb, out var hp);
+            try
+            {
+                hp.max = 40f;
+                hp.RestoreFull();
+                fb.ResetVisuals();
+                int before = fb.HitCount;
+                for (int i = 0; i < 120; i++) hp.ApplyDamage(2f * (1f / 60f), DamageType.Slash);
+                Assert.AreEqual(before, fb.HitCount,
+                    "120 bleed ticks must fire ZERO impulses — before the guard this was 120 flashes and 120 " +
+                    "dust bursts (measured 409 in one shipped-exe gate run)");
+                Assert.Less(hp.Current, 40f, "sanity: the bleed really did remove HP (the ticks were not no-ops)");
+
+                hp.ApplyDamage(8f, DamageType.Slash);
+                Assert.AreEqual(before + 1, fb.HitCount, "…and a real hit still lands its impulse");
             }
             finally { Destroy(go); }
         }
@@ -281,6 +348,12 @@ namespace FarHorizon.EditTests
             fb.deathHandler = death;      // the LIVE tier surface the driver reads on EVERY hit
             try
             {
+                // The shipped refractory window (0.12 s) bounds the VISUAL rate of the DoT-strobe guard.
+                // This test needs two DELIBERATELY SEPARATE hits inside one method, where EditMode's
+                // Time.time barely advances — so the window is opened for the fixture. The MAGNITUDE half
+                // of the guard stays live (every damage below is well above the fraction floor).
+                fb.minRetriggerSeconds = 0f;
+
                 Assert.Greater(fb.easyStaggerSeconds, fb.medStaggerSeconds, "easy staggers longer than medium");
                 Assert.Greater(fb.medStaggerSeconds, fb.hardStaggerSeconds, "medium staggers longer than hard");
 
@@ -341,6 +414,11 @@ namespace FarHorizon.EditTests
             {
                 // POSITIVE CONTROL FIRST — otherwise "nothing happened" is satisfiable by a driver that never
                 // works at all, and the off-switch test would pass on a broken feature.
+                // The shipped refractory window (0.12 s) bounds the VISUAL rate of the DoT-strobe guard.
+                // This test needs two DELIBERATELY SEPARATE hits inside one method, where EditMode's
+                // Time.time barely advances — so the window is opened for the fixture. The MAGNITUDE half
+                // of the guard stays live (every damage below is well above the fraction floor).
+                fb.minRetriggerSeconds = 0f;
                 // (unwired deathHandler -> ActiveTier = Medium, whose stagger is non-zero)
                 hp.ApplyDamage(5f, DamageType.Slash);
                 Assert.IsTrue(fb.FlashActive, "control: with feedback ON a hit arms the flash");
