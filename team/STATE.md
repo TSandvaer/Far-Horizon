@@ -11,11 +11,18 @@ Decisions go in `team/DECISIONS.md` (append-only). Operational scrollback goes n
 
 ## RESUME NEXT-ACTION — 2026-08-02 (Sponsor PRESENT; auto-status OFF and staying off)
 
-**Agents in flight: ZERO. Open PRs: ZERO. Nothing is blocked.**
+**Agents in flight: ONE — Drew on `86caxjwb3` (enemy body-level hit feedback: `_HitFlash` +
+procedural flinch + the project's first pooled `ParticleSystem`), branch
+`drew/86caxjwb3-hit-feedback` off `66daadf`, dispatched 2026-08-02 ~16:2xZ. Open PRs: ZERO.**
 
-**If this session dies right now:** ask the Sponsor what ships next — `86caxjx26` closed and
-nothing is queued behind it. Do NOT dispatch without his word; the doctrine prefers an idle
-slot to invented work.
+**If this session dies right now:** `git -C ../Far-Horizon-drew-wt log --oneline` + `gh pr list`.
+No branch pushed → re-dispatch fresh (agent resume IDs die with the session). PR open →
+dispatch **Tess** as reviewer (NOT Devon — see the routing note below; the ticket body's
+"Reviewer: Devon" line predates the doctrine), one round, `APPROVE` or `REQUEST_CHANGES`.
+
+This is an **L**, it is **soak-gated**, and its soak carries a separately-answered Sponsor
+question that decides `86caxhfg2`'s fate: *"is 'is it nearly down?' already answered, or do you
+still want the above-head HP pip-row?"* Neither Drew nor the reviewer may pre-answer it.
 
 ### ⚠ Reviewer routing — I got this wrong on #432, disclosed to the Sponsor
 
@@ -121,8 +128,8 @@ default `GITHUB_TOKEN` actor.
 - **Stray in Devon's worktree:** stash `devon-pre-pr432-review-stash` in
   `../Far-Horizon-devon-wt` holding an untracked `.nvmrc` + `BuildMenuPanelSettings.asset`.
   `.nvmrc` is tracked on `main` now; the stash is droppable, left alone pending the Sponsor.
-- ⚠ **`team/orchestrator/dispatch-template.md` contradicts itself.** Its § "Read BEFORE any code"
-  table (the new scoped routing) is directly undercut by the "Lesson reminder (mandatory in every
-  dispatch)" block below it, which still orders agents to *"read EVERY `.claude/docs/*.md`"* —
-  the exact ~1,855-line-per-dispatch cost the 2026-08-02 doctrine retired. **Do not paste that
-  block.** Needs the Sponsor's yes before anyone edits it.
+- ✅ **The dispatch-template contradiction is FIXED** — `66daadf` (#434, Sponsor call). The
+  "read EVERY `.claude/docs/*.md`" order is struck from the lesson-reminder block;
+  Diagnose-Before-Fix survived it and now stands on its own. Only two mentions remain and both
+  state the *new* rule. Briefs name 1–3 docs per task class; nobody pastes a read-everything
+  order any more.
