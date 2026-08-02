@@ -11,7 +11,12 @@ Decisions go in `team/DECISIONS.md` (append-only). Operational scrollback goes n
 
 ## RESUME NEXT-ACTION — 2026-08-02 (Sponsor PRESENT; auto-status OFF and staying off)
 
-**Agents in flight: ZERO. Open PRs: ZERO. Nothing is blocked.**
+**Agents in flight: ONE — Drew on `86caxjx26` (empty-hands stone blades), branch
+`drew/86caxjx26-empty-hands` off `484d43f`, dispatched 2026-08-02 ~15:4xZ. Open PRs: ZERO.**
+
+**If this session dies right now:** check `git -C ../Far-Horizon-drew-wt log --oneline` and
+`gh pr list`. No branch pushed → re-dispatch fresh (agent resume IDs die with the session).
+PR open → dispatch **Devon** as reviewer, one round, `APPROVE` or `REQUEST_CHANGES` only.
 
 **Read `CLAUDE.md` § "Orchestration doctrine" before doing anything else** — twelve Sponsor
 rulings from today, several inverting prior standing rules. Short version: idle is free and an
@@ -21,7 +26,7 @@ reproduced in a built exe.
 
 ### The drought ended
 
-`main` @ `619940a`. **`feat` commits in the last 7 days: 1** — `01e9c03`
+`main` @ `484d43f`. **`feat` commits in the last 7 days: 1** — `01e9c03`
 `feat(combat): find-in-world weapon acquisition — sword_iron in a stump, E-looted` (#351),
 the first since **2026-07-22**. The kill switch (any calendar week with zero `feat` merges
 retires the standing team) is satisfied; re-check with:
@@ -95,6 +100,13 @@ default `GITHUB_TOKEN` actor.
 - **`orch/coordination` is retired.** Orchestrator works on `main`. Both tips archived remotely as
   `archive/orch-coordination-2026-06-24` and `archive/orch-coordination-2026-08-02`; never merge
   either — they fossilise code `main` deliberately deleted.
-- **No destination is set past #351.** `team/survival-roadmap.md` is stale as a plan (it stops at
-  M-U2 while combat, enemies and weapons have shipped). **Ask the Sponsor before dispatching
-  anything** — the doctrine says prefer an idle slot to manufactured work.
+- **Destination past #351: Sponsor picked `86caxjx26`** (2026-08-02, popup) — the empty-hands
+  defect, remaining scope `dagger_stone` + `sword_stone` + the AC3 no-orphan guard (#351 closed
+  the four iron blades). Nothing is queued behind it. `team/survival-roadmap.md` remains stale as
+  a plan (it stops at M-U2 while combat, enemies and weapons have shipped) — **ask the Sponsor
+  again before dispatching whatever follows.**
+- ⚠ **`team/orchestrator/dispatch-template.md` contradicts itself.** Its § "Read BEFORE any code"
+  table (the new scoped routing) is directly undercut by the "Lesson reminder (mandatory in every
+  dispatch)" block below it, which still orders agents to *"read EVERY `.claude/docs/*.md`"* —
+  the exact ~1,855-line-per-dispatch cost the 2026-08-02 doctrine retired. **Do not paste that
+  block.** Needs the Sponsor's yes before anyone edits it.
