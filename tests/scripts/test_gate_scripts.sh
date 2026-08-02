@@ -821,7 +821,7 @@ echo "=== ALL verify_*_gate.sh — uniform wedge-retry semantics (86cafzaeb) ===
 # wired into ci.yml must be appended to this list (the loop is the regression guard that keeps
 # the hardened pattern uniform). Every gate prints the shared "CAPTURE GATE FAILED" token on
 # its aggregate fail path, so the grep needle is uniform too.
-for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood swings; do
+for g in settings loot water chop sky heldbelt invdragghostpos placement mine boulder buildmenu boar heldwood swings weaponfind; do
   G="$SCRIPTS/verify_${g}_gate.sh"
   make_wedge_exe "$TMP/${g}_ff.sh" "fail-fast"
   assert_rc_and_grep 1 "CAPTURE GATE FAILED" "verify_${g}: real non-124 failure fails the gate" \
@@ -1146,14 +1146,25 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # both dead under -batchmode — a "helpful" headless conversion would silently produce black frames while
 # the logic half still exited 0 (the #287 false-empty class). This entry reds that conversion.
 # verify_swings_gate.sh (86caynve9) is WINDOWED on BOTH halves of the boundary sentence:
-# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:962 — a
+# SwingVerifyCapture captures via ScreenCapture.CaptureScreenshot (SwingVerifyCapture.cs:962 - a
 # BACKBUFFER read, dead under -batchmode) AND its F9 mine-seat pass photographs a screen-space IMGUI
 # OVERLAY (swing_pickaxe_panel.png), which never composites into a camera RenderTexture. A "helpful"
 # headless conversion would silently produce BLACK frames while the logic half still exited 0 (the
 # #287 false-empty class). This entry reds that conversion.
+#
+# verify_weaponfind_gate.sh (86cah7y5b) registers WINDOWED for the same reason, and it is registered HERE
+# rather than on #351's own branch because the two changes never touched the same file: the glob-driven
+# gate-wiring loop below (86cav8y74) landed on main AFTER #351 forked, so git merged this file with ZERO
+# textual conflict while the loop's launch-mode-registration half went red on the new wrapper - a SEMANTIC
+# collision the merge itself cannot surface. Measured on the merged tree, not assumed: the wrapper carries
+# an ANCHORED '-screen-fullscreen 0' on its launch line (verify_weaponfind_gate.sh:63) and ZERO anchored
+# '-batchmode' hits, so it satisfies BOTH halves of the two-sided assert above (86caynve7). It must stay
+# windowed: WeaponFindVerifyCapture uses ScreenCapture.CaptureScreenshot + WaitForEndOfFrame, and
+# weaponfind_side.png is the side-profile silhouette a human eyeballs before review.
 WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
                 verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
-                verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh)
+                verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh
+                verify_weaponfind_gate.sh)
 for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
 for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
 

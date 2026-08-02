@@ -203,6 +203,12 @@ namespace FarHorizon.Settings
         // The per-tier easy/med/hard presets live as DATA in IronDifficultyPresets (Items/IronDifficulty.cs).
         public const string IronOreRarityId    = "iron_ore_rarity";
         public const string SmeltFuelCostId    = "smelt_fuel_cost";
+        // Find-in-world weapon FINDABILITY (ticket 86cah7y5b AC5) — "how findable the world's weapons are is a
+        // difficulty dimension, dialable live like every other system's knobs". Registered by its OWN
+        // PopulateWeaponFind (the PopulateThirst / PopulateChop / PopulateCombat / PopulateIron de-collision
+        // precedent — NEVER grow the base Populate signature). Named after the closest live sibling
+        // `iron_ore_rarity`, which is the same shape of dial (how many of an authored pool are enabled).
+        public const string WeaponFindCountId  = "weapon_find_count";
         public const string SmeltTimeId        = "smelt_time";
         public const string SmeltOrePerIngotId = "smelt_ore_per_ingot";
 
@@ -295,6 +301,11 @@ namespace FarHorizon.Settings
         public const float BoarHpMaxMin = 15f, BoarHpMaxMax = 120f;          // boar HP-max band (around 32/40/50)
         public const float BoarGoreMin = 2f, BoarGoreMax = 50f;              // gore damage band (around 10/18/26)
         public const float BoarChargeSpeedMin = 1f, BoarChargeSpeedMax = 12f; // pursuit/charge speed band (around 3.2)
+        // Find-in-world weapon FINDABILITY band (ticket 86cah7y5b AC5) — how many of the authored seeded find
+        // SITES actually hold a weapon. 0 = a world with no gift in it (a legitimate hard-tier setting); the
+        // ceiling is the authored pool size, so the row can never ask for more finds than there are places.
+        public const int WeaponFindCountMin = FarHorizon.Combat.WeaponFindPool.FindCountMin;
+        public const int WeaponFindCountMax = FarHorizon.Combat.WeaponFindPool.FindCountMax;
 
         // Console UI scale band (86cabeqj9 soak NIT). 0.5x (half-size, for a Sponsor who finds the panel huge) ..
         // 1.5x (larger). Default 1.0x = the shipped panel, byte-identical untouched (the differs-badge stays off).
@@ -1122,6 +1133,43 @@ namespace FarHorizon.Settings
                 reg.AddFloat(BoarChargeSpeedId, "Boar charge speed",
                     () => ai.chaseSpeed, v => ai.chaseSpeed = Mathf.Clamp(v, BoarChargeSpeedMin, BoarChargeSpeedMax),
                     BoarChargeSpeedMin, BoarChargeSpeedMax, unit: "u/s");
+        }
+
+        /// <summary>
+        /// Register the FIND-IN-WORLD weapon findability dial (ticket 86cah7y5b AC5) — ONE int row,
+        /// `Weapon finds` , LIVE-bound to the scene <paramref name="pool"/>'s
+        /// <see cref="FarHorizon.Combat.WeaponFindPool.ActiveFindCount"/> (how many of the authored seeded find
+        /// sites actually hold a weapon: rare on one tier, generous on another). This feature's OWN Populate
+        /// method — the PopulateThirst / PopulateChop / PopulateCombat / PopulateIron / PopulateBoar
+        /// de-collision precedent; the base <see cref="Populate"/> signature is NEVER grown. Called from
+        /// SettingsPanel.Start, NOT part of the Build overload chain.
+        ///
+        /// DEAD-KNOB GUARD (the AC5 constraint + the <see cref="PopulateBoar"/> note): the setter writes BOTH
+        /// the ACTIVE field (via SetActiveFindCount, which re-applies the pool immediately so the dial is
+        /// visible the same frame) AND the ACTIVE difficulty tier's per-tier map entry — so a later
+        /// <see cref="FarHorizon.Combat.WeaponFindPool.ApplyDifficulty"/> reads back the DIALLED value instead
+        /// of clobbering it with the baked default, and the dialled number BAKES into that tier's preset
+        /// ([[verify-soak-builds-or-bake-and-judge]]). A null pool registers NOTHING (a find-less rig / bare
+        /// test never null-refs).
+        /// </summary>
+        public static void PopulateWeaponFind(SettingsRegistry reg, FarHorizon.Combat.WeaponFindPool pool)
+        {
+            if (reg == null || pool == null) return;
+
+            reg.AddInt(WeaponFindCountId, "Weapon finds",
+                () => pool.ActiveFindCount,
+                v =>
+                {
+                    int c = Mathf.Clamp(v, WeaponFindCountMin, WeaponFindCountMax);
+                    pool.SetActiveFindCount(c);                 // the ACTIVE field (+ immediate re-apply)
+                    switch (pool.ActiveTier)                    // AND the active tier's per-tier map entry
+                    {
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Easy: pool.easyFindCount = c; break;
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Hard: pool.hardFindCount = c; break;
+                        default: pool.medFindCount = c; break;
+                    }
+                },
+                WeaponFindCountMin, WeaponFindCountMax, unit: " in world");
         }
 
         /// <summary>

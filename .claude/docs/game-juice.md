@@ -25,7 +25,35 @@ Ranked by (near-term-loop impact) × (low cost) × (calm-tone fit). The top of E
 2. **Hit-stop on the axe strike — 2–3 frames, capped (T2).** `Time.timeScale = 0` for **2 frames** mid-chop, **3 frames** on the tree-fell blow; restore to 1. Fires on the `ImpactEvent` SO channel at the Mixamo axe-attack clip's impact keyframe. Camera + UI must run on `Time.unscaledDeltaTime` so they don't freeze. **Hard cap 3 frames** — 4–5 reads as "stunned/painful," wrong for the tone.
 3. **Audio variation + layering on repeated verbs (T6).** 4–6 wood-impact clips for chop + ±10% `Random.Range` pitch via `PlayOneShot`; 3–4 softer variants each for berry-pick and drink. 1 clip = "broken record" fatigue (worst on chopping, the highest-frequency verb); 3–5 acceptable, 6–8 excellent. Warm/woody/organic, never metallic. Near-zero perf, no pooling needed.
 4. **Pooled, faceted particle bursts at reward moments (T3).** Wood chips on chop impact, berry-pop on harvest, teal water droplets on drink, dust puff on item-land. **Pool every system** via `UnityEngine.Pool.ObjectPool<T>` + `OnParticleSystemStopped` return — per-event `Instantiate`/`Destroy` spikes GC. Chunky/faceted/polygonal shapes (warm palette), NOT thin wispy smoke. ≤12 particles per burst. Bursts only — never ambient traversal.
-5. **Ambient micro-animation for world liveness (T7).** Campfire light-intensity flicker (0.8–1.2× base, ~2Hz), collectible float-bob (±0.05u, 0.8Hz), water waves (already shipped — don't regress). **Seed a per-instance phase offset** so they don't pulse in sync (extends the seeded-scatter pattern); gate on activation radius. Respects `quality-bars.md` §Grass — bushes/grass stay still; only the trees-in-air move.
+5. **Ambient micro-animation for world liveness (T7).** Campfire light-intensity flicker (0.8–1.2× base, ~2Hz), collectible float-bob (±0.05u, 0.8Hz) **— but see §1.5a: only on a LOOSE collectible**, water waves (already shipped — don't regress). **Seed a per-instance phase offset** so they don't pulse in sync (extends the seeded-scatter pattern); gate on activation radius. Respects `quality-bars.md` §Grass — bushes/grass stay still; only the trees-in-air move.
+
+### 1.5a Motion is a property of PLACEMENT — gate the bob before you tune it
+
+**Sponsor's rule, 2026-08-02 (soak of PR #351):** *an item **driven into** or **resting on** something is **STILL**; an item **lying loose** may bob.* Decide this BEFORE reaching for an amplitude — it is a gate, not a dial.
+
+Why it is not a tuning question: a rigid object embedded in (or supported by) a rigid host **cannot** move relative to that host. When it does, the only reading the eye can construct is that the two aren't connected — so the piece reads as **hovering inside** its host rather than driven into it. **No amplitude is small enough to fix that**, because the defect is the *existence* of relative motion, not its size.
+
+The incident, because the near-miss is the instructive part: `86cah7y5b` shipped an iron sword driven point-down into a stump with the standard ±0.05u / 0.8Hz bob + a ±4° sway. Every check was green and every number was in band — the shipped gate measured `bladeTipY=-0.072` vs `stumpTopY=0.475` at `peakBob=+/-0.050`, i.e. the tip stayed **0.497u inside the wood** at the top of every bob, and the capture gate additionally asserted both cue channels were *live*, which was exactly the wrong bar. The Sponsor's verdict was `"the sword is floating, moving in the stump"`. The pre-soak prediction had considered "too quiet" and "beacon-like" and could not see this, because it reasoned about intensity.
+
+**Apply it as:** model placement explicitly (an enum on the component, with the STILL kind as the zero value so a forgotten placement is quiet rather than broken), gate both channels through it, and **keep the authored amplitudes non-zero and inert** rather than zeroing them in the scene — zeroing moves the rule out of the code and into serialized data, where the next author retypes a value and the defect returns silently. Verify it by **sampling the transform in the shipped build**, not by reading the placement field: measuring the frame also catches a bypassed gate or a second component writing the same transform. Live implementation: `WorldWeaponFind.FindPlacement` / `MotionAllowedFor`.
+
+**Corollary for the cue that's left:** a still item has lost a channel, so don't assume its findability survived. `86cah7y5b`'s soak PASSED "reads as special at default framing" — on the *moving* sword. That pass did **not** transfer to the still one; it had to be re-asked. It then passed — see §1.5b.
+
+### 1.5b Subtended pixel height UNDER-predicts legibility for a distinctive silhouette
+
+The re-soak of the still sword **passed**, refuting the prediction that preceded it. Worth recording because that prediction was made carefully with the right method and was still wrong: the arithmetic was sound, the inference drawn from it was not.
+
+The estimate used §2b properly — visible sword above the stump top = `1.075 − 0.475 = 0.60u`, vertical so foreshortened by `cos 55° = 0.574`, × the `62.080 px/m` frame-plane scale ⇒ **≈ 21 px** at 720p, against a stump reading **≈ 43 px** wide (horizontal, unforeshortened). From "the sword subtends half the extent of the thing it sits in" came the prediction: *not spotted at a glance; the stump registers first.*
+
+Sponsor, at default framing, before touching the camera: *"holding S for 4 seconds after spawn: yes the sword caught my eye."*
+
+**Why the inference failed:** subtended size predicts how much retina an object occupies, **not how fast it is recognised**. A silhouette that is *unique in its scene* — an upright, straight, bright, bilaterally-symmetric blade in a world whose whole vocabulary is rounded organic rock, bush and tree — is found by shape-contrast against its surroundings, which operates well below the size at which you would consciously read the object. The stump was twice the size and lost, precisely because a dark rounded lump is what the surrounding scatter already looks like.
+
+**Rules:**
+- **Never spend a channel because a px estimate says the cue is too small.** Ask *"is this silhouette unique in this scene?"* first. If yes, ~20 px can be plenty. `86cah7y5b` had a marker mesh scoped and ready to build; the soak proved it unnecessary, and building it pre-emptively would have added a permanent world object to solve a problem that did not exist.
+- **A px figure bounds the WEAK case, not the strong one.** It is good evidence that something *generic* will be missed; it is weak evidence that something *distinctive* will be.
+- **Distinctiveness is relative to the scene, never to the object.** The same 21 px of blade in a scene full of fence posts and tool racks would genuinely be lost.
+- **This does not weaken §2b.** State the plane and the framing with every px figure exactly as before — the arithmetic was correct and reproducible. What is bounded is the *conclusion* the number licenses.
 
 Next tier (apply where the surface exists): T4 Cinemachine **Impulse** (NOT Noise) at micro amplitude (~0.05–0.10u, single-frame decay) on axe impact; T5 squash/stretch + progressive-appearance on props/UI; T8 coyote-time + input-buffer on jump; T9 grow-from-scale-0 on spawns; T10 +5° sprint FOV. See the note for the full ranked table + surface mapping.
 

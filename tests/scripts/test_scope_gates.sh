@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_scope_gates.sh — unit + wiring guard for the capture-gate path router.
 #
-# WHAT THIS GUARDS. `.github/workflows/scripts/scope_gates.sh` makes 15 of the 16
+# WHAT THIS GUARDS. `.github/workflows/scripts/scope_gates.sh` makes 17 of the 18
 # shipped-build capture gates CONDITIONAL on what a diff touches. That introduces a
 # NEW way for a gate to gate nothing — not "the wrapper is never invoked" (the
 # -verifySwings class `test_gate_scripts.sh` already reds) but "the wrapper is
@@ -79,7 +79,21 @@ assert_map NONE "tools/debug/REGISTRY.md"
 # A capture COMPONENT with no CI wrapper is inert; a compile break in it reds the BUILD
 # job, never a capture gate. (test_gate_scripts.sh's gate-wiring loop is what keeps
 # "no wrapper" true for these.)
-assert_map NONE "Assets/Scripts/Runtime/SwingVerifyCapture.cs"
+#
+# ⚠ THE WITNESS MUST BE AN ACTUALLY-UNWIRED COMPONENT, AND IT WENT STALE ONCE. This line
+# used to name SwingVerifyCapture.cs, which was correct when written and became WRONG the
+# moment #369 wired verify_swings_gate.sh: "unwired probe -> NONE" is only sound while the
+# premise holds, and nothing re-checked the premise. Routing a WIRED component to NONE is
+# the precise false-green this file exists to prevent — a change to SwingVerifyCapture.cs
+# would have skipped the only gate that runs it. Re-measured 2026-08-02 with
+# `scope_gates.sh --map`: SnakeVerifyCapture.cs's -verifySnake flag appears in no
+# verify_*_gate.sh, so it genuinely falls through to the *VerifyCapture.cs arm. If a snake
+# gate is ever wired, MOVE this witness again — do not add an exception.
+assert_map NONE "Assets/Scripts/Runtime/SnakeVerifyCapture.cs"
+# ...and the two components that ARE wired must NOT land in that arm — the regression the
+# stale witness was hiding.
+assert_map "swings" "Assets/Scripts/Runtime/SwingVerifyCapture.cs"
+assert_map "weaponfind" "Assets/Scripts/Runtime/WeaponFindVerifyCapture.cs"
 assert_map ALL  ".github/workflows/ci.yml"
 assert_map ALL  "tests/scripts/test_gate_scripts.sh"
 assert_map ALL  "Assets/Scenes/Boot.unity"
@@ -147,7 +161,7 @@ assert_run true pond "docs + unmapped path fails OPEN" -- "team/STATE.md" "Asset
 empty_out="$(printf '' | bash "$SCOPE" --files -)"
 if printf '%s' "$empty_out" | grep -q 'scope_reason=fail-open' \
    && ! printf '%s' "$empty_out" | grep -q '=false'; then
-  ok "empty changed-path list fails OPEN (all 15 true, reason names it)"
+  ok "empty changed-path list fails OPEN (all 17 true, reason names it)"
 else
   bad "empty changed-path list did NOT fail open"; printf '%s\n' "$empty_out" | sed 's/^/        /'
 fi
