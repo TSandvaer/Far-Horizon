@@ -1342,7 +1342,7 @@ jobs:
       #     Runs only when the build produced an exe; frames + log upload AFTER (if: always()) so the swing
       #     evidence survives a fail.
       - name: Swing capture gate (5 class swings + pickaxe fold + two-hand palm grip + arm release)
-        if: always()
+        if: always() && steps.scope.outputs.run_swings != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1355,13 +1355,57 @@ jobs:
           fi
 
       - name: Upload swing frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_swings != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-swings-caps-${{ github.sha }}
           path: |
             ci-out/swings-caps/*.png
             ci-out/verify-swings.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 21. FIND-IN-WORLD WEAPON gate (86cah7y5b) — the SECOND acquisition route. The generic -captureGate
+      #     (step 7) only shoots the DEFAULT SPAWN frame, and the seeded find sits ~10-16u out in the walkable
+      #     annulus, so BOTH halves of this deliverable (the resting sword + the sword IN HAND after the loot)
+      #     would otherwise have ZERO built-frame evidence. This launches the SAME built exe WINDOWED with
+      #     -verifyWeaponFind, driving WeaponFindVerifyCapture: assert a find resolves in the seeded scene,
+      #     assert the real-world anchor GEOMETRICALLY in all three of its claims (blade tip below the stump
+      #     top, grip proud above it, and the blade PLANARLY over the stump — that third one exists because
+      #     this gate twice went GREEN on nonsense: once on a stump that had swallowed the sword whole, once
+      #     on a sword standing in the BARE GRASS a metre away, both times because every check was Y-only),
+      #     assert BOTH attract-cue channels are LIVE by sampling the real transform over ~90 frames (a cue
+      #     must not rest on a single channel, and "the code exists" is not evidence the frame moves), then
+      #     drive the shared E-loot seam (prompt resolves the find + names it, one press loots exactly one
+      #     sword_iron, a second press is a no-op) and prove the IN-HAND render three independent ways
+      #     (seat renderer enabled AND the belt→held sync landed on the iron-sword family index AND the seat's
+      #     bounds are real + inside the frustum) — because a bare `renderer.enabled` assert already let an
+      #     invisible-in-hand weapon ship TWICE (soak-3/soak-4, 86cav8y74). The component Quit(1)s on any
+      #     failure or missing Boot.unity wiring, so the exe's exit code IS the gate verdict; frame_check.py is
+      #     the swapchain-content backstop. WINDOWED (-screen-fullscreen 0), NOT -batchmode: ScreenCapture +
+      #     WaitForEndOfFrame are both dead headless (same boundary as the boar + weapon-set gates).
+      #     weaponfind_side.png is the SIDE-PROFILE silhouette a human eyeballs before review.
+      - name: Weapon-find capture gate (resting sword → E-loot → renders in-hand)
+        if: always() && steps.scope.outputs.run_weaponfind != 'false'
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_weaponfind_gate.sh
+            .github/workflows/scripts/verify_weaponfind_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/weaponfind-caps ci-out/verify-weaponfind.log
+          else
+            echo "[verify-weaponfind] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload weapon-find frames + log
+        if: always() && steps.scope.outputs.run_weaponfind != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-weaponfind-caps-${{ github.sha }}
+          path: |
+            ci-out/weaponfind-caps/*.png
+            ci-out/verify-weaponfind.log
           if-no-files-found: warn
           retention-days: 3
 

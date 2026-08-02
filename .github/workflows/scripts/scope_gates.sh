@@ -49,7 +49,7 @@ set -uo pipefail
 # registered in test_gate_scripts.sh's launch-mode lists has no key here, no ci.yml
 # condition, or a key no path can ever reach.
 # ---------------------------------------------------------------------------
-ROUTED_KEYS="settings buildmenu pond loot water chop placement heldbelt sky invdragghostpos weaponset mine boulder boar heldwood"
+ROUTED_KEYS="settings buildmenu pond loot water chop placement heldbelt sky invdragghostpos weaponset mine boulder boar heldwood swings weaponfind"
 
 # The gate wrappers that run UNCONDITIONALLY. Exactly one today, by design.
 ALWAYS_GATES="capture_gate.sh"
@@ -152,8 +152,11 @@ _gates_case() {
     Assets/Scripts/Runtime/CameraFollowNudgeTool.cs)  GATES_RESULT="settings" ;;
     Assets/Scripts/Runtime/WorldLookNudgeTool.cs)     GATES_RESULT="settings pond sky" ;;
     Assets/Scripts/Runtime/PondNudge.cs)              GATES_RESULT="settings pond" ;;
-    Assets/Scripts/Runtime/AxeNudgeTool.cs)           GATES_RESULT="settings heldbelt heldwood" ;;
-    Assets/Scripts/Runtime/HeldWeaponCycleDebug.cs)   GATES_RESULT="settings heldbelt heldwood mine boulder" ;;
+    # AxeNudgeTool also hosts the F9 mine-seat panel the swings gate photographs.
+    Assets/Scripts/Runtime/AxeNudgeTool.cs)           GATES_RESULT="settings heldbelt heldwood swings" ;;
+    # The held-seat resolver: the swings gate reads its seat during a swing, and the
+    # weapon-find gate proves the looted sword is in-hand through CurrentIndex/MeshHolder.
+    Assets/Scripts/Runtime/HeldWeaponCycleDebug.cs)   GATES_RESULT="settings heldbelt heldwood mine boulder swings weaponfind" ;;
     Assets/Scripts/Runtime/WarmthNeed.cs)             GATES_RESULT="settings" ;;
     Assets/UI/*)                                      GATES_RESULT="settings buildmenu invdragghostpos" ;;
 
@@ -162,7 +165,7 @@ _gates_case() {
     Assets/Scripts/Runtime/CraftingMenuUI.cs)         GATES_RESULT="buildmenu chop" ;;
     Assets/Scripts/Runtime/CraftingTable*.cs)         GATES_RESULT="buildmenu chop placement" ;;
     Assets/Scripts/Runtime/Campfire*.cs|Assets/Scripts/Runtime/Forge*.cs) GATES_RESULT="buildmenu placement mine" ;;
-    Assets/Scripts/Runtime/HeldWeaponPlacement.cs)    GATES_RESULT="buildmenu placement heldbelt heldwood" ;;
+    Assets/Scripts/Runtime/HeldWeaponPlacement.cs)    GATES_RESULT="buildmenu placement heldbelt heldwood swings" ;;
     Assets/Scripts/Runtime/IBuildPlaceable.cs)        GATES_RESULT="buildmenu placement" ;;
     Assets/Scripts/Runtime/PlacementObstacle*.cs|Assets/Scripts/Runtime/PlacementVerifyCapture.cs) GATES_RESULT="placement" ;;
 
@@ -173,7 +176,8 @@ _gates_case() {
     Assets/Scripts/Runtime/CloudDrift.cs|Assets/Scripts/Runtime/SkyVerifyCapture.cs) GATES_RESULT="sky" ;;
 
     # ---------------- feature-scoped: loot / needs ----------------
-    Assets/Scripts/Runtime/LootPrompt.cs)             GATES_RESULT="loot water" ;;
+    # The weapon-find gate asserts this widget's exact label on the resolved find.
+    Assets/Scripts/Runtime/LootPrompt.cs)             GATES_RESULT="loot water weaponfind" ;;
     Assets/Scripts/Runtime/LootPromptVerifyCapture.cs) GATES_RESULT="loot" ;;
     Assets/Scripts/Runtime/BerryBush.cs|Assets/Scripts/Runtime/EatBerryAction.cs|Assets/Scripts/Runtime/HungerNeed.cs) GATES_RESULT="loot" ;;
     Assets/Scripts/Runtime/StickProp.cs)              GATES_RESULT="loot chop" ;;
@@ -182,12 +186,14 @@ _gates_case() {
     # ---------------- feature-scoped: chop ----------------
     Assets/Scripts/Runtime/ChopTree.cs)               GATES_RESULT="chop placement" ;;
     Assets/Scripts/Runtime/ChopVerifyCapture.cs|Assets/Scripts/Runtime/LogPile*.cs|Assets/Scripts/Runtime/StumpAxe.cs) GATES_RESULT="chop" ;;
-    Assets/Scripts/Runtime/AxePickup.cs)              GATES_RESULT="chop heldbelt heldwood placement" ;;
+    Assets/Scripts/Runtime/AxePickup.cs)              GATES_RESULT="chop heldbelt heldwood placement swings" ;;
 
     # ---------------- feature-scoped: held visual (belt + wood tiers) ----------------
-    Assets/Scripts/Runtime/Held*.cs)                  GATES_RESULT="chop heldbelt heldwood mine boulder" ;;
+    # Held*.cs is the seat chain the swings gate measures frame-by-frame (the palm-on-haft
+    # assert) and the one the weapon-find gate proves the looted sword renders through.
+    Assets/Scripts/Runtime/Held*.cs)                  GATES_RESULT="chop heldbelt heldwood mine boulder swings weaponfind" ;;
     Assets/Scripts/Runtime/AxeVerifyCapture.cs)       GATES_RESULT="heldbelt heldwood" ;;
-    Assets/Scripts/Runtime/PickaxePickup.cs)          GATES_RESULT="mine boulder heldbelt heldwood" ;;
+    Assets/Scripts/Runtime/PickaxePickup.cs)          GATES_RESULT="mine boulder heldbelt heldwood swings" ;;
 
     # ---------------- feature-scoped: inventory UI ----------------
     Assets/Scripts/Runtime/InventoryUI.cs)            GATES_RESULT="invdragghostpos buildmenu" ;;
@@ -195,12 +201,24 @@ _gates_case() {
 
     # ---------------- feature-scoped: weapon set / mine / boulder / boar ----------------
     Assets/Scripts/Runtime/WeaponSetVerifyCapture.cs) GATES_RESULT="weaponset" ;;
-    Assets/Scripts/Editor/WeaponPackAssetGen.cs)      GATES_RESULT="weaponset heldbelt heldwood chop mine boulder" ;;
-    Assets/Art/Props/*)                               GATES_RESULT="weaponset heldbelt heldwood chop mine boulder" ;;
+    # The weapon meshes + their generator: the swings gate fires all 5 per-class swings
+    # through them, and the weapon-find gate seats wpn_sword_iron_01 in its stump.
+    Assets/Scripts/Editor/WeaponPackAssetGen.cs)      GATES_RESULT="weaponset heldbelt heldwood chop mine boulder swings weaponfind" ;;
+    Assets/Art/Props/*)                               GATES_RESULT="weaponset heldbelt heldwood chop mine boulder swings weaponfind" ;;
     Assets/Scripts/Runtime/MineOre.cs|Assets/Scripts/Runtime/MineVerifyCapture.cs|Assets/Scripts/Runtime/OrePile*.cs) GATES_RESULT="mine" ;;
     Assets/Scripts/Runtime/MineBoulder.cs)            GATES_RESULT="boulder placement" ;;
     Assets/Scripts/Runtime/BoulderVerifyCapture.cs|Assets/Scripts/Runtime/Stone*.cs) GATES_RESULT="boulder" ;;
     Assets/Scripts/Runtime/BoarVerifyCapture.cs)      GATES_RESULT="boar" ;;
+
+    # ---------------- feature-scoped: swings / find-in-world ----------------
+    # These two arms are what make `swings` and `weaponfind` REACHABLE from a tracked
+    # path rather than only via fail-open. They MUST stay above the
+    # `*VerifyCapture.cs -> NONE` catch-all below, which exists for UNWIRED probes —
+    # both of these components ARE wired (verify_swings_gate.sh / verify_weaponfind_gate.sh),
+    # so landing in that arm would route their own gate to NONE: a component change that
+    # skips the only gate that tests it.
+    Assets/Scripts/Runtime/SwingVerifyCapture.cs|Assets/Scripts/Runtime/SwingSeatGate.cs) GATES_RESULT="swings" ;;
+    Assets/Scripts/Runtime/WeaponFindVerifyCapture.cs) GATES_RESULT="weaponfind" ;;
 
     # ---------------- author-run probes with NO CI wrapper ----------------
     # These components are INERT unless their own -verify* flag is passed, and no gate
