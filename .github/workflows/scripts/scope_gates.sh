@@ -91,6 +91,24 @@ _gates_case() {
     Assets/Tests/*)                         GATES_RESULT=NONE ;;
     .gitignore|.gitattributes|.editorconfig|.nvmrc|LICENSE*|*.gitkeep) GATES_RESULT=NONE ;;
 
+    # The committed build stamp is REWRITTEN by BootstrapProject.WriteBuildStamp
+    # (BootstrapProject.cs:95/:271) at the start of every CI run, before the build, so
+    # its committed value never reaches the exe on the CI path — and NOTHING in ci.yml
+    # reads it (`grep -c verify_build_stamp .github/workflows/ci.yml` = 0;
+    # verify_build_stamp.py is serve_soak.sh-only, and no gate wrapper mentions the
+    # stamp). It churns as bootstrap side-effect on 50 of the last 150 commits.
+    # ⚠ MEASURED BENEFIT TODAY IS ZERO — do not cite this arm as a saving. Of the 71
+    # ci.yml-triggering commits in that 150-commit sample, 9 touch the stamp and 0 of
+    # the 9 stop being a full 16-gate run once it is excluded: every one also touches
+    # another ALL path (Boot.unity, the rig, …). A first draft of this comment claimed
+    # it recovered 9 of 42 full runs, from a first-match-reason tally that is
+    # order-dependent within a diff; the re-measurement refuted it and is recorded here
+    # rather than quietly dropped. The arm is kept because it is CORRECT and covers a
+    # stamp-only bootstrap re-commit, not because it pays today.
+    # MUST sit ABOVE the Assets/Resources/* ALL arm below, which still covers
+    # WeaponSetLineup.prefab (the weaponset gate loads it from Resources at runtime).
+    Assets/Resources/BuildStamp.txt)        GATES_RESULT=NONE ;;
+
     # ---------------- ALL: CI + project-level surfaces ----------------
     # A gate script, the workflow, or the gate harness changed -> re-run everything,
     # including the routing this very script performs.

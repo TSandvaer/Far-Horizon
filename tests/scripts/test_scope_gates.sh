@@ -89,6 +89,13 @@ assert_map ALL  "Assets/Scripts/Runtime/CastawayArmPose.cs"
 assert_map ALL  "Assets/Scripts/Runtime/Inventory.cs"
 assert_map ALL  "Assets/Scripts/Runtime/Combat/BoarAI.cs"
 assert_map ALL  "Assets/Scripts/Editor/BootstrapProject.cs"
+# The committed build stamp is bootstrap side-effect churn that CI overwrites before
+# every build and no gate reads — but its Resources/ SIBLING (the weapon lineup prefab
+# the weaponset gate loads) must stay ALL. Both arms are asserted so a future reordering
+# that swallows the specific arm under the general one reds here.
+assert_map NONE "Assets/Resources/BuildStamp.txt"
+assert_map NONE "Assets/Resources/BuildStamp.txt.meta"
+assert_map ALL  "Assets/Resources/WeaponSetLineup.prefab"
 # The `.meta` sibling of a mapped file must route IDENTICALLY — Unity commits one per
 # asset, so a routing table blind to `.meta` would silently fail open on half the diff.
 assert_map "chop placement" "Assets/Scripts/Runtime/ChopTree.cs"
