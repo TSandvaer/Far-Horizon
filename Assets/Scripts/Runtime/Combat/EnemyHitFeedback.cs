@@ -230,7 +230,6 @@ namespace FarHorizon.Combat
         private void EnsureInit()
         {
             if (_health == null) _health = GetComponent<Health>();
-            if (deathHandler == null && _health != null) { /* left null → ActiveTier reads Medium */ }
             if (_initialized) return;
             _initialized = true;
 

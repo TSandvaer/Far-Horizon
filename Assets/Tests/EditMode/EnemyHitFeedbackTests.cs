@@ -73,6 +73,13 @@ namespace FarHorizon.EditTests
             }
         }
 
+        // Read a source file with EVERY line comment removed. Source-level guards in this fixture assert on
+        // EXECUTABLE code only — a doc comment that NAMES the thing it forbids (which the driver's class note
+        // deliberately does, at length) is documentation, not a violation.
+        private static string StrippedSource(string path)
+            => System.Text.RegularExpressions.Regex.Replace(
+                   System.IO.File.ReadAllText(path), @"//.*", string.Empty);
+
         // ---------------------------------------------------------------- AC1: damage ONLY
 
         [Test]
@@ -166,12 +173,19 @@ namespace FarHorizon.EditTests
             // AC2 🔒 + AC7. An MPB breaks BOTH the SRP Batcher and GPU-Resident-Drawer eligibility; distinct
             // material instances break neither. This is a SOURCE assertion because the defect is a call that
             // would still render correctly — it costs FPS silently, which no rendering assertion can see.
-            string driver = System.IO.File.ReadAllText(
-                "Assets/Scripts/Runtime/Combat/EnemyHitFeedback.cs");
+            // Comments stripped first: the class note NAMES MaterialPropertyBlock while explaining why the
+            // driver must never use one. Prose about a prohibition is not a violation of it — only EXECUTABLE
+            // code is judged (the same reason the no-per-enemy-branch scan below strips comments).
+            string driver = StrippedSource("Assets/Scripts/Runtime/Combat/EnemyHitFeedback.cs");
             StringAssert.DoesNotContain("MaterialPropertyBlock", driver,
                 "AC2 🔒: the flash is a MATERIAL-INSTANCE write. An MPB here would silently drop both enemies " +
                 "out of the SRP batch (unity-conventions.md §SRP-Batcher).");
             StringAssert.DoesNotContain("SetPropertyBlock", driver, "no SetPropertyBlock in the flash path");
+
+            // The pooled puff is exempt by construction (a ParticleSystemRenderer is not the disqualified
+            // MeshRenderer path — game-juice.md §2), but it must not sprout one either.
+            string pool = StrippedSource("Assets/Scripts/Runtime/Juice/PooledBurstEmitter.cs");
+            StringAssert.DoesNotContain("SetPropertyBlock", pool, "no MPB in the pooled-burst path");
         }
 
         // ---------------------------------------------------------------- AC1: ONE shared path
@@ -182,11 +196,10 @@ namespace FarHorizon.EditTests
             // AC1 🔒: "No BoarEnemy / SnakeEnemy branches in the feedback code" — a per-enemy fork is how the
             // NEXT creature ships with half the feedback. Source-level because a runtime test on two creatures
             // passes whether or not a third would work.
-            string driver = System.IO.File.ReadAllText(
-                "Assets/Scripts/Runtime/Combat/EnemyHitFeedback.cs");
-            // Strip the XML-doc block comments: the class note legitimately NAMES both types while explaining
-            // why neither is branched on. Only executable code is judged.
-            var stripped = System.Text.RegularExpressions.Regex.Replace(driver, @"///.*", string.Empty);
+            // Comments stripped: the class note legitimately NAMES both enemy types while explaining why
+            // neither is branched on, and the precedent notes name BoarAI — prose is not a fork. Only
+            // EXECUTABLE code is judged, which is what the constraint is actually about.
+            var stripped = StrippedSource("Assets/Scripts/Runtime/Combat/EnemyHitFeedback.cs");
             StringAssert.DoesNotContain("BoarEnemy", stripped, "AC1 🔒: no BoarEnemy branch in the driver");
             StringAssert.DoesNotContain("SnakeEnemy", stripped, "AC1 🔒: no SnakeEnemy branch in the driver");
             StringAssert.DoesNotContain("BoarAI", stripped, "AC1 🔒: no BoarAI branch in the driver");
