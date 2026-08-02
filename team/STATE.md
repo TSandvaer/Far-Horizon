@@ -67,15 +67,17 @@ denied to a non-elevated user): **`FarHorizon-RunnerKeepAlive`**, 5-minute repea
 real scheduled fire. `FarHorizon-RunnerDisconnectWatchdog` re-enabled. Tooling on `main` at
 `tools/ops/`.
 
-### ⚠ Known, unresolved: `main`'s capture is unverified at `01e9c03`
+### ✅ RESOLVED — `main` is fully green at `619940a`
 
-The post-merge `main` run `30752613219` was **cancelled by capture contention** — the repo-wide
-`unity-capture` group permits exactly ONE capture across the entire repo, so a merge-to-`main`
-and any open PR reliably take each other out. Happened twice today. It self-heals on
+Run `30753181110`: **`structure` · `build` · `capture` · `playmode` all success.** No rerun was
+needed — the #427 label-merge spawned a fresh `main` run on a newer head, which superseded the
+cancelled one.
+
+Kept because the mechanism recurs: the earlier `main` run `30752613219` was **cancelled by
+capture contention**. The repo-wide `unity-capture` group permits exactly ONE capture across the
+entire repo, so a merge-to-`main` and any open PR reliably take each other out — twice today.
+**A cancelled `capture` is usually contention, not signal.** It self-heals via the next run, or
 `gh run rerun --job <id>`.
-
-**Next action: rerun `main`'s capture now that nothing is contending**, and confirm green.
-`structure` and `build` both passed on #351 pre-merge, so this is confirmation, not suspicion.
 
 Corollary worth knowing: a **label-merge with the PAT DOES spawn a `main` push run** (a PAT is a
 user credential). The older memory claim that label-merges spawn no run holds only for the
