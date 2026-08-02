@@ -278,6 +278,12 @@ namespace FarHorizon
             // frame showing an un-flashed creature.
             if (!shotImpact) ShotTo(Path.Combine(dir, prefix + "_impact.png"));
             _flashedAllTogether = _seenMaterials == expectedMaterials && minFlash > 0.0001f;
+            // GROUND TRUTH on the burst, every run. `puffed=True` only says a burst was REQUESTED; it is green
+            // on a burst that renders nothing, which is exactly what shipped once here (sub-pixel chunks). This
+            // line names the live system's real position / particle count / renderer state / mesh extent, so an
+            // invisible puff is DIAGNOSED from the log instead of guessed at from a frame.
+            Debug.Log("[HitFeedbackVerifyCapture] " + prefix + " burst: " + emitter.DescribeLive() +
+                      " contactPoint=" + fb.ContactPoint().ToString("F2"));
             yield return new WaitForEndOfFrame();
             yield return null;
 

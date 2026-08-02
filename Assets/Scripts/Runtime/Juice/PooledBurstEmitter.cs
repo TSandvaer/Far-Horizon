@@ -80,6 +80,41 @@ namespace FarHorizon.Juice
         public bool TemplateStopActionIsCallback =>
             template != null && template.main.stopAction == ParticleSystemStopAction.Callback;
 
+        /// <summary>The instance the most recent <see cref="Emit"/> checked out. Diagnostic handle only — the
+        /// pool may already have taken it back. See <see cref="DescribeLive"/>.</summary>
+        public ParticleSystem LastEmitted { get; private set; }
+
+        /// <summary>
+        /// GROUND TRUTH about the most recent burst, for when a burst is provably firing (EmitCount climbs,
+        /// OnParticleSystemStopped fires) and yet NOTHING IS ON SCREEN. That combination has exactly one honest
+        /// next step — dump what the live system actually is — because every cheap hypothesis for it (wrong
+        /// position, culled renderer, zero particles, stripped material, zero-size mesh) is indistinguishable
+        /// from the outside and they are NOT distinguishable by staring at a frame. This is a permanent
+        /// diagnostic surface, not scaffolding: the shipped `-verifyHitFeedback` gate logs it every run, so the
+        /// next person who meets an invisible burst reads the answer instead of re-deriving it.
+        /// </summary>
+        public string DescribeLive()
+        {
+            if (LastEmitted == null) return "<no burst emitted yet>";
+            var r = LastEmitted.GetComponent<ParticleSystemRenderer>();
+            var m = LastEmitted.main;
+            return "pos=" + LastEmitted.transform.position.ToString("F2") +
+                   " particles=" + LastEmitted.particleCount +
+                   " playing=" + LastEmitted.isPlaying +
+                   " activeInHierarchy=" + LastEmitted.gameObject.activeInHierarchy +
+                   " rendererEnabled=" + (r != null && r.enabled) +
+                   " rendererVisible=" + (r != null && r.isVisible) +
+                   " renderMode=" + (r != null ? r.renderMode.ToString() : "<null>") +
+                   " meshVerts=" + (r != null && r.mesh != null ? r.mesh.vertexCount : 0) +
+                   " meshExtent=" + (r != null && r.mesh != null
+                        ? (r.mesh.bounds.extents.magnitude * 2f).ToString("F3") : "0") +
+                   " shader=" + (r != null && r.sharedMaterial != null && r.sharedMaterial.shader != null
+                        ? r.sharedMaterial.shader.name : "<null>") +
+                   " startSize=" + m.startSize.constantMin.ToString("F2") + ".." + m.startSize.constantMax.ToString("F2") +
+                   " startColor=" + m.startColor.color.ToString("F2") +
+                   " lifetime=" + m.startLifetime.constantMax.ToString("F2");
+        }
+
         private ObjectPool<ParticleSystem> _pool;
         private bool _initialized;
 
@@ -180,6 +215,7 @@ namespace FarHorizon.Juice
             em.SetBurst(0, new ParticleSystem.Burst(0f, (short)n));
 
             ps.Play(true);
+            LastEmitted = ps;
             EmitCount++;
             return true;
         }
