@@ -17,8 +17,30 @@ rules. The short version: idle is free, an unjustified dispatch is the bug; one 
 reviewer + at most one support; reviews may never create tickets; docs require a paid-for
 incident; agents may not create tickets except for bugs reproduced in a built exe.
 
-**Agents in flight: ZERO.** The prior orchestrating session was stopped by the Sponsor so the
-rulebook could be rewritten without a live loop acting on the old doctrine.
+**Agents in flight: ONE — Drew, on `86cah7y5b` / PR #351 (dispatched 2026-08-02, agentId
+`af92602cad52eb357`, worktree `Far-Horizon-drew-wt`, branch `drew/86cah7y5b-find-in-world`).**
+⚠ Per [[agent-resume-ids-die-with-session]] that agentId does NOT survive a session restart —
+if this session dies, **re-dispatch fresh**. The full brief is recoverable: it is the
+"Follow-up scope" block of the soak-verdict comment on PR #351 (2026-08-02).
+
+**The #351 soak FAILED on the attract cue — this is what Drew is fixing.** Sponsor played
+`Build\soak-351\FarHorizon.exe` (stamp `zoned | 2026-07-30T22:19:59Z | d9b88cd`, verified from
+the shipped `resources.assets`). Verbatim: *"the sword is floating, moving in the stump."*
+Acquisition mechanics all PASSED (E-loot, no re-loot, equip, in-hand, no duplicate). The
+float-bob animates the sword relative to the stump so it reads as hovering **in** it rather
+than driven **into** it.
+
+**Sponsor's rule (general, not a patch):** motion cues are a property of PLACEMENT — an item
+driven into or resting on something is STILL; an item lying loose may bob.
+
+⚠ **The confound that decides the re-soak.** The Sponsor DID spot the sword before the prompt
+at default framing — but he spotted a *moving* one, and the fix removes that motion. That PASS
+does **not** transfer to a still sword; nobody has seen one. So the re-soak answers exactly ONE
+question: *walking up at default framing, does the motionless sword-in-stump still catch the
+eye?* **Yes** → FORM silhouette suffices, done, no marker mesh. **No** → only then spend a
+per-instance FORM/POSITION channel. A marker mesh is deliberately NOT pre-built.
+
+Also still open: the F3 dev-console "Weapon finds" default (1 per region) — never reached.
 
 **Verified state (measured 2026-08-02, `origin/main`):**
 
