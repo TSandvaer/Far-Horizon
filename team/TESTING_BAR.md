@@ -16,6 +16,19 @@ A ticket is "complete" only when ALL of:
 
 ---
 
+## ⛔ What this bar does NOT ask for (Sponsor decision 2026-08-02)
+
+The six gates above stay exactly as they are — they are why the Sponsor never has to debug, and CI costs no tokens. But "test thoroughly" was being read as "test everything, forever," and that reading is now explicitly closed:
+
+1. **Do not test the test infrastructure.** No tests guarding capture components. No guards on guards. No suites asserting that a gate exists. Measured cost of the old reading: PR #399 added a 204-line test guarding capture components; PR #392 grew an animation-clip guard file to ~970 lines (+927/−45). Both merged, neither moved the game. **The bar applies to gameplay, not to the machinery that checks gameplay.**
+2. **A verify-capture component ships CI-wired in its own PR, or it does not ship.** Measured: 37 `*VerifyCapture*.cs` components exist; only **13** have CI wrapper gates. The other 24 are compiled, maintained and (per #399) *tested* — and never run. When a feature PR next touches an unwired one, wire it or delete it **in that PR**. Do not file 24 tickets.
+3. **Review is one round, two verdicts.** `APPROVE` or `REQUEST_CHANGES` (fixed in the same PR, re-checked once). `APPROVE_WITH_NITS` is deleted and **no ticket may ever be created from a review**. Docs-only and test-only PRs get no reviewer at all. Full rule in `CLAUDE.md` § Orchestration doctrine.
+4. **Diagnose-Before-Fix and Predict-Before-Soak apply to `fix(...)` and soak-gated PRs ONLY** — never to docs, chore, or test PRs.
+
+**The distinction to hold:** thoroughness on the thing the Sponsor will play is the bar. Thoroughness on our own process artifacts is the waste. When those two compete, the game wins.
+
+---
+
 ## Accuracy + performance gates (Erik research, 2026-06-15)
 
 Folded from Erik's developer-accuracy / performance note (`team/erik-consult/developer-accuracy-performance-research.md`, not auto-read). These three gates close recurring failure classes the float saga + world-look churn exposed; they bind alongside the 6-point "complete" rubric above. Full adoption is ticketed (`86ca9a340` / `86ca9a36g` / `86ca9a3b3`) — these lines make the GATE mandatory now, even before the harness/tooling lands.

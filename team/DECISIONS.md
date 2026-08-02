@@ -905,3 +905,33 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
 - **④ chain soak = SPONSOR PASS** (walkthrough popup, "chain works, forge reads right"; soak-crafting-4 @ 75a9725): `86camz9uz` ① (shipped 07-18) · `86camz9v7` ② · `86camz9vh` ③ · `86camz9vq` ④ · ghost-obstruction fix `86catqxm0` — all complete. The Sponsor-locked wood→stone→iron progression from the 2026-07-08 grill is live end-to-end.
 - **Sponsor design confirmation (mid-soak verbatim, ticket 86catpvpa comment 90150243183538):** C = build MENU for all placeable structures; the placed crafting TABLE's menu is ITEMS-only (tools/weapons); the interim forge key V retires. Shipped same-day as PR #311 (`IBuildPlaceable`/`BuildMenuUI.RegisterPlaceable` seam — ⑤ campfire and future placeables register rows, never fork a menu).
 - **Merge-path policy shift (sponsor verbatim in-walkthrough: "Why do i have to merge anything? you can do it. yes merge now"):** fully-gated workflow-file PRs are orch-DIRECT-merged via `gh pr merge --admin` when the sponsor is present/delegating — the browser-click ritual was classifier-convention only, never token-required for the CLI (#299 `d757c2e`, #308 `fdb81df`, #309 `9a8687b`). Away-mode staging unchanged.
+
+## 2026-08-02 — Orchestration doctrine rewritten: 12 rulings to stop the team generating its own work
+
+- Decided by: Sponsor (grilled through 12 discrete decisions in one session; every ruling his)
+- Decision: (1) hard ceiling of one developer + one reviewer + at most one justified support;
+  (2) `maintain-docs` Stop hook REMOVED, skill is manual-only and gated on naming an incident
+  plus what it cost; (3) `APPROVE_WITH_NITS` DELETED — two verdicts, one round, and a review may
+  NEVER create a ticket; docs/test-only PRs get no reviewer; (4) agents may create tickets only
+  for bugs reproduced in a built exe, everything else is Sponsor-gated; (5) blanket
+  read-all-12-docs pre-read replaced by a per-task-class routing table; (6) testing bar KEPT
+  intact but testing the test infrastructure is banned, and verify-captures ship CI-wired or not
+  at all; (7) away/unattended mode OFF until three feats ship; (8) STATE.md slimmed to a resume
+  header, away-queue + decisions-while-away archived to `team/log/`; (9) kill switch armed — any
+  calendar week with zero `feat` merges retires the standing team; (10) next destination is
+  closing out the weapon/combat line (PR #351).
+- Why: measured on `origin/main` 2026-08-02 — last `feat` was 2026-07-22 (`0dc4844`), and the 79
+  commits since were 47 docs, 12 chore, 10 fix, 8 test, 1 spike, 1 ci and ZERO feat. Nine of ten
+  open PRs were non-gameplay. An unattended loop burned four rate-limit windows and then the
+  weekly account cap producing documentation. Removing the anti-idle hook killed the DEMAND for
+  work; these rulings kill the SUPPLY engines that manufactured it — an auto-firing docs skill
+  whose three proposers were asked "what should we document" every tick, a review verdict that
+  auto-filed a ticket (verified chain #383 to #394 to #401), unbounded ticket authoring, and
+  docs run through the full code-review pipeline.
+- Sponsor's framing, verbatim: "I want a well oiled team that does productive work, not work for
+  the sake of work" and "if this is not possible a single session with a single agent works
+  better than orchestration."
+- Reversibility: reversible (all doctrine/prose + two settings edits) — but the kill switch is
+  deliberately automatic so reversal-by-drift is detectable within a week.
+- Affects: all roles, `CLAUDE.md`, `.claude/settings.json`, the `maintain-docs` skill, the
+  dispatch template, `team/TESTING_BAR.md`, `team/STATE.md`, all six persona files, `TEAM.md`.
