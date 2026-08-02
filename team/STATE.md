@@ -11,18 +11,50 @@ Decisions go in `team/DECISIONS.md` (append-only). Operational scrollback goes n
 
 ## RESUME NEXT-ACTION — 2026-08-02 (Sponsor PRESENT; auto-status OFF and staying off)
 
-**Agents in flight: ONE — Drew on `86caxjwb3` (enemy body-level hit feedback: `_HitFlash` +
-procedural flinch + the project's first pooled `ParticleSystem`), branch
-`drew/86caxjwb3-hit-feedback` off `66daadf`, dispatched 2026-08-02 ~16:2xZ. Open PRs: ZERO.**
+**Agents in flight: ZERO. Crons: ZERO. Open PRs: ONE — #436, PARKED ON PURPOSE.**
+Session drained and saved 2026-08-02 ~19:55Z at the Sponsor's request.
 
-**If this session dies right now:** `git -C ../Far-Horizon-drew-wt log --oneline` + `gh pr list`.
-No branch pushed → re-dispatch fresh (agent resume IDs die with the session). PR open →
-dispatch **Tess** as reviewer (NOT Devon — see the routing note below; the ticket body's
-"Reviewer: Devon" line predates the doctrine), one round, `APPROVE` or `REQUEST_CHANGES`.
+### ▶ FIRST ACTION NEXT SESSION — check CI on #436, then the runner
 
-This is an **L**, it is **soak-gated**, and its soak carries a separately-answered Sponsor
-question that decides `86caxhfg2`'s fate: *"is 'is it nearly down?' already answered, or do you
-still want the above-head HP pip-row?"* Neither Drew nor the reviewer may pre-answer it.
+**#436** (`86caxjwb3`, enemy hit feedback) sits at **`df5edf7`**, `MERGEABLE`, reviewed and
+`APPROVE`d by Tess at the previous head. CI run **`30764256201`** was left **`queued`** because
+the sole self-hosted runner **`far-horizon-local` was `offline`** at 19:53Z (API ground truth;
+hosted `structure` passed in 21 s, so it was NOT an Actions outage — same class as the ~4.5 h
+starvation earlier today).
+
+1. `gh run view 30764256201` — did it ever run?
+2. `gh api repos/TSandvaer/Far-Horizon/actions/runners --jq '.runners[].status'` — is it back?
+   **`FarHorizon-RunnerKeepAlive` (5-min repeat, installed 2026-08-02) was recovering it
+   unattended for the first time. Whether it worked is genuinely unknown — find out, because
+   it decides whether that fix is real.**
+3. **#436 still needs a Sponsor SOAK before merge.** It is soak-gated, and its soak carries a
+   separately-answered question deciding `86caxhfg2`'s fate: *"is 'is it nearly down?' already
+   answered, or do you still want the above-head HP pip-row?"* **Nobody may pre-answer it.**
+
+⚠ **The soak build served earlier (`49e69e7`) is WRONG — do not reuse it.** It contained the
+contact-frame defect below. A fresh build from `df5edf7` is required.
+
+### The defect the red test caught — why "advisory" nearly shipped a broken feature
+
+`playmode` is advisory/non-blocking and the required `capture` gate was **green** — yet the one
+red PlayMode test, `Flash_RisesThenFALLS_AndSettlesAtExactlyZero_TheLatchDiscriminator`, was
+telling the truth and both green gates were not.
+
+**Root cause:** the flash rode `Impulse01`, the *flinch's* eased-**in** curve, which is 0 at
+t=0. Damage lands in `MeleeAttack.Update`; the flash is written in the same frame's
+`LateUpdate` → `normT=0.0000 impulse=0.0000 -> write=0.0000`. **The creature rendered unlit on
+the contact frame** — the exact frame the flash exists to sell. AC2 always said "eased *out*".
+
+**Why `capture` was green anyway:** the zero had been compensated for *inside the instrument*
+(`aa8f278` annotated it "BY DESIGN"), so the built-exe gate had been taught to expect the bug.
+**An instrument that encodes an assumption stops being evidence.** Fixed by a separate pure
+`FlashImpulse01` (full at contact, quadratic ease-out to 0), `Impulse01` untouched. **Test
+unchanged**; proven red on the unfixed tree, then PlayMode **341/341**.
+
+**Standing lesson: do not merge past a red test because its job is labelled advisory.** The
+orchestrator's hypothesis (a default-0 refractory timestamp) was **refuted by trace** —
+`_lastStrikeAt` is `float.NegativeInfinity`. Labelling it a hypothesis in the brief is what
+made it cheap to refute rather than expensive to implement.
 
 ### ⚠ Reviewer routing — I got this wrong on #432, disclosed to the Sponsor
 
