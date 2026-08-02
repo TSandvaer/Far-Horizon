@@ -223,6 +223,39 @@ namespace FarHorizon.Combat
         /// the runtime rides, rather than a re-implemented proxy).</summary>
         public const float SnapFraction = 0.22f;
 
+        /// <summary>
+        /// THE FLASH's own curve: FULL at contact, quadratic ease-OUT to exactly 0. This is AC2's
+        /// "snap-then-fade" read (`t *= t`) and the brief's "~0.08s, <b>eased out</b>" — eased OUT, never
+        /// eased IN.
+        ///
+        /// 🔒 WHY THE FLASH DOES NOT SHARE <see cref="Impulse01"/> (the defect this closes): a flash REPORTS an
+        /// event, so it must be brightest ON the frame the event happens; a flinch MOVES A BODY, and a body
+        /// accelerates from rest. Riding the flash on the flinch's eased rise meant the amplitude on the CONTACT
+        /// FRAME was <c>Impulse01(0) = 0</c> — the creature rendered UNLIT on the one frame the player's eye is
+        /// on, then lit up the frame after. That is not a test artifact: the shipped path
+        /// (<c>MeleeAttack.Update</c> → <c>Health.ApplyDamage</c> → this component's LateUpdate, all in ONE
+        /// frame) samples the curve at exactly <c>t = 0</c> too. At the shipped 0.08 s the ramp-in it bought
+        /// spanned 0.22 × 0.08 = 17.6 ms — under one frame at 60 fps — so it was never observable as a rise; its
+        /// only observable effect was the dark frame.
+        ///
+        /// Frame-rate independent BY CONSTRUCTION: the contact frame is at PEAK, not at "one <c>deltaTime</c>
+        /// into a ramp", so it reads identically at 60 and at 240 fps. Deriving the first amplitude from
+        /// <c>Time.deltaTime</c> would have made the value non-zero (passing the test) while leaving the contact
+        /// frame dim at high frame rates — green on nonsense.
+        ///
+        /// Still not linear ([DFC-2]): the fade is quadratic, which is the ease AC2 names. Strictly DECREASING on
+        /// (0,1), so the PlayMode latch-discriminator's falling-sequence assertion keeps its teeth — a latched
+        /// implementation still produces a constant and still fails. Exactly 0 at <c>u = 1</c>. Pure + static:
+        /// EditMode asserts the shape with no scene.
+        /// </summary>
+        public static float FlashImpulse01(float t01)
+        {
+            float u = Mathf.Clamp01(t01);
+            if (u >= 1f) return 0f;   // the resting value — a latched flash never reaches it
+            float inv = 1f - u;
+            return inv * inv;
+        }
+
         // ======================================================================================
 
         private void Awake() => EnsureReady();
@@ -474,7 +507,10 @@ namespace FarHorizon.Combat
                 }
                 else
                 {
-                    WriteFlash(Mathf.Clamp01(flashIntensity) * Impulse01(t, SnapFraction));
+                    // FlashImpulse01, NOT the flinch's Impulse01: this write also happens on the CONTACT frame
+                    // (damage lands in Update, this runs in the same frame's LateUpdate at t = 0), and the flash
+                    // must be at PEAK there rather than at an eased rise's resting 0. See FlashImpulse01.
+                    WriteFlash(Mathf.Clamp01(flashIntensity) * FlashImpulse01(t));
                 }
             }
 

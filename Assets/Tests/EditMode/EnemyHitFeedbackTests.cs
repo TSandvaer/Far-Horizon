@@ -335,6 +335,45 @@ namespace FarHorizon.EditTests
             Assert.Greater(b, c, "the settle falls monotonically (no sustained wobble)");
         }
 
+        [Test]
+        public void FlashImpulse_IsFullAtCONTACT_ThenEasesOutToExactlyZero()
+        {
+            // 🔒 THE DARK-CONTACT-FRAME CLASS. The flash used to ride Impulse01 (the FLINCH's curve), which is 0
+            // at t=0 by design. Damage lands in MeleeAttack.Update and the flash is written in the SAME frame's
+            // LateUpdate, so the amplitude on the CONTACT FRAME was exactly 0 — the creature rendered unlit on
+            // the one frame the player's eye is on, in the shipped exe, not just under test. The capture gate
+            // missed it (it took a max ACROSS the rise, sampling later frames); the PlayMode latch test caught
+            // it. A flash REPORTS an event and must be brightest ON it; only the flinch, which moves a body,
+            // may accelerate from rest. This test is the cheap EditMode guard on that distinction.
+            Assert.AreEqual(1f, EnemyHitFeedback.FlashImpulse01(0f), 1e-6f,
+                "the flash is at FULL amplitude on the CONTACT frame — a 0 here is the dark-contact-frame defect");
+            Assert.AreEqual(0f, EnemyHitFeedback.FlashImpulse01(1f), 1e-6f,
+                "…and returns to EXACTLY 0 at the end of the window (back to base colour)");
+            Assert.AreEqual(0f, EnemyHitFeedback.FlashImpulse01(1.7f), 1e-6f,
+                "past the window it stays at 0 (clamped, never wraps)");
+
+            // Eased OUT, not linear ([DFC-2] / bar #2): halfway through, a quadratic fade is BELOW the linear 0.5.
+            float half = EnemyHitFeedback.FlashImpulse01(0.5f);
+            Assert.Less(half, 0.5f - 1e-3f,
+                "the fade must be EASED OUT, not linear — measured " + half.ToString("0.0000"));
+
+            // Strictly FALLING across the window — this is what keeps the PlayMode latch-discriminator's
+            // falling-sequence assertion meaningful: a latched implementation emits a constant and still fails.
+            float p1 = EnemyHitFeedback.FlashImpulse01(0.15f);
+            float p2 = EnemyHitFeedback.FlashImpulse01(0.45f);
+            float p3 = EnemyHitFeedback.FlashImpulse01(0.80f);
+            Assert.Greater(p1, p2, "the flash falls monotonically (no re-brightening)");
+            Assert.Greater(p2, p3, "the flash falls monotonically (no re-brightening)");
+
+            // FRAME-RATE INDEPENDENT: the contact frame is at peak, not "one deltaTime into a ramp". Deriving the
+            // first amplitude from deltaTime would pass the >0 test while leaving the contact frame DIM at high
+            // frame rates — green on nonsense. At a 240 fps step the first sample is still essentially full.
+            float firstSampleAt240Fps = EnemyHitFeedback.FlashImpulse01((1f / 240f) / 0.08f);
+            Assert.Greater(firstSampleAt240Fps, 0.85f,
+                "at 240 fps the contact frame is still essentially full — measured " +
+                firstSampleAt240Fps.ToString("0.0000"));
+        }
+
         // ---------------------------------------------------------------- AC3: the AI contract
 
         [Test]

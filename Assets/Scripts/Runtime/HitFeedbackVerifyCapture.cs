@@ -249,16 +249,22 @@ namespace FarHorizon
             attack.PerformAttack(weapon, hp);
             _puffed = emitter.EmitCount > emitsBefore;
 
-            // SAMPLE ACROSS THE RISE, do not spot-check one frame. Two frame-phase facts make a single sample
-            // wrong, and the SECOND one is why the first version of this gate reported a flash of 0 while the
-            // flinch — same curve, same LateUpdate — measured 0.146:
-            //   (a) `yield return null` resumes in the UPDATE phase of the next frame, so the freshest value it
-            //       can read is the PREVIOUS frame's LateUpdate write; and
-            //   (b) the previous frame is the STRIKE frame, where the impulse is 0 BY DESIGN — the curve starts
-            //       at rest. So exactly one yield after the strike always reads 0, on a perfectly working flash.
-            // The flinch loop below never had this problem because it takes a MAX over many frames. So does this
-            // now: sample every frame across the rise, keep the peak, and shoot the impact frame on the FIRST
-            // frame the flash is actually visible (with the eased snap that is ~99 % of peak).
+            // SAMPLE ACROSS THE WINDOW, do not spot-check one frame — but note WHY, because the reason written
+            // here originally was WRONG and the wrongness cost a red PlayMode test to find.
+            //   (a) TRUE, and the reason the loop exists: `yield return null` resumes in the UPDATE phase of the
+            //       next frame, so the freshest value it can read is the PREVIOUS frame's LateUpdate write.
+            //   (b) ⚠ WHAT THIS COMMENT USED TO SAY, AND IT WAS A DEFECT, NOT A DESIGN: "the previous frame is
+            //       the STRIKE frame, where the impulse is 0 BY DESIGN — the curve starts at rest, so exactly
+            //       one yield after the strike always reads 0 on a perfectly working flash." That zero was NOT
+            //       fine. It meant the creature rendered UNLIT on the contact frame in the shipped exe, because
+            //       the flash was riding the flinch's eased-IN curve and being sampled at t = 0. Working around
+            //       it HERE — taking a max across the rise so the gate stopped reporting it — is compensating in
+            //       the INSTRUMENT instead of fixing the product, and it is exactly why this gate read 0.6150
+            //       while `HitFeedbackPlayModeTests` read 0.0000: the two sampled different frames, and the test
+            //       sampled the right one. Fixed at the source: the flash now rides `FlashImpulse01` (full at
+            //       contact, eased OUT — AC2's "snap-then-fade"), so the strike frame is at PEAK.
+            // The loop stays: it is still correct under (a), it keeps the peak, and it shoots the impact frame on
+            // the first lit frame. It must NEVER again be the thing that makes a dark contact frame invisible.
             float minFlash = 0f, maxFlash = 0f;
             bool shotImpact = false;
             for (int i = 0; i < 8; i++)
