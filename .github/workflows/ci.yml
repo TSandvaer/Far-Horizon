@@ -987,6 +987,13 @@ jobs:
       #     SAME built exe windowed with -verifyHeldBelt, driving AxeVerifyCapture's held-belt path:
       #     acquire axe + spear via the REAL Inventory pickup seams, drive all four selection states,
       #     SELF-ASSERT renderer visibility + held-mesh identity per state (vertex-count swap proof).
+      #     86caxjx26 EXTENDS it with STATE-5/6/7 — the two STONE BLADES (dagger_stone / sword_stone),
+      #     which rendered EMPTY HANDS because neither had a held-visual selection predicate. Same REAL
+      #     SelectBelt drive layer, but asserted by MESH IDENTITY against the committed lineup node (a
+      #     stale prefab's silent AXE fallback passes a verts-differ check), plus the composed
+      #     HeldVisualIndexFor + IsHeldVisualWeaponSelected (the finger-curl's own predicate), then an
+      #     empty re-select proving the new map does not LATCH the seat on. The pair fits HERE where the
+      #     wood five could not (step 19) purely on BELT BUDGET: 2 + 2 = 4 of 5 keeps STATE-3's empty slot.
       #     The component Quit(1)s on any failed state (or missing wiring), so the exe's exit code IS
       #     the gate verdict; frame_check.py is a swapchain-content backstop. STATE-4 writes no PNG
       #     yet (needs a runtime change — remaining scope on 86cahx2p5); its assert rides the exit

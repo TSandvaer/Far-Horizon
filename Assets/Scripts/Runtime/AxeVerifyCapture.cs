@@ -139,17 +139,37 @@ namespace FarHorizon
             // spear-first order; this gate proves the shipped end-to-end read.
             bool gotAxe = inventory.PickUpAxe();
             bool gotSpear = inventory.PickUpSpear();
+            // 86caxjx26 — the two STONE BLADES join this gate's roster. They are acquired HERE, before the empty
+            // slot is located, so STATE-3 ("empty selected -> hidden") still finds a genuinely empty slot: the belt
+            // is 5 and this is now 4 tools + 1 empty. That headroom is why the stone PAIR can live here while the
+            // WOOD FIVE could not (ci.yml step 19's rationale: 2 + 5 = 7 would overflow the belt and destroy
+            // STATE-3) — the constraint is the belt budget, not the gate's purpose, so it does not bar this pair.
+            // The count is asserted below rather than assumed.
+            bool gotDaggerStone = inventory.PickUpWeapon(ItemCatalog.DaggerStoneId);
+            bool gotSwordStone = inventory.PickUpWeapon(ItemCatalog.SwordStoneId);
             yield return null;
             var model = inventory.Model;
             int axeSlot = FindBeltSlotById(model, ItemCatalog.AxeId);
             int spearSlot = FindBeltSlotById(model, ItemCatalog.SpearId);
+            int daggerStoneSlot = FindBeltSlotById(model, ItemCatalog.DaggerStoneId);
+            int swordStoneSlot = FindBeltSlotById(model, ItemCatalog.SwordStoneId);
             int emptySlot = FindEmptyBeltSlot(model);
             Debug.Log("[AxeVerifyCapture] HELD-BELT: acquired axe=" + gotAxe + " spear=" + gotSpear +
-                      " -> beltSlots axe=" + axeSlot + " spear=" + spearSlot + " empty=" + emptySlot);
+                      " daggerStone=" + gotDaggerStone + " swordStone=" + gotSwordStone +
+                      " -> beltSlots axe=" + axeSlot + " spear=" + spearSlot + " daggerStone=" + daggerStoneSlot +
+                      " swordStone=" + swordStoneSlot + " empty=" + emptySlot);
             if (axeSlot < 0 || spearSlot < 0 || emptySlot < 0)
             {
                 Debug.LogError("[AxeVerifyCapture] HELD-BELT: belt does not hold axe+spear+an empty slot — " +
                                "cannot drive the selection table");
+                Application.Quit(1); yield break;
+            }
+            if (daggerStoneSlot < 0 || swordStoneSlot < 0)
+            {
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: the stone blades did not land on the BELT " +
+                               "(daggerStoneSlot=" + daggerStoneSlot + " swordStoneSlot=" + swordStoneSlot +
+                               ") — either the ids are missing from the shipped ItemCatalog or the belt overflowed " +
+                               "to the pack, in which case STATE-5/6 would judge a selection they never drove");
                 Application.Quit(1); yield break;
             }
 
@@ -206,17 +226,82 @@ namespace FarHorizon
             Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-4 (axe re-selected): shown=" + axeAgainShown +
                       " index=" + cycle.CurrentIndex + " meshIsAxe=" + axeAgainRight);
 
+            // --- STATE 5/6 (86caxjx26): the two STONE BLADES through the hand, driven by the REAL belt selection.
+            //     THE DEFECT: dagger_stone/sword_stone had no held-visual selection predicate, so SelectBelt ->
+            //     Inventory.Changed -> SyncHeldVisualToSelection resolved -1 and HeldAxe.ShouldShow left the seat
+            //     renderers DISABLED — a crafted Stone Dagger rendered EMPTY HANDS. Driven through SelectBelt, NOT
+            //     ShowWeaponForCaptureDebug: the force-path bypasses the selection half, i.e. exactly the half that
+            //     broke (the drive-layer rule the wood gate states at length).
+            //     MESH IDENTITY, not vertex-count: a stale/short lineup prefab makes ApplyCurrent fall back to the
+            //     AXE mesh — "a stone axe in hand where a stone sword should be" — which a verts-differ assert
+            //     passes right through (the axe and the stone sword are different meshes either way).
+            var expectedNode = new Mesh[HeldWeaponCycleDebug.WeaponNodeNames.Length];
+            var beltLineup = Resources.Load<GameObject>(HeldWeaponCycleDebug.LineupResourcePath);
+            if (beltLineup != null)
+                foreach (var mf in beltLineup.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    for (int i = 0; i < HeldWeaponCycleDebug.WeaponNodeNames.Length; i++)
+                        if (mf.name == HeldWeaponCycleDebug.WeaponNodeNames[i]) expectedNode[i] = mf.sharedMesh;
+                }
+            else
+                Debug.LogError("[AxeVerifyCapture] HELD-BELT: Resources/" + HeldWeaponCycleDebug.LineupResourcePath +
+                               " missing from the shipped build — no stone-blade mesh can resolve");
+
+            var stoneBlades = new (int slot, int index, string label, string file)[]
+            {
+                (daggerStoneSlot, HeldWeaponCycleDebug.DaggerStoneFamilyIndex, "DAGGER STONE", "held_dagger_stone_gameplay.png"),
+                (swordStoneSlot,  HeldWeaponCycleDebug.SwordStoneFamilyIndex,  "SWORD STONE",  "held_sword_stone_gameplay.png"),
+            };
+            bool stoneBladesPass = beltLineup != null;
+            foreach (var b in stoneBlades)
+            {
+                model.SelectBelt(b.slot);
+                for (int i = 0; i < 10; i++) yield return null;
+                bool shown = AnyRendererEnabled(axe);
+                Mesh holder = cycle.MeshHolder != null ? cycle.MeshHolder.sharedMesh : null;
+                bool indexRight = cycle.CurrentIndex == b.index;
+                bool meshRight = holder != null && expectedNode[b.index] != null && holder == expectedNode[b.index];
+                bool notAxeFallback = holder != null && holder != cycle.AxeOriginalMesh;
+                bool selectionMaps = HeldWeaponCycleDebug.HeldVisualIndexFor(inventory) == b.index;
+                bool curlGrips = HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inventory);
+                bool ok = shown && indexRight && meshRight && notAxeFallback && selectionMaps && curlGrips;
+                stoneBladesPass &= ok;
+                Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-" + (b.index == HeldWeaponCycleDebug.DaggerStoneFamilyIndex ? 5 : 6) +
+                          " (" + b.label + " selected, belt slot " + b.slot + "): shown=" + shown +
+                          " index=" + cycle.CurrentIndex + "/" + b.index + " composedIndex=" +
+                          HeldWeaponCycleDebug.HeldVisualIndexFor(inventory) + " meshIsExpectedNode=" + meshRight +
+                          " ('" + HeldWeaponCycleDebug.WeaponNodeNames[b.index] + "', holder='" +
+                          (holder != null ? holder.name : "<null>") + "') notAxeFallback=" + notAxeFallback +
+                          " fingerCurlGrips=" + curlGrips + " => " + (ok ? "OK" : "FAIL"));
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltViewDistance,
+                                              Path.Combine(dir, b.file));
+                yield return CaptureHeldFrame(cam.gameObject, castaway.transform.position, heldBeltCloseDistance,
+                                              Path.Combine(dir, b.file.Replace("_gameplay.png", "_close.png")));
+            }
+
+            // The empty-slot control AGAIN, after the stone blades have been held: proves the new map does not
+            // LATCH the seat on. Without this, a map that returned a valid index unconditionally would pass
+            // STATE-5/6 and still be broken.
+            model.SelectBelt(emptySlot);
+            for (int i = 0; i < 10; i++) yield return null;
+            bool emptyHiddenAfterBlades = !AnyRendererEnabled(axe);
+            Debug.Log("[AxeVerifyCapture] HELD-BELT STATE-7 (empty re-selected after the stone blades): hidden=" +
+                      emptyHiddenAfterBlades);
+
             bool meshesDiffer = axeVerts > 0 && spearVerts > 0 && axeVerts != spearVerts;
-            bool pass = gotAxe && gotSpear
+            bool pass = gotAxe && gotSpear && gotDaggerStone && gotSwordStone
                         && axeShown && axeMeshRight
                         && spearShown && spearMeshRight && meshesDiffer
                         && emptyHidden
-                        && axeAgainShown && axeAgainRight;
+                        && axeAgainShown && axeAgainRight
+                        && stoneBladesPass && emptyHiddenAfterBlades;
             Debug.Log("[AxeVerifyCapture] HELD-BELT verification complete (axeShown=" + axeShown +
                       " axeMesh=" + axeMeshRight + " spearShown=" + spearShown + " spearMesh=" + spearMeshRight +
                       " meshesDiffer=" + meshesDiffer + " emptyHidden=" + emptyHidden +
-                      " axeReturns=" + (axeAgainShown && axeAgainRight) + ") => " +
-                      (pass ? "GATE-PASS" : "GATE-FAIL") + " -> " + dir);
+                      " axeReturns=" + (axeAgainShown && axeAgainRight) +
+                      " stoneBlades=" + stoneBladesPass + " emptyHiddenAfterBlades=" + emptyHiddenAfterBlades +
+                      ") => " + (pass ? "GATE-PASS" : "GATE-FAIL") + " -> " + dir);
             yield return new WaitForSeconds(0.3f);
             Application.Quit(pass ? 0 : 1);
         }
