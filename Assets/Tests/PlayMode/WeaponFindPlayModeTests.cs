@@ -74,11 +74,33 @@ namespace FarHorizon.PlayTests
         [TearDown]
         public void TearDown()
         {
+            // ALWAYS release the fixed-timestep clock, even for tests that never set it — leaking
+            // Time.captureDeltaTime into a later fixture would silently re-time every coroutine in the run.
+            Time.captureDeltaTime = 0f;
             Object.Destroy(_invGo);
             Object.Destroy(_playerGo);
             Object.Destroy(_seatGo);
             Object.Destroy(_findGo);
         }
+
+        /// <summary>
+        /// Pin a REAL, KNOWN amount of simulated time to each frame for the duration of a test.
+        ///
+        /// WHY THIS EXISTS — a defect found in these very tests by their own negative control, not a
+        /// precaution. Under the headless PlayMode runner the wall clock barely advances: with the placement
+        /// gate deliberately defeated, the embedded find drifted just 0.000638u across 60 frames against an
+        /// authored amplitude of 0.05u, i.e. roughly 42 MICROSECONDS of Time.time per frame. At that rate the
+        /// ±4° sway spans ~0.03° over the whole sample and Quaternion.Angle quantises it to exactly 0.0 —
+        /// so the "a loose find still sways" assertion was sitting on the float-precision floor and its first
+        /// green was LUCK, not evidence. (`Time.deltaTime` ≈ 0 headless is the documented trap in
+        /// procedural-animation-verbs.md; this is the same trap reached through `Time.time`.)
+        ///
+        /// Time.captureDeltaTime makes each rendered frame advance Time.time by EXACTLY this much, so 60
+        /// frames is a real second: the bob covers 0.8 of a period and the sway ~0.53, both channels sweeping
+        /// their full authored amplitude. That turns a ~6× margin into a ~500× one on the still assert and
+        /// lifts the sway assert three orders of magnitude clear of the precision floor.
+        /// </summary>
+        private const float FixedFrameSeconds = 1f / 60f;
 
         private Mesh Holder() => _cycle.MeshHolder != null ? _cycle.MeshHolder.sharedMesh : null;
 
@@ -208,6 +230,7 @@ namespace FarHorizon.PlayTests
             // `CueMoves`. It samples the transform the player actually sees, across frames, so it reds no matter
             // HOW the motion comes back — a re-enabled channel, an Update path that bypasses the Effective*
             // accessors, or some future component writing the same transform.
+            Time.captureDeltaTime = FixedFrameSeconds;   // see FixedFrameSeconds — headless time barely moves
             _find.placement = FindPlacement.Embedded;
             Assert.Greater(_find.bobAmplitude, 0f,
                 "PRECONDITION: the authored amplitude is NON-ZERO, so a green below proves the PLACEMENT " +
@@ -226,10 +249,13 @@ namespace FarHorizon.PlayTests
                 maxTwist = Mathf.Max(maxTwist, Quaternion.Angle(_find.visual.localRotation, restRot));
             }
 
+            // 60 frames x 1/60s = a full second of simulated time, so a defeated gate would show ~0.05u here.
+            // Measured with the gate deliberately defeated: 0.0006u at the headless wall clock, 500x more once
+            // the clock is pinned — which is the difference between a guard that bites and one that hopes.
             Assert.Less(maxDrift, 1e-4f,
-                $"an EMBEDDED find must not translate at all (max drift {maxDrift:F6}u over 60 frames). A blade " +
-                "buried in solid wood cannot rise and fall relative to it; when it does, the only reading left " +
-                "is that it is hovering INSIDE the host — which is exactly what the soak rejected");
+                $"an EMBEDDED find must not translate at all (max drift {maxDrift:F6}u over 1.0s of frames). A " +
+                "blade buried in solid wood cannot rise and fall relative to it; when it does, the only reading " +
+                "left is that it is hovering INSIDE the host — which is exactly what the soak rejected");
             Assert.Less(maxTwist, 1e-2f,
                 $"…and must not rotate either (max {maxTwist:F4} deg). Suppressing one channel and leaving the " +
                 "other still leaves a sword wobbling in a stump");
@@ -241,6 +267,7 @@ namespace FarHorizon.PlayTests
             // The other side of the gate. Without this, "make the sword still" could be satisfied by deleting
             // the attract cue entirely — and the rule the Sponsor stated is explicitly not that: "an item lying
             // loose MAY bob." A loose find keeps the game-juice.md §1.5 collectible float-bob.
+            Time.captureDeltaTime = FixedFrameSeconds;   // load-bearing here: see FixedFrameSeconds
             _find.placement = FindPlacement.Loose;
 
             Vector3 startPos = _find.visual.localPosition;
@@ -255,10 +282,15 @@ namespace FarHorizon.PlayTests
                 maxTwist = Mathf.Max(maxTwist, Quaternion.Angle(_find.visual.localRotation, startRot));
             }
 
-            Assert.Greater(maxDrift, 1e-4f,
-                "a LOOSE find still bobs — the placement rule GATES the cue on how the item sits, it does not " +
-                "delete the cue from the codebase");
-            Assert.Greater(maxTwist, 1e-2f, "…and still sways; both channels survive on a loose find");
+            // Thresholds are a fraction of the AUTHORED amplitude rather than a bare epsilon, so this cannot be
+            // satisfied by float noise the way the pre-captureDeltaTime version nearly was.
+            Assert.Greater(maxDrift, _find.bobAmplitude * 0.5f,
+                $"a LOOSE find still bobs through most of its authored ±{_find.bobAmplitude:F3}u (saw " +
+                $"{maxDrift:F4}u) — the placement rule GATES the cue on how the item sits, it does not delete " +
+                "the cue from the codebase");
+            Assert.Greater(maxTwist, _find.swayDegrees * 0.5f,
+                $"…and still sways through most of its authored ±{_find.swayDegrees:F1}deg (saw " +
+                $"{maxTwist:F2}deg); both channels survive on a loose find");
         }
 
         [UnityTest]
