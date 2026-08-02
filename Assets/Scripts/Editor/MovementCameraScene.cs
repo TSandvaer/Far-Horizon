@@ -3017,8 +3017,17 @@ namespace FarHorizon.EditorTools
             main.playOnAwake = false;
             main.simulationSpace = ParticleSystemSimulationSpace.World; // the puff stays where it landed
             main.startLifetime = 0.42f;
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.9f, 1.9f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.11f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 1.4f); // ~0.3-0.6u of travel over the lifetime
+            // ⚠ IN MESH RENDER MODE `startSize` is a MULTIPLIER ON THE MESH, not an absolute world size. Sizing
+            // it like a billboard sprite is how the first shipped build got an INVISIBLE puff: 0.05-0.11 × a
+            // 0.09u chunk = 4-10 MILLIMETRE debris, which at the default gameplay framing subtends well under
+            // one pixel. The capture gate was GREEN on it (`puffed=True` — the burst really did fire), and only
+            // eyeballing the frame caught it. A metric is green on nonsense.
+            // The figure, with its plane stated (game-juice.md §2b): the chunk's extent is near-isotropic so no
+            // projection factor applies; at pitch 55° / dist 14u / FOV 45° / 720p the frame-plane scale is
+            // 62.080 px/m, so 0.8-1.8 × 0.09u = 0.072-0.162u reads as ~4.5-10 px per chunk. Seven of those,
+            // spread over a 0.12u shape radius and arcing outward, is a PUFF — deliberately not a beacon.
+            main.startSize = new ParticleSystem.MinMaxCurve(0.8f, 1.8f);
             main.startColor = DustPuffBrown;
             main.gravityModifier = 0.55f;   // chunks ARC and fall — debris, not smoke
             main.maxParticles = 24;

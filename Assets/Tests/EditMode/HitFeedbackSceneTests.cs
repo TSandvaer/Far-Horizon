@@ -128,6 +128,29 @@ namespace FarHorizon.EditTests
                 "it is DEBRIS, not a boulder — a chunk that reads as a rock would look like the world is " +
                 "shedding scenery, not dust");
 
+            // ⚠ THE INVISIBLE-PUFF GUARD, and it is here because the first shipped build HAD this defect.
+            // In MESH render mode `startSize` MULTIPLIES the mesh; it is not an absolute world size the way it
+            // is for a billboard. Authored at a sprite-shaped 0.05-0.11 it produced 4-10 MILLIMETRE debris —
+            // well under one pixel at the gameplay framing. Every gate was GREEN on it (the burst really did
+            // fire, `puffed=True`), and only eyeballing the frame caught it. So the guard asserts the RENDERED
+            // world size, not that a ParticleSystem exists.
+            // The bound, with its plane stated (game-juice.md §2b): the chunk's extent is near-isotropic so no
+            // projection factor applies; at the default framing (pitch 55° / dist 14u / FOV 45° / 720p) the
+            // frame-plane scale is 62.080 px/m, so a 0.04u floor is ~2.5 px — the point below which a moving
+            // cluster of 7 stops being a puff and becomes noise.
+            float minStart = emitter.template.main.startSize.constantMin;
+            float maxStart = emitter.template.main.startSize.constantMax;
+            float chunkDiameter = psr.mesh.bounds.extents.magnitude * 2f;
+            float smallestRendered = chunkDiameter * Mathf.Min(minStart, maxStart);
+            float largestRendered = chunkDiameter * Mathf.Max(minStart, maxStart);
+            Assert.Greater(smallestRendered, 0.04f,
+                "the SMALLEST rendered chunk must be visible at gameplay framing — measured " +
+                smallestRendered.ToString("0.0000") + "u (~" + (smallestRendered * 62.080f).ToString("0.0") +
+                " px at pitch 55°/dist 14u/FOV 45°/720p). Remember startSize MULTIPLIES the mesh in Mesh mode.");
+            Assert.Less(largestRendered, 0.5f,
+                "…and the LARGEST must stay debris-scale on a 1.1 m boar — measured " +
+                largestRendered.ToString("0.0000") + "u. Over-sized chunks read as the world shedding scenery.");
+
             // [DFC-4a] a SEPARATE material on the URP PARTICLE shader. `Unlit/Particle` (game-juice.md §3) is a
             // built-in-RP name that does not exist in URP — using it yields MAGENTA.
             var mat = psr.sharedMaterial;

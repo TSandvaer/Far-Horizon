@@ -138,6 +138,13 @@ namespace FarHorizon
             // transitions to BoarState.Dead and hit_boar_death.png would show a live-posed boar with no settle,
             // silently gutting the AC7 "death settle + death puff" frame while every assertion still passed.
             if (boarAi != null) boarAi.enabled = true;
+            // …and WALK BACK to it. The snake measurement leaves the player ~11 u away across the loop, and
+            // PerformAttack reaches through the shared seam regardless of distance — so without this the kill
+            // still "worked" while hit_boar_death.png framed the boar as a few dark pixels at the top of the
+            // screen. AC7(d) wants the death SETTLE + death puff legible, and a frame nobody can read is not
+            // evidence (the fixed-orbit-vs-subject-fit false-green family, `unity-conventions.md`
+            // §Editor-vs-runtime).
+            yield return StartCoroutine(WalkTo(cam, boarAi != null ? boarAi.transform : null, 3.0f, 22f));
             for (int i = 0; i < 5; i++) yield return null;
             YawAt(cam, boarAi != null ? boarAi.transform : null);
             int deathPuffsBefore = boarFb.DeathPuffCount;
@@ -203,16 +210,7 @@ namespace FarHorizon
 
             // --- WALK IN through the same input-independent override seam the snake/boar captures use (the
             //     actual gameplay Update path — nothing teleports). ---
-            float walkDeadline = Time.time + 22f;
-            while (Time.time < walkDeadline)
-            {
-                Vector3 to = target.position - player.transform.position;
-                to.y = 0f;
-                if (to.magnitude <= 3.0f) break;
-                player.SetInputOverride(WorldDirToInput(cam, to.normalized));
-                yield return null;
-            }
-            player.SetInputOverride(Vector2.zero);
+            yield return StartCoroutine(WalkTo(cam, target, 3.0f, 22f));
 
             // --- PARK the AI so the un-hit control and the after-decay frame are the SAME framing (see the
             //     class note — that pairing is the whole discriminator). The BODY RIG stays live, so the
@@ -316,6 +314,26 @@ namespace FarHorizon
                       $"peakFlinchOffset={peakOffset:F4} flashAfter0.5s={afterFlash:F4} " +
                       $"restedBefore={_restedBefore} allTogether={_flashedAllTogether} flinched={_flinched} " +
                       $"decayedToZero={_decayedToZero} puffed={_puffed}");
+        }
+
+        /// <summary>Walk the REAL player toward <paramref name="target"/> through the production
+        /// <see cref="WasdMovement"/> override seam — the actual gameplay Update path, nothing teleports —
+        /// stopping inside <paramref name="stopDist"/> or when the deadline expires. Degrades gracefully: the
+        /// measurements are position-independent, so a missed deadline costs framing quality, never a verdict.</summary>
+        private IEnumerator WalkTo(Camera cam, Transform target, float stopDist, float seconds)
+        {
+            if (target == null || player == null) yield break;
+            float deadline = Time.time + seconds;
+            while (Time.time < deadline)
+            {
+                Vector3 to = target.position - player.transform.position;
+                to.y = 0f;
+                if (to.magnitude <= stopDist) break;
+                player.SetInputOverride(WorldDirToInput(cam, to.normalized));
+                yield return null;
+            }
+            player.SetInputOverride(Vector2.zero);
+            yield return null;
         }
 
         // Yaw the REAL orbit rig at the subject as a player would (pitch / distance / FOV stay the true
