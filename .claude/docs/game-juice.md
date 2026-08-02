@@ -46,6 +46,38 @@ Each clashes with the calm/hopeful tone OR breaks a Unity 6/URP invariant. Do NO
 
 ---
 
+## 2b. Every px figure carries its plane — the hidden `sec(pitch)` that makes a wrong ratio look right
+
+Feel/feedback specs are argued in **screen pixels** ("the flash is 4 px", "the row is 32 px tall"), and this is where they go wrong. The camera sits at a pitch, so **a vertical world extent is foreshortened on screen while a horizontal one is not**. Divide one by the other and the units cancel — the ratio *looks* dimensionally valid — but you have silently dropped a `sec(pitch)` factor.
+
+At the project's default framing (**pitch 55° / distance 14 u / FOV 45°**) that factor is:
+
+```
+sec 55° = 1 / cos 55° = 1 / 0.5735764 = 1.7434
+frame-plane scale = 720 / (2 × 14 × tan 22.5°) = 62.080 px/m
+```
+
+so a `%-of-creature-height` figure computed by mixing planes is inflated **1.7434×**. Measured 2026-08-01 on `86caxjwb3`'s Q9 table, reproduced three independent ways (`sec 55°`; the ratio `62.0798/35.6075 = 1.743453`; and re-deriving the frame-plane scale from the framing rather than lifting it from the bar). Consequence there: *"C is 91 % of the snake"* was really **52 %**, and an option the table had eliminated turned out **not to be eliminated at all** — the corrected reading favoured a *different* option than the one the Sponsor would have been pointed at.
+
+**Rules:**
+- **State the plane with every px figure**, alongside pitch / distance / FOV / zoom. A px figure without its framing is undefined, not merely imprecise.
+- **Never divide a frame-plane px extent by a foreshortened one.** If both sides are the same world axis the factor cancels honestly; if they are not, it does not.
+- **Prefer scale-free ratios where they exist** — `%-of-height` is `(s·k)/(H·k) = s/H`, independent of the px scale entirely, which is why the corrected figures needed no scale at all.
+- **Two channels that differ only by a projection factor are the same channel** (bar #10): a constant ratio across instances is an invariant, not a varying cue.
+
+### Diagnosing a figure that "does not reproduce" — the error's *shape* names the cause
+
+Plane-mixing is one cause, not the cause. Two distinct defects produce non-reproducing geometry figures, and **the ratio between the stated and the correct value tells you which**:
+
+| Error ratio across the range | Cause | Fix |
+|---|---|---|
+| **Constant** (e.g. exactly `1.7434×` everywhere) | a missing frame conversion — **plane mix** | apply the projection factor; prefer a scale-free ratio |
+| **Drifts with the input** (e.g. `1.0018×` at 8°, `1.0127×` at 22°) | a **linearisation used outside its domain** — a small-angle or first-order shortcut extrapolated past where it holds | derive the exact closed form; declare the valid band |
+
+Measured 2026-08-01: `86caxjwb3`'s Q9 table was the constant case; `86cav8ybj`'s `θ` was the drifting case — someone had written `θ = √2 × 22° = 31.1°`, but **Unity composes `Euler(x,y,z)` as Z→X→Y**, so the true combined tilt is `θ = acos(cos x · cos z) = 30.72°`. No constant factor exists there, so hunting for one wastes the pass.
+
+**So: compute the error at two or three points across the range before theorising.** Constant ⇒ look for a projection factor. Drifting ⇒ look for an approximation that has left its domain. And when a figure derives from stacked Euler rotations, **check the composition order** rather than assuming components add in quadrature.
+
 ## 3. Perf / shared-palette compliance one-liner
 
 All five must-haves are zero-GC or pool-managed and DO NOT touch the world's shared-palette ~1-draw-call model: particles use a separate `Unlit/Particle` material (not `LowPolyVertexColor`), juice adds no new world shaders, and no juice technique adds an MPB to a world MeshRenderer. DOTween free tier is IL2CPP-safe. Full compliance table in the note.
