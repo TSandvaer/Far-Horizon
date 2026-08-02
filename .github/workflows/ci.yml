@@ -1342,7 +1342,7 @@ jobs:
       #     Runs only when the build produced an exe; frames + log upload AFTER (if: always()) so the swing
       #     evidence survives a fail.
       - name: Swing capture gate (5 class swings + pickaxe fold + two-hand palm grip + arm release)
-        if: always()
+        if: always() && steps.scope.outputs.run_swings != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1355,7 +1355,7 @@ jobs:
           fi
 
       - name: Upload swing frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_swings != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-swings-caps-${{ github.sha }}
@@ -1386,7 +1386,7 @@ jobs:
       #     WaitForEndOfFrame are both dead headless (same boundary as the boar + weapon-set gates).
       #     weaponfind_side.png is the SIDE-PROFILE silhouette a human eyeballs before review.
       - name: Weapon-find capture gate (resting sword → E-loot → renders in-hand)
-        if: always()
+        if: always() && steps.scope.outputs.run_weaponfind != 'false'
         shell: bash
         run: |
           if [ -f Build/Windows/FarHorizon.exe ]; then
@@ -1399,7 +1399,7 @@ jobs:
           fi
 
       - name: Upload weapon-find frames + log
-        if: always()
+        if: always() && steps.scope.outputs.run_weaponfind != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: FarHorizon-weaponfind-caps-${{ github.sha }}
