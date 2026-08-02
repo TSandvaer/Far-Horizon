@@ -116,6 +116,7 @@ namespace FarHorizon.Juice
         }
 
         private ObjectPool<ParticleSystem> _pool;
+        private float _authoredSizeMin = 1f, _authoredSizeMax = 1f;
         private bool _initialized;
 
         private void Awake() => EnsureInit();
@@ -126,6 +127,12 @@ namespace FarHorizon.Juice
             if (_initialized) return;
             _initialized = true;
             if (template == null) return;
+            // The template's AUTHORED start-size band, captured once. Emit() scales BOTH ends off this rather
+            // than touching startSizeMultiplier (see the note there) — so the authored band survives any number
+            // of differently-scaled bursts instead of being progressively rewritten by them.
+            var tmain = template.main;
+            _authoredSizeMin = tmain.startSize.constantMin;
+            _authoredSizeMax = tmain.startSize.constantMax;
             _pool = new ObjectPool<ParticleSystem>(
                 CreateInstance, OnTakeFromPool, OnReturnToPool, OnDestroyInstance,
                 collectionCheck: true,
@@ -205,7 +212,16 @@ namespace FarHorizon.Juice
 
             var main = ps.main;
             main.startColor = color;
-            main.startSizeMultiplier = Mathf.Max(0.01f, sizeScale);
+            // ⚠ NOT `startSizeMultiplier` — MEASURED, not assumed. On a TWO-CONSTANTS start-size curve that
+            // property does not scale the band, it OVERWRITES constantMax and leaves constantMin alone: the
+            // authored 0.80..1.80 came back from the live system as `startSize=0,80..1,00` after a
+            // `startSizeMultiplier = 1f` (PooledBurstEmitter.DescribeLive, shipped-exe gate log). So `sizeScale`
+            // silently meant "set the max to this", which is not a scale at all — the death puff's 1.35 would
+            // have produced a NARROWER band than the hit puff's 1.0, the exact opposite of "a touch broader".
+            // Scale BOTH ends off the template's authored band instead, so the parameter means what it says.
+            // Every future juice burst copies this emitter; a lying size parameter would propagate with it.
+            float s = Mathf.Max(0.01f, sizeScale);
+            main.startSize = new ParticleSystem.MinMaxCurve(_authoredSizeMin * s, _authoredSizeMax * s);
 
             // ONE burst at t=0 of the requested (clamped) count. The template authors burstCount = 1 so index 0
             // always exists; the guard covers a hand-edited template.

@@ -199,6 +199,44 @@ namespace FarHorizon.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator EmitSizeScale_ScalesBOTHEndsOfTheAuthoredBand_NotJustTheMax()
+        {
+            // THE DEFECT THIS PINS, measured in the shipped exe: `main.startSizeMultiplier` on a TWO-CONSTANTS
+            // start-size curve does not scale the band — it OVERWRITES constantMax and leaves constantMin. The
+            // authored 0.80..1.80 came back from the live pooled system as 0.80..1.00 after a multiplier of 1.
+            // So the emitter's `sizeScale` parameter silently meant "set the max", and the death puff's 1.35
+            // would have rendered NARROWER than the hit puff's 1.0 — the opposite of "a touch broader".
+            // Every future juice burst copies this emitter, so a lying size parameter would propagate with it.
+            _poolHost = new GameObject("hitfeedback-test-pool");
+            _poolHost.SetActive(false);
+            var tmplGo = new GameObject("test-puff-template");
+            tmplGo.transform.SetParent(_poolHost.transform, false);
+            var ps = tmplGo.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.duration = 0.05f; main.loop = false; main.playOnAwake = false;
+            main.startLifetime = 0.08f; main.stopAction = ParticleSystemStopAction.Callback;
+            main.startSize = new ParticleSystem.MinMaxCurve(0.8f, 1.8f); // the AUTHORED band
+            var em = ps.emission; em.rateOverTime = 0f; em.burstCount = 1;
+            em.SetBurst(0, new ParticleSystem.Burst(0f, (short)3));
+            tmplGo.SetActive(false);
+            var emitter = _poolHost.AddComponent<PooledBurstEmitter>();
+            emitter.template = ps;
+            _poolHost.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(emitter.Emit(Vector3.zero, 3, Color.white, 2f), "a 2x burst must emit");
+            yield return null;
+            var live = emitter.LastEmitted.main.startSize;
+            Assert.AreEqual(1.6f, live.constantMin, 1e-3f, "the band's LOW end scales (0.8 x 2)");
+            Assert.AreEqual(3.6f, live.constantMax, 1e-3f, "…and so does the HIGH end (1.8 x 2) — not clobbered");
+
+            // …and the AUTHORED template band survives, so a later differently-scaled burst is not compounding
+            // on top of the previous one's rewrite.
+            Assert.AreEqual(0.8f, emitter.template.main.startSize.constantMin, 1e-3f, "template min untouched");
+            Assert.AreEqual(1.8f, emitter.template.main.startSize.constantMax, 1e-3f, "template max untouched");
+        }
+
+        [UnityTest]
         public IEnumerator DeathPuff_FiresExactlyOnce_OnTheKillingBlow()
         {
             _poolHost = new GameObject("hitfeedback-test-pool");
