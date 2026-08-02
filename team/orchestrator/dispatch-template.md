@@ -138,7 +138,7 @@ Orchestrator-side: on an `ADVISEMENT NEEDED` report, answer via `SendMessage` to
 ```markdown
 **Lesson reminder (load-bearing this session):** `agent-verify-evidence.md` — pull actual file contents and CI evidence before refusing or asserting impossibility. The earlier-this-session `Stratum1BossRoom.gd:204` incident — a Drew agent confidently refused to fix a real GDScript parse error citing language-design priors, while CI logs proved the bug was real — is the cautionary tale. **Verify, don't reason from priors.**
 
-**Elite-techniques + Diagnose-Before-Fix (every dispatch):** read EVERY `.claude/docs/*.md` — including `.claude/docs/elite-techniques.md` (the reach-for-these reference: imported-rig grounding, chunk-LOD terrain, URP flat-shading). And on any `fix(...)`: state the DIAGNOSED root cause + cited evidence in the PR body BEFORE the fix (`team/TESTING_BAR.md` §Accuracy + performance gates — Diagnose-Before-Fix). Guess-fixes that don't name the cause + evidence get bounced.
+**Diagnose-Before-Fix (every `fix(...)` dispatch):** state the DIAGNOSED root cause + cited evidence in the PR body BEFORE the fix (`team/TESTING_BAR.md` §Accuracy + performance gates — Diagnose-Before-Fix). Guess-fixes that don't name the cause + evidence get bounced.
 ```
 
 ## Visual-primitive test bar (paste when dispatch touches tweens / modulate / color-anim / particles)
