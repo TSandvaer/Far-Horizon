@@ -273,6 +273,23 @@ namespace FarHorizon
         /// <summary>True when the IRON spear is the SELECTED belt item.</summary>
         public bool IsSpearIronSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SpearIronId);
 
+        // === STONE-tier BLADE held-visual selection predicates (86caxjx26 — the LAST two unmapped ids) ===
+        // THE SHIPPED DEFECT THESE CLOSE: dagger_stone + sword_stone have been craftable at the crafting table
+        // since #294 ② (Recipe.cs "Stone Dagger" / "Stone Sword") and both meshes have shipped in the lineup
+        // since the original stone tier (WeaponNodeNames[1] = wpn_knife_stone_01, [2] = wpn_sword_stone_01) —
+        // but no selection predicate existed for either, so SelectionIndexFor (stone axe/spear + both pickaxe
+        // tiers), WoodSelectionIndexFor and IronSelectionIndexFor ALL returned -1 → IsHeldVisualWeaponSelected
+        // false → HeldAxe.ShouldShow false → crafting a Stone Dagger and selecting it renders EMPTY HANDS in the
+        // shipped build today. FOURTH occurrence of one class: the I-2 pickaxe omission (86cakkmr0), the soak-3
+        // wood omission (86caffwv5), the iron-blade omission (86cah7y5b / #351), and these two — which were last
+        // because indices 1 and 2 were the only slots in the 0-14 range with no NAMED family constant to map to.
+        // The class is now closed by construction, not by vigilance: HeldVisualNoOrphanTests iterates the
+        // WeaponCatalog id set and reds on any obtainable weapon that fails IsHeldVisualWeaponSelected.
+        /// <summary>True when the STONE dagger is the SELECTED belt item (the wpn_knife_stone_01 mesh — "dagger" per §6a).</summary>
+        public bool IsDaggerStoneSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.DaggerStoneId);
+        /// <summary>True when the STONE sword is the SELECTED belt item.</summary>
+        public bool IsSwordStoneSelectedInBelt => Model.IsSelectedBeltItem(ItemCatalog.SwordStoneId);
+
         /// <summary>
         /// 86cah7y5b — acquire an ARBITRARY catalog weapon by its canonical id, belt-first (the DATA-DRIVEN
         /// generalisation of <see cref="PickUpAxe"/> / <see cref="PickUpSpear"/>, which hard-code one id each).

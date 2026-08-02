@@ -246,5 +246,133 @@ namespace FarHorizon.EditTests
                 finally { Object.DestroyImmediate(go); }
             }
         }
+
+        // ============================================================================================
+        // 86caxjx26 — STONE BLADES: `dagger_stone` + `sword_stone` selected in the belt showed NOTHING in the
+        // hand. The LAST two ids in the roster with no held-visual map row, and the fourth occurrence of the
+        // class (pickaxe I-2 -> wood soak-3 -> iron blades #351 -> these). They were last because indices 1
+        // and 2 were the only slots in the 0-14 range with no NAMED family constant to map them to.
+        // ============================================================================================
+
+        // The pure stone-blade selection -> family-index map (the additive sibling of Wood/IronSelectionIndexFor).
+        [Test]
+        public void StoneBladeSelectionIndexFor_MapsEachStoneBlade_ToItsStoneIndex()
+        {
+            Assert.AreEqual(HeldWeaponCycleDebug.DaggerStoneFamilyIndex,
+                HeldWeaponCycleDebug.StoneBladeSelectionIndexFor(true, false), "stone dagger");
+            Assert.AreEqual(HeldWeaponCycleDebug.SwordStoneFamilyIndex,
+                HeldWeaponCycleDebug.StoneBladeSelectionIndexFor(false, true), "stone sword");
+            Assert.AreEqual(-1, HeldWeaponCycleDebug.StoneBladeSelectionIndexFor(false, false),
+                "no stone blade selected -> -1 (the other tiers or the gate hide the seat)");
+            // Only one belt slot is selected in play; pin the deterministic tie-break anyway.
+            Assert.AreEqual(HeldWeaponCycleDebug.DaggerStoneFamilyIndex,
+                HeldWeaponCycleDebug.StoneBladeSelectionIndexFor(true, true), "stone dagger wins the tie-break");
+        }
+
+        // Each stone-blade family index names its stone node (a reorder would render the WRONG weapon for the
+        // selection — the crossed-visual class the spear/pickaxe/wood/iron pins already guard).
+        [Test]
+        public void FamilyContract_StoneBladeIndicesNameTheStoneNodes()
+        {
+            Assert.AreEqual("wpn_knife_stone_01",
+                HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.DaggerStoneFamilyIndex],
+                "DaggerStoneFamilyIndex MUST name the STONE knife node (index 1)");
+            Assert.AreEqual("wpn_sword_stone_01",
+                HeldWeaponCycleDebug.WeaponNodeNames[HeldWeaponCycleDebug.SwordStoneFamilyIndex],
+                "SwordStoneFamilyIndex MUST name the STONE sword node (index 2)");
+        }
+
+        // THE DEFECT, restated as an executable proof (the wood/iron tests' shape). For each stone BLADE the
+        // three PRE-EXISTING tables all return -1 — that triple IS the pre-fix empty-hands path — and only the
+        // new stone-blade fallback maps it, reached through the SHARED predicate the gate + finger-curl read.
+        [Test]
+        public void StoneBladeSelected_UsedToBeEmptyHands_NowMapsToItsStoneMesh()
+        {
+            var cases = new (string id, int index, string label)[]
+            {
+                (ItemCatalog.DaggerStoneId, HeldWeaponCycleDebug.DaggerStoneFamilyIndex, "stone dagger"),
+                (ItemCatalog.SwordStoneId,  HeldWeaponCycleDebug.SwordStoneFamilyIndex,  "stone sword"),
+            };
+            foreach (var (id, index, label) in cases)
+            {
+                var inv = NewInventory(out var go);
+                try
+                {
+                    var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(id));
+                    Assert.IsTrue(slot.HasValue, label + " acquired onto the belt (a belt-eligible Tool)");
+                    inv.Model.SelectBelt(slot.Value.Index);
+
+                    Assert.AreEqual(-1, DesiredIndex(inv),
+                        label + ": the stone-axe/spear/pickaxe SelectionIndexFor returns -1 (1/3 of the pre-fix path)");
+                    Assert.AreEqual(-1, HeldWeaponCycleDebug.WoodSelectionIndexFor(inv),
+                        label + ": the WOOD table returns -1 (2/3 of the pre-fix path)");
+                    Assert.AreEqual(-1, HeldWeaponCycleDebug.IronSelectionIndexFor(inv),
+                        label + ": the IRON table returns -1 — these three together ARE the EMPTY-HANDS defect");
+
+                    Assert.AreEqual(index, HeldWeaponCycleDebug.StoneBladeSelectionIndexFor(inv),
+                        label + " selected -> its STONE mesh index (this used to be nothing in hand)");
+                    Assert.AreEqual(index, HeldWeaponCycleDebug.HeldVisualIndexFor(inv),
+                        label + ": the COMPOSED index the mesh sync applies resolves to the same stone mesh");
+                    Assert.IsTrue(HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inv),
+                        label + ": the SHARED held-visual predicate is now TRUE, so HeldAxe.ShouldShow shows the " +
+                        "seat and CastawayFingerCurl closes the grip (they read the same predicate)");
+
+                    inv.Model.SelectBelt((slot.Value.Index + 1) % inv.BeltSlotCount); // deselect
+                    Assert.IsFalse(HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inv),
+                        label + " owned but NOT selected -> the seat stays hidden (ownership is not selection)");
+                }
+                finally { Object.DestroyImmediate(go); }
+            }
+        }
+
+        // The stone-blade map is ADDITIVE: it must not change what the three already-soaked tiers resolve to.
+        // It is composed LAST for exactly this reason, so it can only fill cases that used to be -1.
+        [Test]
+        public void StoneBladeMap_DoesNotDisturbTheSoakedStoneWoodIronDecisions()
+        {
+            Assert.AreEqual(HeldWeaponCycleDebug.AxeFamilyIndex,
+                HeldWeaponCycleDebug.SelectionIndexFor(true, false, false, false), "stone axe unchanged");
+            Assert.AreEqual(HeldWeaponCycleDebug.SpearFamilyIndex,
+                HeldWeaponCycleDebug.SelectionIndexFor(false, true, false, false), "stone spear unchanged");
+            Assert.AreEqual(HeldWeaponCycleDebug.PickaxeStoneFamilyIndex,
+                HeldWeaponCycleDebug.SelectionIndexFor(false, false, true, false), "stone pickaxe unchanged");
+            Assert.AreEqual(HeldWeaponCycleDebug.PickaxeIronFamilyIndex,
+                HeldWeaponCycleDebug.SelectionIndexFor(false, false, false, true), "iron pickaxe unchanged");
+            Assert.AreEqual(HeldWeaponCycleDebug.SwordWoodFamilyIndex,
+                HeldWeaponCycleDebug.WoodSelectionIndexFor(false, false, true, false, false), "wood sword unchanged");
+            Assert.AreEqual(HeldWeaponCycleDebug.SwordIronFamilyIndex,
+                HeldWeaponCycleDebug.IronSelectionIndexFor(false, false, true, false), "iron sword unchanged");
+        }
+
+        // The extraction of the fallback chain into HeldVisualIndexFor must be BEHAVIOUR-PRESERVING: the predicate
+        // and the mesh sync used to compose the chain independently, by hand. Pin that the composed index agrees
+        // with the predicate for EVERY tier — the drift between those two copies is what the extraction removes.
+        [Test]
+        public void HeldVisualIndexFor_AgreesWithThePredicate_AcrossEveryTier()
+        {
+            var ids = new[]
+            {
+                ItemCatalog.AxeId, ItemCatalog.SpearId, ItemCatalog.PickaxeStoneId, ItemCatalog.PickaxeIronId,
+                ItemCatalog.AxeWoodId, ItemCatalog.DaggerWoodId, ItemCatalog.SwordWoodId, ItemCatalog.SpearWoodId,
+                ItemCatalog.PickaxeWoodId, ItemCatalog.AxeIronId, ItemCatalog.DaggerIronId, ItemCatalog.SwordIronId,
+                ItemCatalog.SpearIronId, ItemCatalog.DaggerStoneId, ItemCatalog.SwordStoneId,
+            };
+            foreach (string id in ids)
+            {
+                var inv = NewInventory(out var go);
+                try
+                {
+                    var slot = inv.Model.AddToolToBelt(inv.Catalog.ById(id));
+                    Assert.IsTrue(slot.HasValue, id + " acquired onto the belt");
+                    inv.Model.SelectBelt(slot.Value.Index);
+                    Assert.GreaterOrEqual(HeldWeaponCycleDebug.HeldVisualIndexFor(inv), 0,
+                        id + ": the composed index resolves a mesh");
+                    Assert.IsTrue(HeldWeaponCycleDebug.IsHeldVisualWeaponSelected(inv),
+                        id + ": the predicate agrees with the composed index (they are now ONE composition — a " +
+                        "disagreement means a tier visible to the mesh sync but not to the finger-curl, or vice versa)");
+                }
+                finally { Object.DestroyImmediate(go); }
+            }
+        }
     }
 }

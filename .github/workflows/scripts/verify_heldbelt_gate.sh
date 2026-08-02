@@ -16,7 +16,11 @@
 # failed state (or missing HeroAxe/cycle/Inventory wiring from Boot.unity), so the exe's exit
 # code IS the gate verdict — this wrapper launches it windowed and propagates that, with a
 # frame_check.py backstop on the PNGs (real swapchain frames, not black/uniform/magenta).
-# Frames written: held_axe_gameplay/close, held_spear_gameplay/close, held_empty_gameplay (5).
+# Frames written: held_axe_gameplay/close, held_spear_gameplay/close, held_empty_gameplay (5), plus
+# 86caxjx26's STATE-5/6 stone blades: held_dagger_stone_gameplay/close + held_sword_stone_gameplay/
+# close = 9. The --min-frames backstop below deliberately stays at 3: it is a "did the swapchain
+# produce real content at all" floor, NOT a per-state census — the per-state verdict is the exe's
+# exit code, and raising the floor to the frame count would make it a second, weaker copy of it.
 # NOTE: STATE-4 (axe re-selected) is asserted via the exit code + the GATE-PASS log line but
 # writes NO PNG today — emitting one needs an AxeVerifyCapture.cs (runtime) change, tracked as
 # remaining scope on 86cahx2p5; do not "fix" it from this wrapper.
