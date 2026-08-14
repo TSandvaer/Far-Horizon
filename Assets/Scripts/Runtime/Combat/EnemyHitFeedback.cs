@@ -205,6 +205,17 @@ namespace FarHorizon.Combat
         /// peak AMPLITUDE (0.6200) is fully green on a pulse the player never sees, because amplitude says
         /// nothing about how long it was on screen. At the shipped 60 fps this is `flashSeconds × 60`.</summary>
         public int LastFlashFrames { get; private set; }
+        /// <summary>
+        /// How many flash pulses have RUN TO COMPLETION. Monotonic, and it exists so a reader of
+        /// <see cref="LastFlashFrames"/> can tell a fresh number from a stale one.
+        ///
+        /// 🔒 That distinction was a real false-green: the live gate waited on <see cref="FlashActive"/> and then
+        /// read LastFlashFrames, but on a FATAL hit the flash never completed (the corpse pass returned above the
+        /// flash block), so FlashActive stayed true, the wait timed out, and the gate scored the killing blow on
+        /// the PREVIOUS hit's frame count — reporting 11 frames for a hit that rendered none. A counter that only
+        /// ever moves forward makes "this pulse never finished" observable instead of invisible.
+        /// </summary>
+        public int FlashPulsesCompleted { get; private set; }
         /// <summary>Death puffs fired (Health.Died is one-shot, so this is 0 or 1).</summary>
         public int DeathPuffCount { get; private set; }
         /// <summary>Vanish puffs fired — the small burst that covers the body going under, so the despawn is
@@ -779,16 +790,22 @@ namespace FarHorizon.Combat
                 return;
             }
 
-            // The corpse pass runs FIRST and OWNS the body for the rest of the frame: a dead creature must not
-            // also be flinching. It returns rather than falling through so the flash/flinch below cannot write
-            // over the settle's absolute transforms and re-animate a corpse.
-            if (_deathSettling)
-            {
-                ApplyDeathSettle();
-                return;
-            }
-
             // --- FLASH: write the eased amplitude to every part-material; write exactly 0 ONCE on completion. ---
+            // ⚠ THE FLASH BLOCK RUNS BEFORE THE CORPSE PASS, AND THAT ORDER IS THE FIX FOR A DEFECT THIS FILE
+            // SHIPPED. The corpse pass used to sit HERE, above the flash, with an early `return` — which meant
+            // that on a FATAL hit the killing blow rendered ZERO flash frames. Both events land in the same
+            // frame: Health.SetCurrent fires Changed (→ Strike, arming the flash) and then Died (→ the AI's
+            // OnDied → BeginDeathSettle) inside one ApplyDamage call, so by the time LateUpdate ran the settle
+            // was already armed and returned before anything was written. The shipped snake is 24 HP against a
+            // 14 dmg axe, so hit #2 IS the kill — meaning the Sponsor's "on next hit it doesnt flash" SURVIVED
+            // the eye-time fix, on exactly the hit he was describing. It also LATCHED the material: the last
+            // value written was the previous pulse's partly-decayed amplitude (~0.07 with
+            // minRetriggerSeconds 0.12 under flashSeconds 0.18), and with the flash block unreachable nothing
+            // ever wrote 0, so the corpse stayed faintly lit for the whole settle.
+            // Splitting the two blocks is safe BY CONSTRUCTION: the flash writes MATERIALS only and cannot
+            // re-animate a corpse. It is the FLINCH — which writes part TRANSFORMS and would fight the settle's
+            // absolute writes — that the early return exists to protect, so the return now sits between them.
+            if (_flashActive)
             if (_flashActive)
             {
                 float t = FlashNormT;
@@ -796,6 +813,7 @@ namespace FarHorizon.Combat
                 {
                     _flashActive = false;
                     LastFlashFrames = _flashFramesSeen;
+                    FlashPulsesCompleted++;
                     WriteFlash(0f);        // the resting value — this is what a latched flash would never reach
                     // THE SOAK INSTRUMENT, third half: how many FRAMES the player's eye was actually given. A
                     // 0.08 s window is ~5 frames at 60 fps and ~2 at 24 — but a frame count is the only figure
@@ -814,6 +832,15 @@ namespace FarHorizon.Combat
                     if (amt > _flashPeakSeen) _flashPeakSeen = amt;
                     WriteFlash(amt);
                 }
+            }
+
+            // The corpse pass OWNS THE BODY TRANSFORMS from here down: a dead creature must not also be
+            // flinching, and the settle writes ABSOLUTE part transforms that an additive flinch would fight.
+            // It sits BELOW the flash (which is material-only — see the note above) and ABOVE the flinch.
+            if (_deathSettling)
+            {
+                ApplyDeathSettle();
+                return;
             }
 
             // --- FLINCH: additive recoil on the already-posed parts. ---

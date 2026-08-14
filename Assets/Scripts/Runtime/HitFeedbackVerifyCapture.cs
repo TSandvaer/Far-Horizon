@@ -558,6 +558,9 @@ namespace FarHorizon
                 bool boxed = BodyBox(cam, fb, out x0, out y0, out bw, out bh);
                 boxW = bw; boxH = bh;
                 float[] before = boxed ? GrabLuma(x0, y0, bw, bh) : null;
+                // The pulse ledger BEFORE the swing — the only way to tell this hit's eye-time from the last
+                // hit's. See the read below for the false-green this closes.
+                int pulsesBefore = fb.FlashPulsesCompleted;
 
                 attack.RequestAttackClick();          // the REAL path: Update → gate → verb arbitration →
                 clicks++;                             // cooldown → ResolveNearestTarget → PerformAttack
@@ -598,29 +601,44 @@ namespace FarHorizon
                     }
                     if (litFrac < minLitFrac) minLitFrac = litFrac;
                     if (litFrac > maxLitFrac) maxLitFrac = litFrac;
-                    // Let THIS pulse finish before reading its frame count. LastFlashFrames is published when
-                    // the pulse completes, so reading it straight after a fixed-length sampling loop returns
-                    // the PREVIOUS hit's number — which made hit#1 report flashFrames=0 on both creatures and
-                    // would have failed the gate on the very fix it was measuring.
-                    for (int g = 0; g < 40 && fb.FlashActive; g++) yield return null;
+                    // === WAIT FOR *THIS* PULSE, AND SCORE A PULSE THAT NEVER FINISHED AS ZERO ===
+                    // LastFlashFrames is published only when a pulse completes, so it must never be read
+                    // unconditionally. Two separate ways that bit:
+                    //  (a) reading it straight after a fixed-length sampling loop returned the PREVIOUS hit's
+                    //      number, so hit#1 reported 0 while hits 2+ reported the one before them;
+                    //  (b) FAR worse, waiting on `FlashActive` cannot terminate when the pulse is STUCK — which
+                    //      is exactly what a fatal hit did while the corpse pass returned above the flash block.
+                    //      FlashActive stayed true forever, this loop burned its 40 frames, and the gate then
+                    //      scored the KILLING BLOW on the previous hit's 11 frames. The gate was green on a hit
+                    //      that rendered no flash at all: the Sponsor's original report, still live, still
+                    //      invisible to the instrument built to catch it.
+                    // So: wait on the monotonic PULSE LEDGER, and if this hit's pulse never completes, the
+                    // eye-time for it is 0 — a FAILURE, never a stale pass. The 90-frame bound is ~1.5 s of
+                    // virtual time, generously over the 0.18 s window, so a timeout means genuinely stuck.
+                    for (int g = 0; g < 90 && fb.FlashPulsesCompleted == pulsesBefore; g++) yield return null;
+                    bool pulseCompleted = fb.FlashPulsesCompleted > pulsesBefore;
                     // EYE-TIME, read off the driver's OWN frame counter rather than off the framebuffer. The
                     // pixel numbers above cannot separate the flash from the dust puff and the flinch — all
                     // three fire on the same impulse and all three change pixels inside the same box — so they
                     // are reported as diagnosis and NOT asserted on. This counter can be attributed: it counts
                     // the frames the driver actually rendered a lit body for, which is the quantity the soak
                     // proved was the defect and which the amplitude-only isolating gate could not see.
-                    int flashFrames = fb.LastFlashFrames;
+                    int flashFrames = pulseCompleted ? fb.LastFlashFrames : 0;
                     if (flashFrames < minFlashFrames) minFlashFrames = flashFrames;
 
                     bool visible = flashFrames >= FlashFramesFloor;
                     if (visible) flashedInPixels++;
                     else if (firstMissDetail == "-")
                         firstMissDetail = "hit#" + landed + " flashFrames=" + flashFrames +
+                                          " pulseCompleted=" + pulseCompleted +
+                                          " fatal=" + hp.IsDead +
                                           " litFrac=" + litFrac.ToString("0.0000") +
                                           " mat=" + matAtImpact.ToString("0.000");
                     Debug.Log("[HitFeedbackLive] " + prefix + " hit#" + landed + " hp=" +
                               hp.Current.ToString("0.0") + "/" + hp.Max.ToString("0.0") +
+                              (hp.IsDead ? " FATAL" : "") +
                               " flashFrames=" + flashFrames + " (floor=" + FlashFramesFloor + ")" +
+                              " pulseCompleted=" + pulseCompleted +
                               " box=" + boxW + "x" + boxH + "px litFrac=" + litFrac.ToString("0.0000") +
                               " controlFrac=" + controlFrac.ToString("0.0000") +
                               " peakPxRise=" + peakRise.ToString("0.000") +

@@ -397,5 +397,68 @@ namespace FarHorizon.PlayTests
             Assert.GreaterOrEqual(fb.VanishPuffCount, 1,
                 "the moment the body goes under must be COVERED by dust — an uncovered removal is still a pop");
         }
+
+        /// <summary>
+        /// SOAK GUARD 3 — THE DEATH SETTLE MUST NOT EAT THE KILLING BLOW'S FLASH (found in peer review of the
+        /// soak fix; F1/F3).
+        ///
+        /// The first cut of the death settle put its corpse pass, with an early <c>return</c>, ABOVE the flash
+        /// block in LateUpdate. Both halves of a fatal hit land in the SAME frame — <c>Health.SetCurrent</c> fires
+        /// <c>Changed</c> (→ <c>Strike</c>, arming the flash) and then <c>Died</c> (→ the AI's OnDied →
+        /// <c>BeginDeathSettle</c>) inside one <c>ApplyDamage</c> call — so the settle was already armed when
+        /// LateUpdate ran, and it returned before the flash was ever written. The killing blow rendered ZERO
+        /// flash frames.
+        ///
+        /// Not a corner case on the shipped content: the snake is 24 HP against a 14 dmg axe, so hit #2 IS the
+        /// kill, and the Sponsor's original report — "boar flashes once but on next hit it doesnt flash" —
+        /// survived the eye-time fix on exactly the hit he was describing. The live capture gate was GREEN on it
+        /// too, because it waited on <c>FlashActive</c> (which a stuck pulse never clears) and then read the
+        /// PREVIOUS hit's frame count.
+        ///
+        /// Also pins the F3 half, same cause: with the flash block unreachable, the last value ever written to
+        /// the materials was the previous pulse's partly-decayed amplitude, so the corpse stayed faintly LIT for
+        /// the entire settle. The flash must come all the way back to 0 even on a corpse.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator FatalHit_StillFlashes_TheDeathSettleMustNotEatTheKillingBlow()
+        {
+            var fb = BuildCreature(BoarBodyRig.PartCount, out var hp);
+            yield return null;
+            Assert.AreEqual(0f, fb.MaxMaterialFlash(), 1e-5f, "precondition: resting body, no tint");
+
+            int pulsesBefore = fb.FlashPulsesCompleted;
+
+            // Exactly the shipped ordering: the damage seam fires Changed then Died inside ONE call, and the AI's
+            // Died handler starts the settle — all of it before any LateUpdate runs.
+            hp.ApplyDamage(500f, DamageType.Slash);
+            fb.BeginDeathSettle(4f);
+            Assert.IsTrue(hp.IsDead, "precondition: this hit is FATAL");
+            Assert.IsTrue(fb.IsDeathSettling, "precondition: the corpse pass is armed on the same frame");
+            Assert.IsTrue(fb.FlashActive, "the fatal hit must ARM the flash like any other hit");
+
+            yield return null;   // the contact frame's LateUpdate
+
+            Assert.Greater(fb.MaxMaterialFlash(), 0f,
+                "the KILLING BLOW must light the body up. A corpse pass returning above the flash block eats it " +
+                "entirely, and on a 24 HP snake against a 14 dmg axe that is hit #2 of 2 — the Sponsor's " +
+                "'on next hit it doesnt flash', still live after the eye-time fix.");
+            Assert.Greater(fb.MinMaterialFlash(), 0f, "…on ALL parts, exactly as a non-fatal hit does");
+
+            // The pulse must RUN TO COMPLETION on a corpse — not stall half-lit (F3), and not leave the live
+            // gate's eye-time read scoring a stale number carried over from the previous hit.
+            for (int i = 0; i < 200 && fb.FlashPulsesCompleted == pulsesBefore; i++) yield return null;
+            Assert.Greater(fb.FlashPulsesCompleted, pulsesBefore,
+                "the fatal hit's flash pulse must COMPLETE; one that never finishes leaves FlashActive stuck true " +
+                "forever, which is what let the live gate score the kill on the previous hit's frame count");
+            Assert.GreaterOrEqual(fb.LastFlashFrames, 8,
+                "and the killing blow gets the same eye-time floor as every other hit (measured " +
+                fb.LastFlashFrames + " frames)");
+            Assert.AreEqual(0f, fb.MaxMaterialFlash(), 1e-5f,
+                "…and it comes ALL the way back down on the corpse — a latched partly-decayed amplitude leaves " +
+                "the body faintly lit for the whole settle (the F3 half of this defect)");
+
+            Assert.IsTrue(fb.IsDeathSettling,
+                "the corpse pass keeps running THROUGH the flash — the two are not either/or");
+        }
     }
 }
