@@ -223,6 +223,15 @@ namespace FarHorizon.Combat
                 if (_agent.isOnNavMesh) _agent.ResetPath();
                 _agent.enabled = false; // a corpse doesn't path
             }
+            // 86caxjwb3 soak 2026-08-14 — "when both snake and boar dies they just disappear". Before this line
+            // the word "settling" in the log below was the ONLY settling that happened: the body held its live
+            // upright pose, unchanged, for the whole despawn window (measured in the shipped exe:
+            // uprightness 0,991 -> 0,991, meanY 0,944 -> 0,944) and then SetActive(false) popped it out in a
+            // single frame. The SHARED feedback driver owns the visual (AC1 — no per-enemy branch); this AI
+            // keeps owning the CLOCK and hands it over, so there is never a second copy of despawnSeconds to
+            // drift out of step with it.
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>();
+            if (_feedback != null) _feedback.BeginDeathSettle(despawnSeconds);
             Debug.Log("[BoarAI] boar DIED — settling, despawn in " + despawnSeconds.ToString("0.0") + "s");
         }
 

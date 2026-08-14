@@ -1170,10 +1170,17 @@ HEADLESS_GATES=(capture_gate.sh verify_chop_gate.sh verify_heldbelt_gate.sh veri
 # HitFeedbackVerifyCapture's ScreenCapture.CaptureScreenshot returns black and its WaitForEndOfFrame never
 # resumes, so the "after" frame would be black — indistinguishable from a correct one to a human, and the
 # component's own coroutine would hang before ever writing it. This entry reds that conversion.
+#
+# verify_hitfeedback_live_gate.sh (86caxjwb3, 2026-08-14 soak) registers WINDOWED for a STRONGER version of
+# the same reason: its whole discriminator is reading the creature's screen box out of the framebuffer with
+# ScreenCapture.CaptureScreenshotAsTexture, which under -batchmode returns BLACK. A headless conversion would
+# leave every luminance sample identical, every diff zero, and the noise floor it compares against zero too —
+# a ruler that measures nothing while still exiting 0 on the halves it can still evaluate.
 WINDOWED_GATES=(verify_settings_gate.sh verify_loot_gate.sh verify_water_gate.sh
                 verify_invdragghostpos_gate.sh verify_pond_gate.sh verify_weaponset_gate.sh
                 verify_buildmenu_gate.sh verify_boar_gate.sh verify_swings_gate.sh
-                verify_weaponfind_gate.sh verify_hitfeedback_gate.sh)
+                verify_weaponfind_gate.sh verify_hitfeedback_gate.sh
+                verify_hitfeedback_live_gate.sh)
 for s in "${HEADLESS_GATES[@]}"; do assert_launch_headless "$s"; done
 for s in "${WINDOWED_GATES[@]}"; do assert_launch_windowed  "$s"; done
 

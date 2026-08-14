@@ -645,9 +645,9 @@ jobs:
                 ci-out/verify-weaponset.log ci-out/verify-placement.log ci-out/verify-mine.log \
                 ci-out/verify-boulder.log ci-out/verify-buildmenu.log ci-out/verify-boar.log \
                 ci-out/verify-heldwood.log ci-out/verify-swings.log \
-                ci-out/verify-hitfeedback.log
+                ci-out/verify-hitfeedback.log ci-out/verify-hitfeedback-live.log
           rm -rf ci-out/caps ci-out/settings-caps ci-out/pond-caps \
-                 ci-out/hitfeedback-caps \
+                 ci-out/hitfeedback-caps ci-out/hitfeedback-live-caps \
                  ci-out/loot-caps ci-out/water-caps ci-out/chop-caps \
                  ci-out/heldbelt-caps ci-out/sky-caps ci-out/invdragghost-caps \
                  ci-out/weaponset-caps ci-out/placement-caps ci-out/mine-caps \
@@ -1309,6 +1309,48 @@ jobs:
           path: |
             ci-out/hitfeedback-caps/*.png
             ci-out/verify-hitfeedback.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      # 18c. ENEMY HIT-FEEDBACK gate, PLAYED (86caxjwb3, added by the 2026-08-14 soak). 18b above PASSED on
+      #      build df5edf7 — snake 13/13 materials at 0.6200, boar decayed to zero, deathPuff=True, pool
+      #      recycled — and ~30 minutes later the Sponsor played THE SAME EXE and reported the snake never
+      #      flashing, the boar flashing once, and both deaths being an instant disappearance. 18b was not
+      #      lying; it was answering a narrower question than it read as answering, in three specific ways:
+      #      it reads back its own SetFloat (green whether or not a PIXEL changed), it asserts the flash's
+      #      peak AMPLITUDE and never its EYE-TIME (five frames at 0.08 s, on a snake that dies in two axe
+      #      hits), and its death assertion is `DeathPuffCount > 0` — a counter that cannot see a body
+      #      standing frozen and upright for four seconds and then popping out of existence in one frame.
+      #      This gate fights both creatures the way a player does: AIs LIVE (never parked), damage driven
+      #      through MeleeAttack.RequestAttackClick so the click gate / verb arbitration / cooldown /
+      #      ResolveNearestTarget all run, N >= 8 landed hits each, carried through to the kill. It measures
+      #      the flash's frames-on-screen, reads the creature's screen box out of the framebuffer against a
+      #      same-box motion NOISE FLOOR sampled one frame earlier, and samples the body's POSE across the
+      #      whole despawn window. The two gates are COMPLEMENTARY — 18b isolates (un-hit control,
+      #      all-parts-together, decayed-to-zero, pool recycling), 18c plays — and neither replaces the other.
+      #      ⚠ The component logs its DEVIATIONs (player HP raised, axe granted, verb consumers disabled,
+      #      creature HP raised for sample size) on every run; they are part of what the verdict means.
+      - name: Hit-feedback LIVE gate (played fight — eye-time + a death you can see)
+        if: always() && steps.scope.outputs.run_hitfeedback != 'false'
+        shell: bash
+        run: |
+          if [ -f Build/Windows/FarHorizon.exe ]; then
+            chmod +x .github/workflows/scripts/verify_hitfeedback_live_gate.sh
+            .github/workflows/scripts/verify_hitfeedback_live_gate.sh \
+              Build/Windows/FarHorizon.exe ci-out/hitfeedback-live-caps ci-out/verify-hitfeedback-live.log
+          else
+            echo "[verify-hitfeedback-live] no exe at Build/Windows/FarHorizon.exe — build produced no binary" >&2
+            exit 1
+          fi
+
+      - name: Upload hit-feedback LIVE frames + log
+        if: always() && steps.scope.outputs.run_hitfeedback != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarHorizon-hitfeedback-live-caps-${{ github.sha }}
+          path: |
+            ci-out/hitfeedback-live-caps/*.png
+            ci-out/verify-hitfeedback-live.log
           if-no-files-found: warn
           retention-days: 3
 

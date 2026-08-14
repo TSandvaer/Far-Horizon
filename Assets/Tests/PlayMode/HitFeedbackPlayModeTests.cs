@@ -275,5 +275,127 @@ namespace FarHorizon.PlayTests
             yield return null;
             Assert.AreEqual(1, fb.DeathPuffCount, "Health.Died is one-shot — the death beat never repeats");
         }
+
+        // ============================ THE TWO 2026-08-14 SOAK GUARDS ============================
+        // Both are RED on the tree the Sponsor soaked, and each closes a defect that every existing assertion in
+        // this file AND in the shipped -verifyHitFeedback capture gate was green on.
+
+        /// <summary>
+        /// SOAK GUARD 1 — EYE-TIME, the figure amplitude cannot carry. The Sponsor reported "snake does not
+        /// flash" on a build whose capture gate had just measured 13/13 snake part-materials lit at 0.6200. Both
+        /// were true: the pulse fired at full amplitude and reached real pixels, but it lasted FIVE FRAMES
+        /// (`[HitFeedback] Snake FLASH done peak=0,620 frames=5 over 0,080s` — shipped exe, every hit, N=13), of
+        /// which only the first two carry more than half amplitude on the quadratic fade. The snake dies in two
+        /// axe hits, so ~4 bright frames is a whole creature's worth of feedback.
+        ///
+        /// This asserts the SHIPPED DEFAULT, and it is the one place in the fixture that must NOT retune
+        /// <c>flashSeconds</c>: the defect was entirely IN the default, and a fixture that dials the effect up
+        /// before measuring is how it stayed invisible — see <c>BuildCreature</c>'s 0.20 override and the comment
+        /// that came with it ("a little longer than the shipped 0.08 so the sampled window has frames"). A test
+        /// that has to lengthen an effect to have something to sample is telling you the shipped value has
+        /// nothing to sample. A FLOOR, not a target: `hit_flash_duration` tunes upward freely.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator FlashDefault_LastsAtLeastEightFramesAtSixtyFps_TheEyeTimeFloor()
+        {
+            var shader = Shader.Find("FarHorizon/LowPolyVertexColor");
+            Assert.IsNotNull(shader, "the world shader must resolve (test precondition)");
+            _creature = new GameObject("flash-default-creature");
+            _creature.SetActive(false);
+            var child = new GameObject("part0");
+            child.transform.SetParent(_creature.transform, false);
+            child.AddComponent<MeshFilter>().sharedMesh = new Mesh();
+            child.AddComponent<MeshRenderer>().sharedMaterial = new Material(shader);
+            var hp = _creature.AddComponent<Health>();
+            hp.max = 100f; hp.startFull = true;
+            var fb = _creature.AddComponent<EnemyHitFeedback>();   // NO dial overrides — the shipped defaults
+            _creature.SetActive(true);
+            yield return null;
+
+            const int FloorFrames = 8;
+            Assert.GreaterOrEqual(fb.flashSeconds * 60f, FloorFrames,
+                "the SHIPPED flashSeconds default must give the player at least " + FloorFrames +
+                " frames at 60 fps. The 2026-08-14 soak failed at 0.08s = 5 frames, with the Sponsor reporting " +
+                "the flash as absent on both creatures; a peak-amplitude assertion cannot see this.");
+
+            // …and prove the runtime RENDERS that eye-time rather than trusting the arithmetic: count the frames
+            // the driver actually wrote a non-zero amplitude for, under the fixture's pinned virtual step.
+            int expectedFrames = Mathf.FloorToInt(fb.flashSeconds / StepDt);
+            hp.ApplyDamage(10f, DamageType.Slash);
+            int litFrames = 0;
+            for (int i = 0; i < expectedFrames * 3 + 4; i++)
+            {
+                yield return null;
+                if (fb.MaxMaterialFlash() > 1e-5f) litFrames++;
+                else if (litFrames > 0) break;
+            }
+            Assert.GreaterOrEqual(litFrames, expectedFrames - 1,
+                "the driver must actually render the eye-time its duration promises (measured " + litFrames +
+                " lit frames, expected ~" + expectedFrames + " at a " + StepDt + "s virtual step)");
+        }
+
+        /// <summary>
+        /// SOAK GUARD 2 — THE DEATH MUST MOVE THE BODY. Sponsor: "when both snake and boar dies they just
+        /// disappear." He was describing the code exactly: the AIs set Dead, started a despawn timer, and left
+        /// the body untouched until <c>SetActive(false)</c> removed it in one frame. Measured across the entire
+        /// four-second window in the shipped exe — boar `uprightness 0,991 -> 0,991, meanY 0,944 -> 0,944`;
+        /// snake `1,000 -> 1,000, 0,296 -> 0,296`. The isolating capture gate was GREEN on it, because its death
+        /// assertion was <c>DeathPuffCount &gt; 0</c>: a counter cannot see a body that never moves.
+        ///
+        /// So this asserts the two channels a person actually reads — the body goes OVER and it goes DOWN — plus
+        /// that the vanish is COVERED by dust rather than being a silent removal. It drives the real
+        /// <c>BeginDeathSettle</c> → <c>Health.Died</c> → LateUpdate path; nothing here pokes the settle directly.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Death_TopplesAndSinksTheBody_SoTheDespawnIsNotAPop()
+        {
+            _poolHost = new GameObject("death-settle-pool-host");
+            _poolHost.SetActive(false);
+            var tmplGo = new GameObject("tmpl");
+            tmplGo.transform.SetParent(_poolHost.transform, false);
+            var ps = tmplGo.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.loop = false; main.playOnAwake = false; main.duration = 0.12f;
+            main.stopAction = ParticleSystemStopAction.Callback;
+            var em = ps.emission; em.rateOverTime = 0f; em.burstCount = 1;
+            em.SetBurst(0, new ParticleSystem.Burst(0f, (short)4));
+            tmplGo.SetActive(false);
+            var emitter = _poolHost.AddComponent<PooledBurstEmitter>();
+            emitter.template = ps;
+            _poolHost.SetActive(true);
+
+            var fb = BuildCreature(BoarBodyRig.PartCount, out var hp);
+            fb.puff = emitter;
+            yield return null;
+
+            float liveUpright = fb.BodyUprightness();
+            float liveY = fb.BodyMeanY();
+            float bodyH = Mathf.Max(0.05f, fb.BodyBounds().size.y);
+            Assert.IsFalse(fb.IsDeathSettling, "precondition: a live creature is not settling");
+
+            // The AI owns the despawn clock and hands it over (BoarAI/SnakeAI.OnDied) — mirror that seam here
+            // rather than reaching past it with a second copy of the number.
+            const float Window = 4f;
+            hp.ApplyDamage(500f, DamageType.Slash);
+            fb.BeginDeathSettle(Window);
+            Assert.IsTrue(hp.IsDead, "precondition: the creature died");
+            Assert.IsTrue(fb.IsDeathSettling, "the settle must run for the whole despawn window");
+
+            int steps = Mathf.CeilToInt(Window / StepDt) + 4;
+            for (int i = 0; i < steps; i++) yield return null;
+
+            float deadUpright = fb.BodyUprightness();
+            float deadY = fb.BodyMeanY();
+            Assert.Less(deadUpright, liveUpright - 0.20f,
+                "the body must visibly go OVER during the settle (uprightness " + liveUpright.ToString("0.000") +
+                " -> " + deadUpright.ToString("0.000") + "); a frozen upright corpse followed by a one-frame pop " +
+                "is exactly what the Sponsor read as 'they just disappear'");
+            Assert.Less(deadY, liveY - 0.45f * bodyH,
+                "…and it must SINK below the surface before the despawn, so nothing visible vanishes (meanY " +
+                liveY.ToString("0.000") + " -> " + deadY.ToString("0.000") + ", bodyH " +
+                bodyH.ToString("0.00") + ")");
+            Assert.GreaterOrEqual(fb.VanishPuffCount, 1,
+                "the moment the body goes under must be COVERED by dust — an uncovered removal is still a pop");
+        }
     }
 }

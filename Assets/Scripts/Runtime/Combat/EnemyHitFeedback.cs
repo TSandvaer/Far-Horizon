@@ -89,9 +89,35 @@ namespace FarHorizon.Combat
                  "real second strike is never swallowed.")]
         public float minRetriggerSeconds = 0.12f;
 
-        [Header("Flash (AC2 — ~0.08s, eased out, warm white, sub-1.0)")]
-        [Tooltip("Flash duration in seconds (Sponsor-soak dial).")]
-        public float flashSeconds = 0.08f;
+        [Header("Flash (AC2 — eased out, warm white, sub-1.0)")]
+        [Tooltip("Flash duration in seconds (Sponsor-soak dial `hit_flash_duration`). 0.18, RAISED from the " +
+                 "AC's original ~0.08 by the 2026-08-14 soak — see the note below; do not put it back without " +
+                 "reading it.")]
+        // === 0.18, NOT THE AC's 0.08 — the number the 2026-08-14 soak refuted ===
+        // The Sponsor played build `zoned | 2026-08-14T09:41:56Z | df5edf7` and reported "snake does not flash,
+        // boar flashes once but on next hit it doesnt flash". Nothing was broken in the wiring: the -verify gate
+        // had just passed on the same exe with 13/13 snake materials at 0.6200, and the live re-measurement
+        // confirms the pulse reaches real PIXELS — the lit fraction of the creature's own screen box runs ~4x
+        // (snake) to ~10x (boar) above the same-box motion noise floor measured one frame earlier.
+        //
+        // What was wrong was EYE-TIME, and it was invisible to every assertion in the tree because they all
+        // asserted AMPLITUDE. Measured in the shipped exe across 13 landed hits on both creatures:
+        //   `[HitFeedback] Snake FLASH done peak=0,620 frames=5 over 0,080s`   (identical on the boar, every hit)
+        // FIVE frames at 60 fps = 83 ms, and on the quadratic `(1-u)^2` fade only the first ~2 carry more than
+        // half amplitude. The shipped snake dies in TWO axe hits (24 HP / 14 dmg), so a snake's ENTIRE life
+        // contains ~10 frames of flash — of which ~4 are bright. That is a blink, and "it never flashed" is the
+        // honest way a person describes it.
+        //
+        // The tell was already in the tree and nobody read it as one: HitFeedbackPlayModeTests sets
+        // `fb.flashSeconds = 0.20f` with the comment "a little longer than the shipped 0.08 so the sampled
+        // window has frames". A test that has to lengthen the effect to have something to sample is saying the
+        // shipped value has nothing to sample.
+        //
+        // 0.18 s = ~11 frames at 60 fps, over the 8-frame floor the live gate now asserts, and still short
+        // enough to read as game-juice.md §2's snap-and-fade rather than a sustained glow. The CURVE is
+        // unchanged (still FlashImpulse01, full at contact, quadratic ease-out) — only the window is longer.
+        // Amplitude stays 0.62 and both remain Sponsor dials (`hit_flash_duration` / `hit_flash_intensity`).
+        public float flashSeconds = 0.18f;
         [Tooltip("PEAK flash amplitude — how far the lit colour lerps toward the warm-white flash tone at the " +
                  "top of the pulse. Sub-1.0 so the body never fully blanks out; the Sponsor rides this at soak.")]
         public float flashIntensity = 0.62f;
@@ -121,6 +147,41 @@ namespace FarHorizon.Combat
         [Tooltip("HARD: 'interrupts nothing (it keeps coming)' (brief §2.5) — 0 by design.")]
         public float hardStaggerSeconds = 0f;
 
+        [Header("Death settle (86caxjwb3 soak 2026-08-14 — the beat between DIED and despawn)")]
+        // === WHY THIS EXISTS, WITH THE MEASUREMENT THAT BOUGHT IT ===
+        // Sponsor, on build df5edf7: "when both snake and boar dies they just disappear."
+        // He was describing exactly what the code did. `BoarAI.OnDied` / `SnakeAI.OnDied` set State = Dead, park
+        // the agent, and start a `despawnSeconds` timer; Update then returns early every frame until the timer
+        // expires and fires `gameObject.SetActive(false)`. Nothing in between touches the body. The live gate
+        // measured the whole four-second "settle" on both creatures:
+        //   boar : uprightness 0,991 -> 0,991 (drop 0,000)   meanY 0,944 -> 0,944 (drop 0,000)   despawned=True
+        //   snake: uprightness 1,000 -> 1,000 (drop 0,000)   meanY 0,296 -> 0,296 (drop 0,000)   despawned=True
+        // A frozen upright body for four seconds and then a one-frame pop. `hit_boar_death.png` from the
+        // ISOLATING gate shows it plainly — the boar standing, unchanged, with a small dust puff at its feet —
+        // and that gate was GREEN, because its death assertion was `DeathPuffCount > 0`. A counter cannot see a
+        // body that never moves. That is the defect class this whole component was written to close, arriving
+        // one layer up.
+        //
+        // The fix lives HERE and not in the two AIs for the same reason the flash does (AC1): ONE shared driver,
+        // no per-enemy branch. The AI keeps owning the despawn CLOCK and hands it over (BeginDeathSettle), so
+        // there is no duplicated timer to drift — the dead-knob class.
+        [Tooltip("Seconds the body takes to topple over after death. Eased out — a body falls, it does not " +
+                 "snap. Kept short so the corpse is settled long before the AI's despawn.")]
+        public float deathToppleSeconds = 0.55f;
+        [Tooltip("How far the body rolls onto its side at the end of the topple (degrees). ~80 reads as DOWN " +
+                 "without the over-rotation that would look like a ragdoll glitch on a procedurally-posed rig.")]
+        public float deathToppleDegrees = 80f;
+        [Tooltip("Seconds the body spends SINKING into the ground immediately before the AI despawns it. The " +
+                 "sink is what removes the POP: the body is already under the grass when SetActive(false) " +
+                 "lands, so nothing visible vanishes.")]
+        public float deathSinkSeconds = 1.2f;
+        [Tooltip("Sink depth as a MULTIPLE of the body's own height — scale-free, so a 0.28u snake and a 0.97u " +
+                 "boar both end up fully under the surface with no per-creature tuning.")]
+        public float deathSinkBodyHeights = 1.6f;
+        [Tooltip("Particles in the small VANISH puff that covers the moment the body goes under. Without it the " +
+                 "last frame of the sink is still a silent removal. <=12 per burst (game-juice.md §1 #4).")]
+        public int vanishPuffCount = 8;
+
         [Header("Dust puff (AC4 — dust-brown, never red, <=12 per burst)")]
         [Tooltip("Particles per HIT puff. brief §1.2 caps a burst at 12; the emitter clamps regardless.")]
         public int puffCount = 7;
@@ -139,8 +200,22 @@ namespace FarHorizon.Combat
         // === Observable outcomes (AC7 tests + the -verifyHitFeedback shipped gate read these) ===
         /// <summary>Hits (detected HP drops) this component has reacted to.</summary>
         public int HitCount { get; private set; }
+        /// <summary>How many FRAMES the last completed flash pulse actually rendered a lit body for. This is the
+        /// EYE-TIME figure, and it is the one the 2026-08-14 soak proved was missing: a gate that asserts the
+        /// peak AMPLITUDE (0.6200) is fully green on a pulse the player never sees, because amplitude says
+        /// nothing about how long it was on screen. At the shipped 60 fps this is `flashSeconds × 60`.</summary>
+        public int LastFlashFrames { get; private set; }
         /// <summary>Death puffs fired (Health.Died is one-shot, so this is 0 or 1).</summary>
         public int DeathPuffCount { get; private set; }
+        /// <summary>Vanish puffs fired — the small burst that covers the body going under, so the despawn is
+        /// never a silent removal.</summary>
+        public int VanishPuffCount { get; private set; }
+        /// <summary>True while the death settle (topple → hold → sink) is running.</summary>
+        public bool IsDeathSettling => _deathSettling;
+        /// <summary>Death-settle phase 0→1 across the WHOLE window the AI granted (Time.time-anchored, the
+        /// FlashNormT idiom). 0 when no settle is running.</summary>
+        public float DeathSettleNormT => _deathSettling
+            ? Mathf.Clamp01((Time.time - _deathAt) / Mathf.Max(0.01f, _deathWindow)) : 0f;
         /// <summary>The flash amplitude last WRITTEN to the materials (0 when resting).</summary>
         public float FlashAmount { get; private set; }
         /// <summary>The flinch world-offset last APPLIED to the parts (Vector3.zero when resting).</summary>
@@ -190,6 +265,20 @@ namespace FarHorizon.Combat
         private float _lastStrikeAt = float.NegativeInfinity; // -inf so the FIRST hit is never refracted away
         private bool _initialized;
         private bool _subscribed;
+        // --- death settle (86caxjwb3 soak 2026-08-14) ---
+        private bool _deathSettling;
+        private float _deathAt, _deathWindow, _deathBodyHeight;
+        private Vector3 _deathPivot;
+        private Vector3 _deathAxis = Vector3.right;
+        private Vector3[] _deathPos;
+        private Quaternion[] _deathRot;
+        private bool _vanishPuffed;
+        // --- soak instrument (86caxjwb3 2026-08-14): per-flash observation + swallowed-drop aggregation ---
+        private float _flashPeakSeen;
+        private int _flashFramesSeen;
+        private int _ignoredDrops;
+        private float _lastIgnoredDrop;
+        private float _lastIgnoreLogAt = float.NegativeInfinity;
 
         // ===================== PURE curve (the EditMode truth table — AC7) =====================
 
@@ -387,7 +476,27 @@ namespace FarHorizon.Combat
             float dropped = _prevHp - now;
             _prevHp = now;
             if (dropped <= 1e-4f) return;   // heal / RestoreFull / init / a pure max-dial — NOT a hit
-            if (!IsImpactShaped(dropped, _health.Max, Time.time - _lastStrikeAt)) return;
+            if (!IsImpactShaped(dropped, _health.Max, Time.time - _lastStrikeAt))
+            {
+                // THE SOAK INSTRUMENT's second half: a SWALLOWED damage event. This is the only place a real
+                // landed hit can vanish without a trace, and "the second hit did not flash" is exactly what that
+                // looks like from the player's chair. Throttled to one line/second and AGGREGATED, because a
+                // bleed DoT ticks this branch every frame and an unthrottled log would drown Player.log.
+                _ignoredDrops++;
+                _lastIgnoredDrop = dropped;
+                if (Time.time - _lastIgnoreLogAt >= 1f)
+                {
+                    _lastIgnoreLogAt = Time.time;
+                    Debug.Log("[HitFeedback] " + name + " IGNORED x" + _ignoredDrops + " lastDrop=" +
+                              _lastIgnoredDrop.ToString("0.000") + " frac=" +
+                              (_health.Max > 0f ? (_lastIgnoredDrop / _health.Max).ToString("0.0000") : "?") +
+                              " (floor=" + minDamageFractionToReact.ToString("0.0000") + ") sinceLastStrike=" +
+                              (Time.time - _lastStrikeAt).ToString("0.000") +
+                              " (refractory=" + minRetriggerSeconds.ToString("0.000") + ")");
+                    _ignoredDrops = 0;
+                }
+                return;
+            }
             Strike();
         }
 
@@ -437,7 +546,22 @@ namespace FarHorizon.Combat
             _flashActive = true; _flashStartAt = Time.time;
             _flinchActive = true; _flinchStartAt = Time.time;
             _staggerUntil = staggerSeconds > 0f ? Time.time + staggerSeconds : 0f;
+            _flashPeakSeen = 0f; _flashFramesSeen = 0;   // arm the per-flash instrument window
             EmitPuff(puffCount, puffSize);
+            // === THE SOAK INSTRUMENT (86caxjwb3 soak 2026-08-14) ===
+            // Why this is a PLAIN unconditional Debug.Log and not a debug-flag: the -verifyHitFeedback gate
+            // reported 13/13 snake materials lit at 0.62 while the Sponsor's play session on the SAME exe saw the
+            // snake never flash. NOTHING in the shipped log could distinguish "the driver never fired" from "it
+            // fired and was imperceptible" — so the soak produced an opinion and no evidence, and the next round
+            // would have been another guess. One line per landed hit (a hit is a rare, player-driven event, never
+            // a per-frame cost) makes the REAL play session self-documenting in Player.log, exactly as
+            // `[SnakeAI] BITE landed` / `[BoarAI] GORE landed` already do for the other direction of the seam.
+            Debug.Log("[HitFeedback] " + name + " STRIKE #" + HitCount + " hp=" +
+                      (_health != null ? _health.Current.ToString("0.0") : "?") + "/" +
+                      (_health != null ? _health.Max.ToString("0.0") : "?") +
+                      " intensity=" + flashIntensity.ToString("0.00") +
+                      " flashSec=" + flashSeconds.ToString("0.000") +
+                      " stagger=" + staggerSeconds.ToString("0.00") + " tier=" + ActiveTier);
         }
 
         private void OnDied()
@@ -448,12 +572,121 @@ namespace FarHorizon.Combat
             // "is it nearly down?" read is only half-testable: the player never sees the moment it goes down.
             DeathPuffCount++;
             EmitPuff(deathPuffCount, deathPuffSize);
+            Debug.Log("[HitFeedback] " + name + " DEATH puff x" + deathPuffCount +
+                      " at " + ContactPoint().ToString("F2"));
+        }
+
+        /// <summary>
+        /// Begin the death settle across the window the AI is about to hold the corpse for. The AI OWNS that
+        /// clock (`BoarAI.despawnSeconds` / `SnakeAI.despawnSeconds`) and passes it in rather than this driver
+        /// keeping a second copy of the number — a duplicated timer silently drifts the moment either side is
+        /// re-tuned, which is the dead-knob class this file already pins for the per-tier stagger.
+        ///
+        /// Idempotent, and safe to call from a Died handler in either order relative to <see cref="OnDied"/>.
+        /// </summary>
+        public void BeginDeathSettle(float secondsUntilDespawn)
+        {
+            EnsureInit();
+            if (_deathSettling) return;
+            _deathSettling = true;
+            _vanishPuffed = false;
+            _deathAt = Time.time;
+            _deathWindow = Mathf.Max(0.2f, secondsUntilDespawn);
+
+            // Snapshot the posed body ONCE. Every settle frame is then written ABSOLUTELY from this snapshot —
+            // never `+=` on the live transform. That is not a style choice: the flinch can be additive because
+            // the body rigs (order 60) rewrite every part's world transform each LateUpdate, but a DEAD
+            // creature's AI has stopped, and if its rig stops posing too, an additive pass compounds its own
+            // output every frame and the corpse launches. Absolute-from-snapshot is correct in BOTH worlds.
+            int n = _parts != null ? _parts.Length : 0;
+            _deathPos = new Vector3[n];
+            _deathRot = new Quaternion[n];
+            Bounds b = BodyBounds();
+            _deathBodyHeight = Mathf.Max(0.05f, b.size.y);
+            // ROLL onto the flank — about the body's own FORWARD axis — pivoting on the ground line under the
+            // body centre.
+            //
+            // 🔒 THE AXIS IS LOAD-BEARING AND THE OBVIOUS CHOICE IS WRONG. The first cut rotated about the RIGHT
+            // axis (Cross(up, fwd)), which is a PITCH: on a creature that is longer than it is tall — which both
+            // of these are — 80 degrees of pitch stands it on its nose and drives the front half straight
+            // through the terrain. It is invisible from the moment it dies, i.e. the EXACT defect being fixed,
+            // and every number stayed green on it: uprightness read 0.174 (the rotation did happen), meanY fell
+            // (it did go down), the settle-visible assert passed. The tell was in a figure nobody was asserting
+            // on — the body's own height GREW, 1.02u -> 1.76u, because a 1.5u-long body pitched near-vertical is
+            // taller than it was standing. Only cropping the death frame and looking showed an empty patch of
+            // grass where the boar should be lying.
+            //
+            // A ROLL about forward rotates the body in the plane perpendicular to its length, so the extent that
+            // swings down is its half-WIDTH, not its half-LENGTH — and since the pivot sits at b.min.y, no point
+            // starts below the pivot and nothing can be driven under the ground. Same read for the eye ("it went
+            // over"), same signal on both assert channels, geometrically incapable of burying the corpse.
+            Vector3 fwd = transform.forward; fwd.y = 0f;
+            fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
+            _deathAxis = fwd;
+            _deathPivot = new Vector3(b.center.x, b.min.y, b.center.z);
+            for (int i = 0; i < n; i++)
+            {
+                if (_parts[i] == null) continue;
+                _deathPos[i] = _parts[i].position;
+                _deathRot[i] = _parts[i].rotation;
+            }
+            Debug.Log("[HitFeedback] " + name + " DEATH settle: topple " + deathToppleDegrees.ToString("0") +
+                      "deg over " + deathToppleSeconds.ToString("0.00") + "s, sink " +
+                      (deathSinkBodyHeights * _deathBodyHeight).ToString("0.00") + "u over the last " +
+                      deathSinkSeconds.ToString("0.00") + "s of a " + _deathWindow.ToString("0.0") +
+                      "s window (bodyH=" + _deathBodyHeight.ToString("0.00") + ")");
+        }
+
+        // The corpse pass. Runs at order 70, i.e. AFTER the body rigs, and writes ABSOLUTE world transforms from
+        // the death snapshot — see BeginDeathSettle for why absolute rather than additive.
+        private void ApplyDeathSettle()
+        {
+            if (_parts == null || _deathPos == null) return;
+            float t = Time.time - _deathAt;
+
+            // TOPPLE: eased OUT (a body accelerates as it goes over, then lands) — never linear (game-juice.md
+            // §1 must-have #1). SmoothStep gives the settle its "it fell" read without a bounce.
+            float toppleT = Mathf.Clamp01(t / Mathf.Max(0.01f, deathToppleSeconds));
+            float topple = Mathf.SmoothStep(0f, 1f, toppleT) * deathToppleDegrees;
+
+            // SINK: the last `deathSinkSeconds` of the AI's window. Starts at 0 so there is no jump into it.
+            float sinkStart = Mathf.Max(deathToppleSeconds, _deathWindow - deathSinkSeconds);
+            float sinkT = _deathWindow > sinkStart
+                ? Mathf.Clamp01((t - sinkStart) / Mathf.Max(0.01f, _deathWindow - sinkStart)) : 0f;
+            float sink = sinkT * sinkT * (deathSinkBodyHeights * _deathBodyHeight);   // ease IN — it settles down
+
+            if (!_vanishPuffed && sinkT >= 0.55f)
+            {
+                _vanishPuffed = true;
+                VanishPuffCount++;
+                EmitPuffAt(_deathPivot, vanishPuffCount, deathPuffSize);
+            }
+
+            Quaternion rot = Quaternion.AngleAxis(topple, _deathAxis);
+            Vector3 down = Vector3.down * sink;
+            for (int i = 0; i < _parts.Length && i < _deathPos.Length; i++)
+            {
+                var p = _parts[i];
+                if (p == null) continue;
+                p.position = _deathPivot + rot * (_deathPos[i] - _deathPivot) + down;
+                p.rotation = rot * _deathRot[i];
+            }
         }
 
         private void EmitPuff(int count, float size)
         {
             if (puff == null || count <= 0) return;
             puff.Emit(ContactPoint(), count, puffColor, size);
+        }
+
+        // The vanish puff needs an EXPLICIT point: by the time it fires the body has sunk below the surface, so
+        // ContactPoint() — which is the renderer-bounds centre — is underground and the burst would play where
+        // nobody can see it. The death PIVOT is ground level under the body's own footprint, which is exactly
+        // where the dust should come from.
+        private void EmitPuffAt(Vector3 where, int count, float size)
+        {
+            if (puff == null || count <= 0) return;
+            puff.Emit(where, count, puffColor, size);
         }
 
         /// <summary>The puff origin: the body's renderer-bounds centre, nudged toward <see cref="contactBias"/>
@@ -468,6 +701,56 @@ namespace FarHorizon.Combat
             d.y = 0f;
             if (d.sqrMagnitude < 1e-6f) return c;
             return c + d.normalized * Mathf.Max(0f, contactOffset);
+        }
+
+        /// <summary>World bounds enclosing EVERY part renderer — the live-gate's screen-footprint read (it
+        /// projects this to screen space to measure whether the flash changed any actual PIXELS, rather than
+        /// reading back the float it wrote itself). Empty bounds at the body centre when there are no
+        /// renderers.</summary>
+        public Bounds BodyBounds()
+        {
+            EnsureInit();
+            if (_renderers == null || _renderers.Length == 0) return new Bounds(transform.position, Vector3.zero);
+            var b = new Bounds(transform.position, Vector3.zero);
+            bool any = false;
+            for (int i = 0; i < _renderers.Length; i++)
+            {
+                if (_renderers[i] == null) continue;
+                if (!any) { b = _renderers[i].bounds; any = true; }
+                else b.Encapsulate(_renderers[i].bounds);
+            }
+            return any ? b : new Bounds(transform.position, Vector3.zero);
+        }
+
+        /// <summary>Mean world-space Y of the part transforms — the "has the body VISIBLY gone down" read the
+        /// death-settle assertion needs. A pose signature, not a metric of correctness on its own.</summary>
+        public float BodyMeanY()
+        {
+            EnsureInit();
+            if (_parts == null || _parts.Length == 0) return transform.position.y;
+            float sum = 0f; int n = 0;
+            for (int i = 0; i < _parts.Length; i++)
+            {
+                if (_parts[i] == null) continue;
+                sum += _parts[i].position.y; n++;
+            }
+            return n > 0 ? sum / n : transform.position.y;
+        }
+
+        /// <summary>Mean |dot(part.up, world up)| across the parts — 1 = the body stands as posed, 0 = it has
+        /// gone fully onto its side. The TOPPLE read: a death that changes neither this nor
+        /// <see cref="BodyMeanY"/> is a death the player cannot see.</summary>
+        public float BodyUprightness()
+        {
+            EnsureInit();
+            if (_parts == null || _parts.Length == 0) return 1f;
+            float sum = 0f; int n = 0;
+            for (int i = 0; i < _parts.Length; i++)
+            {
+                if (_parts[i] == null) continue;
+                sum += Mathf.Abs(Vector3.Dot(_parts[i].up, Vector3.up)); n++;
+            }
+            return n > 0 ? sum / n : 1f;
         }
 
         private Vector3 BodyCentre()
@@ -496,6 +779,15 @@ namespace FarHorizon.Combat
                 return;
             }
 
+            // The corpse pass runs FIRST and OWNS the body for the rest of the frame: a dead creature must not
+            // also be flinching. It returns rather than falling through so the flash/flinch below cannot write
+            // over the settle's absolute transforms and re-animate a corpse.
+            if (_deathSettling)
+            {
+                ApplyDeathSettle();
+                return;
+            }
+
             // --- FLASH: write the eased amplitude to every part-material; write exactly 0 ONCE on completion. ---
             if (_flashActive)
             {
@@ -503,14 +795,24 @@ namespace FarHorizon.Combat
                 if (t >= 1f)
                 {
                     _flashActive = false;
+                    LastFlashFrames = _flashFramesSeen;
                     WriteFlash(0f);        // the resting value — this is what a latched flash would never reach
+                    // THE SOAK INSTRUMENT, third half: how many FRAMES the player's eye was actually given. A
+                    // 0.08 s window is ~5 frames at 60 fps and ~2 at 24 — but a frame count is the only figure
+                    // that survives a frame-rate the log doesn't know, and "it fired but you had 2 frames of it"
+                    // is a completely different defect from "it never fired". Both look identical to the Sponsor.
+                    Debug.Log("[HitFeedback] " + name + " FLASH done peak=" + _flashPeakSeen.ToString("0.000") +
+                              " frames=" + _flashFramesSeen + " over " + flashSeconds.ToString("0.000") + "s");
                 }
                 else
                 {
+                    _flashFramesSeen++;
                     // FlashImpulse01, NOT the flinch's Impulse01: this write also happens on the CONTACT frame
                     // (damage lands in Update, this runs in the same frame's LateUpdate at t = 0), and the flash
                     // must be at PEAK there rather than at an eased rise's resting 0. See FlashImpulse01.
-                    WriteFlash(Mathf.Clamp01(flashIntensity) * FlashImpulse01(t));
+                    float amt = Mathf.Clamp01(flashIntensity) * FlashImpulse01(t);
+                    if (amt > _flashPeakSeen) _flashPeakSeen = amt;
+                    WriteFlash(amt);
                 }
             }
 
@@ -566,6 +868,10 @@ namespace FarHorizon.Combat
             _flinchActive = false;
             _staggerUntil = 0f;
             FlinchOffset = Vector3.zero;
+            // Clear the corpse pass too, or a respawned enemy (DeathHandler) comes back still toppled and
+            // sinking — the settle writes ABSOLUTE transforms, so a stale one would hold the new body down.
+            _deathSettling = false;
+            _vanishPuffed = false;
             WriteFlash(0f);
         }
 

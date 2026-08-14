@@ -225,6 +225,11 @@ namespace FarHorizon.Combat
                 if (_agent.isOnNavMesh) _agent.ResetPath();
                 _agent.enabled = false; // a corpse doesn't path
             }
+            // 86caxjwb3 soak 2026-08-14 — the BoarAI.OnDied sibling, identical rationale: the settle was a word
+            // in a log line and nothing else (measured: uprightness 1,000 -> 1,000, meanY 0,296 -> 0,296 across
+            // the whole window, then a one-frame pop). The shared driver owns the visual; this AI owns the clock.
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>();
+            if (_feedback != null) _feedback.BeginDeathSettle(despawnSeconds);
             Debug.Log("[SnakeAI] snake DIED — settling, despawn in " + despawnSeconds.ToString("0.0") + "s");
         }
 
