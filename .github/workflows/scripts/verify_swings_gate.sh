@@ -119,7 +119,7 @@ fi
 # downloading the artifact. Curated rather than "every marker line": a healthy run emits ~68 marker
 # lines (the release pass alone traces 30 frames), and the full log ships as an artifact anyway.
 # The needle set is the four criterion-bearing lines PLUS every skip/FAIL warning Check 2 reds on.
-DECISIVE_RE='\[SwingVerifyCapture\] verification complete|\[swing-twohand\] engaged=|\[swing-twohand\] LEFT-ARM PIN|\[swing-release\] crossfade OUT|\[swing-release\] FAIL|SKIPPED|no CastawayLeftArmHaftIk|no HeldWeaponCycleDebug|no AxeNudgeTool'
+DECISIVE_RE='\[SwingVerifyCapture\] verification complete|\[swing-twohand\] engaged=|\[swing-twohand\] LEFT-ARM PIN|\[swing-release\] crossfade OUT|\[swing-release\] FAIL|SKIPPED|no CastawayLeftArmHaftIk|no HeldWeaponCycleDebug|no AxeNudgeTool|\[swing-point\] AIM VERDICT|\[swing-point\] SUMMARY|\[swing-aim-fit\]'
 if [ -f "$LOG_FILE" ]; then
   grep -E "$DECISIVE_RE" "$LOG_FILE" | sed 's/^/[verify_swings]   /' || true
 fi
@@ -180,6 +180,15 @@ REQUIRED_NEEDLES=(
   "rightWristOnHaft=True"                       # LOAD-BEARING (in-block): seat kept the haft in the right hand
   "releaseOk=True"                              # THE round-5 term: the left arm let go on time (TAUTOLOGY on
                                                 #   the skipped-rig path -- see the header)
+  # 86cb6v03j -- THE SWING-AIM (weapon-POINTING) terms. LOAD-BEARING (in-block): both are emitted only from inside
+  # SwingPointPass's own verdict, which is reached only when the pass ran end to end. `coverageOk=True` is the term
+  # that stops a run measuring 2 of the 4 GATED classes and passing them: without it the gate would be green with
+  # half its subject unmeasured, which is this file's whole reason for existing one level up. `pointOk=True` is the
+  # criterion itself (every gated class's weapon points into the half-space it is attacking into, at that class's
+  # own measured strike frame). NOTE the pickaxe is deliberately NOT gated -- see the EXCLUDED FROM THE AIM GATE
+  # line in the log and the block comment on HeldToolRig.SwingAimPickaxe.
+  "coverageOk=True"
+  "pointOk=True"
 )
 # Each of these is a verbatim fragment of a Debug.LogWarning whose own text says some variant of
 # "do NOT read a PASS here as proof ...". Any hit means the evidence for a criterion is MISSING from
@@ -193,6 +202,9 @@ ABSENT_NEEDLES=(
   "no HeldWeaponCycleDebug"      # :309 -- the held weapon was never forced to the pickaxe, so any
                                  #   grip figure describes whatever tool happened to be in hand
   "no AxeNudgeTool"              # :749 -- the F9 mine-seat instrument is absent from this build
+  "[swing-point] SKIPPED"        # 86cb6v03j -- the weapon-POINTING pass never ran (unresolved rig/cycle/hand), so
+                                 #   pointOk is its fail-closed FALSE rather than a measurement. Present as an
+                                 #   ABSENT needle as well as via pointOk=True so the run reddens on BOTH halves.
 )
 
 evidence_rc=0
