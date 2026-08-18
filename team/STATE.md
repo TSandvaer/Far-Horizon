@@ -9,6 +9,44 @@ Decisions go in `team/DECISIONS.md` (append-only). Operational scrollback goes n
 
 ---
 
+## ▶ NEXT 3 — the ONLY queue the team may pull from (Sponsor-ranked, added 2026-08-18)
+
+**This list is the demand signal. Nothing else is.** No board scan, no priority field, no
+"what's dispatchable" sweep may put work into a slot. A ticket enters only when the Sponsor
+puts it here.
+
+**When all three slots are empty, the team STOPS and asks.** Idle is the correct state, not a
+gap to be filled — the 2026-08-02 doctrine already ruled that an unjustified dispatch is the
+bug. The failure this queue exists to prevent is the *other* one: 2026-08-03 → 2026-08-17,
+**fifteen consecutive days with zero commits**, because restricting supply left nothing to pull.
+
+| # | Ticket | What | Tier | State |
+|---|---|---|---|---|
+| 1 | `86cb6v03j` | Held weapons/tools do not POINT in the swing direction — Sponsor: "the single most important issue" | FULL (combat) | **in flight** — PR #439 |
+| 2 | `86cb6vjf8` | Boar charge-snap: no NavMesh at runtime → `BoarAI.MoveTowards` transform fallback snaps the boar onto the player's XZ | FULL (enemy AI) | queued, explicitly BEHIND slot 1 |
+| 3 | *(empty)* | — | — | **needs a Sponsor yes** |
+
+Slots 1–2 are transcribed from the Sponsor decision "Post-#436 priorities: swing direction FIRST,
+boar charge-snap ticketed behind it" (`team/DECISIONS.md`, 2026-08-18, merged `8c1b479`). Slot 3
+is deliberately blank — filling it is the Sponsor's call, not the orchestrator's.
+
+**Rules for this queue:**
+1. **One developer works slot 1.** Slot 2 starts only when slot 1 has an open PR or is merged.
+2. **A reviewer is dispatched when a PR EXISTS**, never speculatively, never before.
+3. **Finishing a slot does not authorise picking a new one** — report the completion and ask.
+4. **Nothing outside this queue gets dispatched** except a bug reproduced in a built exe, which
+   may be added to slot 3 with the Sponsor's yes.
+5. **Tier comes from `team/TESTING_BAR.md` § Which gates apply** and is named in the PR body.
+
+---
+
+## ⚠ STALE HEADER BELOW — written 2026-08-02, superseded by events on 2026-08-18
+
+Kept only until the next session refreshes it. **Do not act on it without re-verifying:** #436
+has since MERGED (`bf833fc`, 2026-08-18) and #438 merged after it (`8c1b479`), so its "FIRST
+ACTION" and its open-PR count are both wrong. Agent-liveness and cron state below are unverified
+— probe, never assume (`agent-liveness-stop.sh` rule).
+
 ## RESUME NEXT-ACTION — 2026-08-02 (Sponsor PRESENT; auto-status OFF and staying off)
 
 **Agents in flight: ZERO. Crons: ZERO. Open PRs: ONE — #436, PARKED ON PURPOSE.**

@@ -10,9 +10,36 @@ A ticket is "complete" only when ALL of:
 2. **Green checks.** Full EditMode + PlayMode suites green — verified from the `-testResults` XML's `<test-run result="Passed">` line, not exit codes. CI (from U4 onward) chains BootstrapProject.Run → tests → FarHorizonBuilder.BuildWindows.
 3. **Shipped-build verification** (successor to RandomGame's HTML5 gate). Editor evidence is never sufficient — the editor-vs-runtime divergence class (Awake-no-serialize, shader stripping, NavMesh-not-shipped; see `.claude/docs/unity-conventions.md`) is proven by spike incidents. Anything UX/visually-visible needs evidence captured from the BUILT exe (windowed launch, in-game capture, HUD build-stamp visible) attached to the PR/ticket.
 4. **Self-Test Report.** UX-visible PRs carry an author-posted Self-Test Report comment (what was run, on which build stamp, what was observed — concrete values only, never invented) before Tess reviews.
-5. **Tess sign-off.** QA review verdict (APPROVE / APPROVE_WITH_NITS / REQUEST_CHANGES) as a PR comment. Tess-authored PRs get a Drew/Devon peer reviewer instead (Tess can't self-QA).
+5. **Tess sign-off.** QA review verdict — **`APPROVE` or `REQUEST_CHANGES`, the only two that exist** (see § What this bar does NOT ask for, item 3) — as a PR comment. Tess-authored PRs get a Drew/Devon peer reviewer instead (Tess can't self-QA).
 6. **Sponsor soak** only where the gate is subjective feel or first-of-class visuals — right-size the ask; always include the exe path + the expected HUD build stamp. **State the bar (bounded silence).** The soak ask must NAME the quality bar this iteration tested + the surfaces in scope, and list the bars NOT tested — "this looks done" is not a convergence claim; "tested bar B on surfaces S; NOT tested: …" is. See § "Predict-Before-Soak + bounded silence" below.
 7. **Demonstrated RED — when the PR introduces or amends a GUARD** (a CI gate script, a wiring assertion, a regression pin, a staleness grep, a capture-wrapper needle set, or a quality bar's own check). A gate is not a gate until it has been demonstrated red: the PR must quote **two reds — Red A (discrimination) and Red B (wiring)** — plus a **green**, all from the same tree with the **mutation named**. A PR that ships only Red A must say so explicitly and state that the wiring half is unproven. A green alone is what a gate wired into nothing also produces. **Full requirement + what does and does not qualify: § "A gate is not a gate until its RED has been demonstrated" below.**
+
+---
+
+## Which gates apply: TWO TIERS by risk (Sponsor decision 2026-08-18)
+
+The seven gates above were written against the surfaces that can silently break the game. Applying
+all seven to a one-material colour tweak is not thoroughness, it is a reason small wins never ship
+— measured: 15 consecutive days with zero commits (2026-08-03 → 2026-08-17), while the bar sat at
+maximum for every change class alike. **Pick the tier from the surface touched, and name the tier
+in the PR body.** When a PR spans both, it is FULL.
+
+| | **FULL bar** | **LIGHT bar** |
+|---|---|---|
+| **Applies to** | combat, enemy AI, persistence/save-data, inventory/crafting state, CI + gate scripts, the character rig, anything soak-gated, anything that has regressed before | isolated visual/material/lighting tweaks, HUD copy, single-value tuning, prop placement, docs/chore/test PRs |
+| **Gates** | all seven | **2** (green checks), **3** (shipped-build verification), **5** (one reviewer, one round) — plus **4** (Self-Test Report) if UX-visible |
+| **Dropped on LIGHT** | — | **1** paired tests (a value tweak has no behaviour to pin), **6** Sponsor soak, **7** demonstrated RED (no guard is being introduced) |
+
+**Two rules that do not tier**, ever, because they are what keep the Sponsor out of debugging:
+
+- **Gate 3 (shipped-build verification) is in BOTH tiers.** Editor evidence is never sufficient at
+  any risk level — editor-vs-runtime divergence is a proven failure class here.
+- **A LIGHT-tier PR that turns out to touch a FULL surface is re-tiered on the spot**, not argued
+  down. The reviewer may raise a tier; nobody may lower one.
+
+**The tier is not a licence to skip thinking.** The Sponsor's standing directive — *"I want you to
+use a lot of time testing, I don't want to debug and return findings all the time"* — is unchanged.
+LIGHT means fewer artifacts on low-risk surfaces, never less care about whether the thing works.
 
 ---
 

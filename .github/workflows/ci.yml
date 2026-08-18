@@ -158,6 +158,17 @@ jobs:
           chmod +x .github/workflows/scripts/check_docs_markup.sh
           .github/workflows/scripts/check_docs_markup.sh
 
+      # team/DECISIONS.md is PREPEND-ONLY: the entry region on the base ref must
+      # survive verbatim as the TAIL of the file. Stronger than a 0-deletions
+      # check, which waves through an INSERTION into a merged entry — the exact
+      # erosion the file's own correction protocol was written to prevent, and
+      # which until 2026-08-18 nothing enforced. Hosted, no license, seconds.
+      - name: DECISIONS.md prepend-only check
+        run: |
+          git fetch --no-tags --depth=1 origin main || true
+          chmod +x .github/workflows/scripts/verify_decisions_prepend_only.sh
+          .github/workflows/scripts/verify_decisions_prepend_only.sh origin/main
+
       # The gate scripts are tested too (the bar applies to itself). Zero Unity
       # dependency, so it runs in the license-free job on every PR: console-error
       # gate nit fixes + the capture gate's black/empty/uniform/magenta/zero-frame

@@ -410,13 +410,32 @@ If any check fails, Tess bounces with a one-line note naming which check failed.
 
 Skip this block for `chore(...)` / `docs(...)` / `test(...)` PRs or PRs that touch no visual primitives. Paste it in dispatches that match the gated class above.
 
-## Doc-update reporting (mandatory in every dispatch)
+## Doc-update reporting — ⛔ RETIRED 2026-08-18, do not reinstate
 
-```markdown
-**Doc updates (`.claude/docs/`):** if your maintain-docs Stop hook ran and produced an update to any file under `.claude/docs/`, list those files + the rationale in your final report. Format: `Doc updates: <file> — <one-line rationale>`. If no docs were updated, state explicitly: `Doc updates: none (early-exit applied — <reason>).` Sponsor wants visibility into this mechanism firing.
-```
+This section used to require every dispatch to carry a "report what your maintain-docs Stop
+hook produced" block. **That hook no longer exists** — the 2026-08-02 doctrine removed
+`maintain-docs` from `.claude/settings.json` and made it manual-only, gated on a named incident
+with a named cost. The block survived the hook by 16 days and was still instructing agents to
+produce and report doc updates, which is the exact generator the doctrine was written to kill.
 
-This block is non-negotiable in every dispatch. The Stop hook already runs for sub-agents, but the orchestrator + Sponsor cannot see what happened unless the agent surfaces it.
+**Do not add a doc-reporting block to any brief.** An agent writes to `.claude/docs/` only when
+the Sponsor asks for it, or when the agent can name the incident and its cost — and then it says
+so in the final report like any other work item.
+
+## Effort tiering (set it per dispatch — 2026-08-18)
+
+The session default is `effortLevel: high`, which is a token multiplier applied to every agent
+whether or not the work needs reasoning depth. Set it deliberately:
+
+| Effort | Work class |
+|---|---|
+| **low** | Mechanical: STATE/ticket-status updates, merge-from-main, rename/move, applying a review's named fix, re-running a gate. |
+| **default / medium** | Ordinary implementation against a clear spec with a named success-test. |
+| **high** | Design calls, root-cause diagnosis, review of a risky surface, anything soak-gated or touching combat / persistence / CI. |
+
+When in doubt, one tier down — a brief with a named success-test carries most of the reasoning
+already. Erik stays `sonnet`; personas stay `opus`; `model: "fable"` is never passed on a
+dispatch (see `team/DECISIONS.md` 2026-07-07 + the 2026-08-18 correction).
 
 ## ClickUp queue (when MCP is down)
 

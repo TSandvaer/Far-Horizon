@@ -2,7 +2,15 @@
 
 > **Append protocol (carried from RandomGame, adopted there 2026-05-15):** this file is centralized. Agents NEVER edit it directly — record `Decision draft:` lines in final reports; Priya batches them into a single PR. The orchestrator logs Sponsor-made and cross-role decisions directly.
 
-Append-only. Format:
+**PREPEND-only — the newest entry goes at the TOP of the entry list, directly under this header.**
+Nothing below is ever edited, reordered or deleted. ("Append-only" was the wording until
+2026-08-18; this file is newest-first, so a reader taking "append" literally lands a new entry
+in the middle of last June. The invariant was always prepend.) Machine-enforced by
+`.github/workflows/scripts/verify_decisions_prepend_only.sh` in the `structure` CI job: the
+entry region as it exists on `main` must survive verbatim as the TAIL of this file. That check
+catches an *insertion* into a historical entry, not just a deletion — which a plain
+0-deletions check would wave through. The header block above the first entry is exempt and may
+be edited freely. Format:
 
 ```
 ## YYYY-MM-DD — <short title>
@@ -24,6 +32,16 @@ Append-only. Format:
 Godot-era decisions (2026-05-02 → 2026-06-12) live in the archived RandomGame repo: `c:/Trunk/PRIVATE/RandomGame/team/DECISIONS.md`.
 
 ---
+
+## 2026-08-18 — CORRECTION: MCP-bound generation runs in the CONNECTION-HOLDING session at opus — the lane is a session, the token rule is a model
+- Decided by: Sponsor
+- Amends: "Fable = advisor-only; opus implements everything (supersedes the design-lane fable exception)" (merged `d7c80bb`, PR #280, 2026-07-07)
+- Withdrawn: that entry's clause "ALL implementation — including the creative/Blender/design-build lane — runs on opus agents", insofar as it covers **MCP-bound generation**. It named an executor that cannot execute: verified 2026-08-18, none of the six `.claude/agents/*.md` `tools:` lines carries a Blender MCP tool (all six list only Read/Write/Edit/Grep/Glob/Bash/Skill/WebFetch + `mcp__clickup__*`), so no dispatched persona can reach the Blender MCP at all.
+- Replaces it with: MCP-bound generation (Blender MCP today) runs **in whichever session holds the MCP connection** — normally the orchestrator session — **on opus**, with fable consulted only when a style call genuinely needs advisement, via the existing `ADVISEMENT NEEDED:` loop used in reverse.
+- Stands: every other clause of the amended entry — fable is advisor-only for task analysis, plan/brief authoring, gating, merging and Sponsor interaction; `model: "fable"` is never passed on an `Agent` dispatch; helpers still take an explicit `model: "sonnet"`; the advisor-escalation loop is unchanged. Its **reasoning** stands too: the token-conservation why (Sponsor verbatim, "stop burning fable tokens") is precisely what this correction enforces — it takes execution off fable without handing it to an executor that has no tools.
+- Why: the two rules were read as one axis and are two. "Fable = advisor only" governs **which model burns tokens**; "Blender = fable" governs **which session holds the MCP connection** — plus the preconditions the work actually has (Blender running with the addon attached, the Sponsor present to judge the shape). The orchestrator session's model is a `/model` switch, so both rules hold simultaneously: connection-holding session, opus model. Left unresolved, the contradiction produced a lane documented three ways and wired zero ways — the away-archive records a planned axe re-author that never ran (blocked on Blender/addon availability) and was then lost to a PC crash.
+- Reversibility: reversible (a policy line; no code, no tool wiring changed).
+- Deliberately NOT decided here: whether a **dispatched** opus agent can reach the Blender MCP is **untested**. `team/orchestrator/dispatch-template.md:523` asserts "non-clickup MCP tools don't inherit to sub-agents" citing memory `sub-agent-mcp-tool-surface-scope`; that memory is ClickUp-auth-specific and carries its own 2026-07-06 reversal ("Subagent ClickUp access WORKS again"). The assertion is therefore unsupported — not disproven. If persona-side Blender execution is ever wanted, test it before designing on it.
 
 <!-- BATCH 2026-07-31 — the enemy-feedback spec pair (#376 `7d6d96f` + #371 `59a6e53`). 16 entries from 20 parked
      drafts; the 4 composes and the reason for each are recorded in this batch's PR body, not here. -->
