@@ -180,13 +180,22 @@ REQUIRED_NEEDLES=(
   "rightWristOnHaft=True"                       # LOAD-BEARING (in-block): seat kept the haft in the right hand
   "releaseOk=True"                              # THE round-5 term: the left arm let go on time (TAUTOLOGY on
                                                 #   the skipped-rig path -- see the header)
-  # 86cb6v03j -- THE SWING-AIM (weapon-POINTING) terms. LOAD-BEARING (in-block): both are emitted only from inside
-  # SwingPointPass's own verdict, which is reached only when the pass ran end to end. `coverageOk=True` is the term
-  # that stops a run measuring 2 of the 4 GATED classes and passing them: without it the gate would be green with
-  # half its subject unmeasured, which is this file's whole reason for existing one level up. `pointOk=True` is the
-  # criterion itself (every gated class's weapon points into the half-space it is attacking into, at that class's
-  # own measured strike frame). NOTE the pickaxe is deliberately NOT gated -- see the EXCLUDED FROM THE AIM GATE
-  # line in the log and the block comment on HeldToolRig.SwingAimPickaxe.
+  # 86cb6v03j -- THE SWING-AIM (weapon-POINTING) terms.
+  # `pointOk=True` is THE criterion: every gated class's weapon points into the half-space it is attacking into,
+  #   at that class's own measured strike frame (SwingPointRead.StrikeAimOk, floor fwdDot > 0.00). It is emitted on
+  #   BOTH the [swing-point] SUMMARY line and the one-line verdict, so on its own it proves the value, not the pass.
+  #   Demonstrated RED: `verify_swings S9` (the sword sweeps its strike BACKWARDS, fwdDot -0.113).
+  # `coverageOk=True` is this pass's IN-BLOCK PRESENCE needle -- the exact parallel to pinEngaged/palmMeasured for
+  #   the grip pass. It appears on the [swing-point] SUMMARY line ALONE, the line that carries the per-class strike
+  #   table and the gatedCovered==gatedTotal arithmetic. NOT redundant with pointOk: a run that sets _pointOk true
+  #   and then never writes the SUMMARY still matches `pointOk=True` off the verdict line, and only coverageOk
+  #   catches it. Demonstrated RED: `verify_swings S11`.
+  #   ⚠ HONEST BOUND, do not overstate it in a review: coverageOk is NOT an independent detector of a coverage
+  #   HOLE, because the runtime computes `_pointOk = aimAll && coverageOk` -- a genuine hole already drags pointOk
+  #   false. Its detection value is the SUMMARY-line presence case above, and it is a second line of defence if a
+  #   future refactor decouples the two.
+  # NOTE the pickaxe is deliberately NOT gated -- see the EXCLUDED FROM THE AIM GATE line in the log and the block
+  # comment on HeldToolRig.SwingAimPickaxe.
   "coverageOk=True"
   "pointOk=True"
 )
@@ -204,7 +213,10 @@ ABSENT_NEEDLES=(
   "no AxeNudgeTool"              # :749 -- the F9 mine-seat instrument is absent from this build
   "[swing-point] SKIPPED"        # 86cb6v03j -- the weapon-POINTING pass never ran (unresolved rig/cycle/hand), so
                                  #   pointOk is its fail-closed FALSE rather than a measurement. Present as an
-                                 #   ABSENT needle as well as via pointOk=True so the run reddens on BOTH halves.
+                                 #   ABSENT needle as well as via pointOk=True so the run reddens on BOTH halves,
+                                 #   and so the log NAMES the cause instead of only withholding a criterion.
+                                 #   Demonstrated RED: `verify_swings S10`, whose fixture reports every
+                                 #   PRE-86cb6v03j criterion True -- i.e. the exact log this needle un-greens.
 )
 
 evidence_rc=0

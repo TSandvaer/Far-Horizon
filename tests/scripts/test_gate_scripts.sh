@@ -885,8 +885,69 @@ for nm in names[:n]:
     write_png(os.path.join(d, nm + ".png"))
 PY
 
+# write_swings_point_block <outfile> <verdict:pass|fail|skip|nosummary> — the 86cb6v03j SWING-POINTING
+# pass's own evidence, token-faithful to the SHIPPED run (CI run 32142006587, capture job, step "Swing
+# capture gate", 2026-08-18T13:43:32Z — that log is where every figure below is copied from).
+#
+# WHERE IT MAY APPEAR IS NOT A FREE CHOICE. SwingPointPass is the LAST call inside the
+# `if (castaway != null && animator != null)` -> `hips/head resolved` block (SwingVerifyCapture.cs, call
+# site immediately after ChopSeatPass). So it runs on pass / skip-ik / palm-fail / release-fail — those
+# are criterion-FALSE or IK-absent shapes, not block skips, and SwingPointPass does not take the left-arm
+# IK as an input — and it is NEVER REACHED on skip-bones / skip-guard / truncated. Those three therefore
+# stay point-line-free rather than carrying a fabricated `[swing-point] SKIPPED` the runtime could not
+# have written there; inventing one would make the fixture assert against a log shape that cannot exist.
+#
+# DECIMAL SEPARATORS ARE COPIED, NOT NORMALISED. The aim-fit / AIM VERDICT / SUMMARY lines print through
+# CultureInfo.InvariantCulture (SwingPointRead.Inv) and carry DOTS; the one-line verdict's point terms go
+# through the same Danish-locale ToString() as the rest of that line and carry COMMAS. The shipped log
+# genuinely mixes both on one run, so S2's locale claim now covers a MIXED-separator log rather than a
+# comma-only one — a strictly harder case for a numeric needle to survive.
+write_swings_point_block() {
+  local out="$1" verdict="$2"
+  if [ "$verdict" = "skip" ]; then
+    # SwingVerifyCapture.cs SwingPointPass early-out. FAIL CLOSED: _pointOk is `false` by initialiser
+    # (deliberately NOT the older default-TRUE _releaseOk convention), so the verdict line reports
+    # pointOk=False here — the run reds on the ABSENT half AND the presence half, which is the point.
+    echo "[swing-point] SKIPPED — the pointing read's inputs did not resolve (castaway=True animator=True heldRig=True cycle=False arms=True rHand=True hips/head=True). The weapon-ORIENTATION evidence is MISSING from this run, so this gate FAILS CLOSED: pointOk=false. Read it as 'the pass did NOT run' (pointRan=False on the verdict line), never as 'the weapon points correctly'." >> "$out"
+    return 0
+  fi
+  echo "[swing-aim-fit] axe (ARC verb -> aim forward-and-down): residual 0.9 deg (window-mean heading vs window-mean aim); PREDICTED mean fwdDot after this delta = 0.183; REQUIRED ADDITIONAL tool-frame delta = new Vector3(0.2f, -0.9f, -0.2f)  <- bake into HeldToolRig.SwingAimAxe." >> "$out"
+  echo "[swing-point] pickaxe: EXCLUDED FROM THE AIM GATE BY SCOPE, measured fwdDot=-0.592 at its strike. Its swing seat is the Sponsor-passed mineSeatEulerDelta (86cay4282, five rounds). This is a stated bound on the fix, NOT a claim the pickaxe aims correctly." >> "$out"
+  # The four GATED classes (the pickaxe above is excluded by name). `fail` mutates ONE of them — the
+  # sword — to the defect this ticket exists for: the haft leading into the half-space BEHIND the one he
+  # is attacking into. Exactly one term moves, so S9 is a mutation ISOLATE, not a broken log.
+  echo "[swing-point] AIM VERDICT axe: sweeps into the strike (axe) - MEAN fwdDot 0.219 = 77 deg off the direction the character is facing, averaged across the STRIKE WINDOW (bound: > 0.00, i.e. inside 90 deg = the head leads into the half-space he is attacking into)." >> "$out"
+  echo "[swing-point] AIM VERDICT dagger: sweeps into the strike (dagger) - MEAN fwdDot 0.395 = 67 deg off the direction the character is facing, averaged across the STRIKE WINDOW (bound: > 0.00, i.e. inside 90 deg = the head leads into the half-space he is attacking into)." >> "$out"
+  echo "[swing-point] AIM VERDICT spear: sweeps into the strike (spear) - MEAN fwdDot 0.838 = 33 deg off the direction the character is facing, averaged across the STRIKE WINDOW (bound: > 0.00, i.e. inside 90 deg = the head leads into the half-space he is attacking into)." >> "$out"
+  if [ "$verdict" = "fail" ]; then
+    echo "[swing-point] AIM VERDICT sword: SWEEPS THE STRIKE BACKWARDS (sword) - MEAN fwdDot -0.113 = 96 deg off the direction the character is facing, averaged across the STRIKE WINDOW (bound: > 0.00, i.e. inside 90 deg = the head leads into the half-space he is attacking into)." >> "$out"
+  else
+    echo "[swing-point] AIM VERDICT sword: sweeps into the strike (sword) - MEAN fwdDot 0.113 = 84 deg off the direction the character is facing, averaged across the STRIKE WINDOW (bound: > 0.00, i.e. inside 90 deg = the head leads into the half-space he is attacking into)." >> "$out"
+  fi
+  # THE SUMMARY line — the ONLY line in the whole log that carries `coverageOk`. `nosummary` drops it and
+  # keeps a full-green verdict line, which is the in-block-PRESENCE case for this pass (S11): the exact
+  # parallel to S4b, and the reason `coverageOk=True` is a needle rather than redundant with `pointOk=True`.
+  if [ "$verdict" = "nosummary" ]; then return 0; fi
+  if [ "$verdict" = "fail" ]; then
+    echo "[swing-point] SUMMARY over 5/5 scored classes: axe strikeFwd=0.243 strikeUp=-0.260 reach=0.951 | pickaxe strikeFwd=-0.592 strikeUp=-0.576 reach=0.790 | dagger strikeFwd=0.941 strikeUp=-0.302 reach=0.729 | spear strikeFwd=0.934 strikeUp=0.260 reach=0.927 | sword strikeFwd=-0.113 strikeUp=-0.495 reach=0.887 => WORST class 'sword' (lowest fwdDot at its own strike frame). AIM GATE: 4/4 gated classes measured (coverageOk=True, pickaxe excluded by scope) aimAllOk=False => pointOk=False. A FALSE coverageOk means a gated class produced no strike reading at all and the gate has a hole in it — that reds rather than passing on the classes it did manage to measure." >> "$out"
+  else
+    echo "[swing-point] SUMMARY over 5/5 scored classes: axe strikeFwd=0.243 strikeUp=-0.260 reach=0.951 | pickaxe strikeFwd=-0.592 strikeUp=-0.576 reach=0.790 | dagger strikeFwd=0.941 strikeUp=-0.302 reach=0.729 | spear strikeFwd=0.934 strikeUp=0.260 reach=0.927 | sword strikeFwd=0.427 strikeUp=-0.495 reach=0.887 => WORST class 'pickaxe' (lowest fwdDot at its own strike frame). AIM GATE: 4/4 gated classes measured (coverageOk=True, pickaxe excluded by scope) aimAllOk=True => pointOk=True. A FALSE coverageOk means a gated class produced no strike reading at all and the gate has a hole in it — that reds rather than passing on the classes it did manage to measure." >> "$out"
+  fi
+}
+
+# swings_point_terms <verdict:pass|fail|skip|nosummary> — the point terms as they appear on the ONE-LINE
+# verdict, Danish commas included (see the separator note above).
+swings_point_terms() {
+  case "$1" in
+    fail) printf ' pointRan=True pointClassesScored=5 pointWorstClass=sword pointWorstStrikeFwdDot=-0,113 pointWorstStrikePhase=0,712 pointOk=False';;
+    skip) printf ' pointRan=False pointClassesScored=0 pointWorstClass=none pointWorstStrikeFwdDot=NaN pointOk=False';;
+    *)    printf ' pointRan=True pointClassesScored=5 pointWorstClass=pickaxe pointWorstStrikeFwdDot=-0,463 pointWorstStrikePhase=0,688 pointOk=True';;
+  esac
+}
+
 # write_swings_log <outfile> <mode> — a token-faithful -verifySwings Player.log body.
-# Modes are the real shapes: pass / skip-ik / skip-bones / skip-guard / palm-fail / release-fail / truncated.
+# Modes are the real shapes: pass / skip-ik / skip-bones / skip-guard / palm-fail / release-fail /
+# truncated, plus the three 86cb6v03j pointing shapes: point-fail / point-skip / point-nosummary.
 write_swings_log() {
   local out="$1" mode="$2"
   : > "$out"
@@ -927,7 +988,23 @@ write_swings_log() {
     echo "[swing-twohand] no CastawayLeftArmHaftIk in the shipped scene — the LEFT-HAND PIN this round delivers is ABSENT from this build. Every palm figure below would then be the clip's own unpinned hand; do NOT read a PASS as proof the left hand was moved." >> "$out"
     echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
     echo "[swing-release] SKIPPED — no CastawayLeftArmHaftIk in the shipped scene, so there is nothing to release; do NOT read the PASS above as proof the left arm lets go." >> "$out"
-    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True => PASS=True" >> "$out"
+    # The POINTING pass still runs here and still PASSES: its inputs (castaway/animator/heldRig/cycle/
+    # arms/hand/hips/head) do not include the left-arm IK, so a build missing that IK measures weapon
+    # orientation perfectly well. Emitting it keeps S3 a single-cause fixture — the ONLY thing wrong with
+    # this run is the absent pin — instead of accidentally reddening on a second, unmodelled axis.
+    write_swings_point_block "$out" pass
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=-1 releaseBudgetFrames=-1 releaseOk=True$(swings_point_terms pass) => PASS=True" >> "$out"
+    return 0
+  fi
+  if [ "$mode" = "point-skip" ]; then
+    # 86cb6v03j — the WIRING red for the new ABSENT needle. Everything that existed before this ticket
+    # measures and passes; only the pointing pass fails to resolve its inputs. Pre-ticket, this run was a
+    # full green. The `=> PASS=False` is the runtime's own fail-closed _pointOk, not a fixture choice.
+    echo "[swing-twohand] LEFT-ARM PIN: present=True peak weight 1,00 solved 82/156 frames, REACHING on 74, pole-fallback on 0" >> "$out"
+    echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+    echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+    write_swings_point_block "$out" skip
+    echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True$(swings_point_terms skip) => PASS=False" >> "$out"
     return 0
   fi
   echo "[SwingVerifyCapture] pickaxe fold: peakTilt=42,1deg <= 50deg ceiling => foldOk=True" >> "$out"
@@ -938,15 +1015,31 @@ write_swings_log() {
       # measured 0,615 SW = 28,2 cm here — the figure the Sponsor rejected by eye.
       echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=False (peak pin weight 0,00 > 0,50) palmMeasured=True leftPalmOnHaft=False (0,615 SW = 28,2 cm <= 0,293 SW = 13,0 cm, the mesh-measured touch bound) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=False." >> "$out"
       echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
-      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=False releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=False" >> "$out";;
+      write_swings_point_block "$out" pass
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=False releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True$(swings_point_terms pass) => PASS=False" >> "$out";;
     release-fail)
       echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
       echo "[swing-release] FAIL — crossfadeOutFrames=6 settleFrames=28 (peak pin weight 1,00). A NEGATIVE settle means the arm never let go, which IS the Sponsor's reported defect." >> "$out"
-      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=28 releaseBudgetFrames=11 releaseOk=False => PASS=False" >> "$out";;
+      write_swings_point_block "$out" pass
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True meshStayed=True foldOk=True gripOk=True releaseSettleFrames=28 releaseBudgetFrames=11 releaseOk=False$(swings_point_terms pass) => PASS=False" >> "$out";;
+    point-fail|point-nosummary)
+      # 86cb6v03j — every PRE-EXISTING criterion measures and passes; only the pointing axis is mutated.
+      # `point-fail`  : the sword sweeps BACKWARDS (fwdDot -0.113 < the 0.00 floor) -> aimAllOk=False.
+      # `point-nosummary`: the aim is fine and the verdict line says so, but the SUMMARY line that carries
+      #                 `coverageOk` never reached the log — the per-class table and the coverage
+      #                 arithmetic are simply missing while the run still reports pointOk=True.
+      local pv=fail; [ "$mode" = "point-nosummary" ] && pv=nosummary
+      local vt=fail; [ "$mode" = "point-nosummary" ] && vt=pass
+      local pass_flag=False; [ "$mode" = "point-nosummary" ] && pass_flag=True
+      echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
+      echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
+      write_swings_point_block "$out" "$pv"
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True worstMeshGap=1,94u meshStayed=True pickaxePeakTilt=42,1deg foldOk=True worstLeftPALM=0,239SW=10,6cm palmMeasured=True pinPeakWeight=1,00 gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True$(swings_point_terms "$vt") => PASS=$pass_flag" >> "$out";;
     *)
       echo "[swing-twohand] engaged=True (peak seat weight 1,00 > 0,50) pinEngaged=True (peak pin weight 1,00 > 0,50) palmMeasured=True leftPalmOnHaft=True (0,239 SW = 10,6 cm <= 0,293 SW = 13,0 cm) rightWristOnHaft=True (0,001 <= 0,30 SW) => gripOk=True." >> "$out"
       echo "[swing-release] crossfade OUT measured 6 frames; pin weight fell to <= 0,02 at +5 frames (budget 11) => releaseOk=True" >> "$out"
-      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True worstMeshGap=1,94u meshStayed=True pickaxePeakTilt=42,1deg foldOk=True worstLeftPALM=0,239SW=10,6cm palmMeasured=True pinPeakWeight=1,00 gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True => PASS=True" >> "$out";;
+      write_swings_point_block "$out" pass
+      echo "[SwingVerifyCapture] verification complete -> caps allRouted=True worstMeshGap=1,94u meshStayed=True pickaxePeakTilt=42,1deg foldOk=True worstLeftPALM=0,239SW=10,6cm palmMeasured=True pinPeakWeight=1,00 gripOk=True releaseSettleFrames=5 releaseBudgetFrames=11 releaseOk=True$(swings_point_terms pass) => PASS=True" >> "$out";;
   esac
 }
 
@@ -1062,6 +1155,52 @@ make_swings_exe "$TMP/swings_fewframes.sh" "$TMP/swings_pass.body" 0 2
 assert_rc_and_grep 1 "SWINGS CAPTURE GATE FAILED" \
   "verify_swings S8: perfect log but only 2 frames → RED (evidence check does not replace the frame backstop)" \
   -- bash "$SWINGS_GATE" "$TMP/swings_fewframes.sh" "$TMP/swings_few_caps" "$TMP/swings_few.log"
+
+# ===== 86cb6v03j — the SWING-POINTING (weapon-aim) half of Check 2. =====================================
+# Gate-7 note: `coverageOk=True` and `pointOk=True` were added to REQUIRED_NEEDLES and
+# `[swing-point] SKIPPED` to ABSENT_NEEDLES by this ticket. Three needles with no negative behind them is
+# a gate that has never been shown to red, so the three cases below are their demonstrated REDs. Each is a
+# single-axis mutation of the S1 fixture: every pre-ticket criterion still measures and still passes, so a
+# red here can only be the pointing axis.
+
+# S9 (DISCRIMINATION) — the defect this ticket exists for, in the only shape the log can express it: at the
+# sword's own measured strike frame the haft leads into the half-space BEHIND the one he is attacking into
+# (MEAN fwdDot -0.113, floor 0.00 => SwingPointRead.StrikeAimOk returns false, aimAllOk=False,
+# pointOk=False). Coverage is intact (4/4 gated classes measured), so `coverageOk=True` still matches and
+# the ONLY needle left unmatched is the criterion itself. PRE-REGISTERED: exit 1, naming pointOk.
+write_swings_log "$TMP/swings_pointfail.body" "point-fail"
+make_swings_exe "$TMP/swings_pointfail.sh" "$TMP/swings_pointfail.body" 1
+assert_rc_and_grep 1 "evidence MISSING : 'pointOk=True'" \
+  "verify_swings S9: a gated class sweeps its strike BACKWARDS → RED, naming the pointing criterion" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pointfail.sh" "$TMP/swings_pointfail_caps" "$TMP/swings_pointfail.log"
+
+# S10 (WIRING, and the pre-ticket false-green) — SwingPointPass's inputs do not resolve (here: no
+# HeldWeaponCycleDebug on the rig), so the pass emits its SKIPPED warning and measures nothing. EVERY
+# criterion that existed before this ticket still reports True on this run: before 86cb6v03j this exact log
+# was a full GREEN, and the weapon could have pointed anywhere. PRE-REGISTERED: exit 1 via the ABSENT half
+# of Check 2 — the assertion greps `evidence SKIPPED`, never `evidence MISSING`, because proving the ABSENT
+# needle is wired at all is this case's whole job (the presence half also reds it, by design: fail-closed
+# _pointOk puts pointOk=False on the verdict line too, so the run reds on BOTH halves).
+write_swings_log "$TMP/swings_pointskip.body" "point-skip"
+make_swings_exe "$TMP/swings_pointskip.sh" "$TMP/swings_pointskip.body" 0
+assert_rc_and_grep 1 "evidence SKIPPED : '[swing-point] SKIPPED'" \
+  "verify_swings S10: exit-0 run whose pointing pass never ran → RED (the pre-86cb6v03j false-green)" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pointskip.sh" "$TMP/swings_pointskip_caps" "$TMP/swings_pointskip.log"
+
+# S11 (the ANTI-PRUNING guard on `coverageOk=True`, and the answer to "isn't it redundant with pointOk?").
+# It is NOT redundant, and this case is the proof: `pointOk=True` is printed on BOTH the SUMMARY line and
+# the one-line verdict, so a run that sets _pointOk true and then never writes the SUMMARY still matches it.
+# `coverageOk=True` appears on the SUMMARY line ALONE, which is the line carrying the per-class strike table
+# and the gatedCovered==gatedTotal arithmetic. So coverageOk is this pass's IN-BLOCK presence needle, the
+# exact parallel to pinEngaged/palmMeasured for the grip pass (see S4b). This fixture drops the SUMMARY line
+# and keeps a full-green verdict line. PRE-REGISTERED: exit 1, and it must be `evidence MISSING :
+# 'coverageOk=True'` — prune that needle and this test greens, which is the regression it exists to catch.
+write_swings_log "$TMP/swings_pointnosum.body" "point-nosummary"
+make_swings_exe "$TMP/swings_pointnosum.sh" "$TMP/swings_pointnosum.body" 0
+assert_rc_and_grep 1 "evidence MISSING : 'coverageOk=True'" \
+  "verify_swings S11: verdict line says pointOk=True but the SUMMARY line never landed → RED via coverageOk" \
+  -- bash "$SWINGS_GATE" "$TMP/swings_pointnosum.sh" "$TMP/swings_pointnosum_caps" "$TMP/swings_pointnosum.log"
+
 
 echo "=== gate launch-mode invariant (86cag93zb — headless RT-readback vs windowed overlay) ==="
 # THE bug class this guards: a HEADLESS-converted scene-content gate silently reverting to a windowed
