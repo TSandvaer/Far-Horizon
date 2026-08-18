@@ -184,6 +184,21 @@ namespace FarHorizon.Settings
         public const string BoarGoreDamageId  = "boar_gore_damage";
         public const string BoarChargeSpeedId = "boar_charge_speed";
 
+        // Enemy body-level hit feedback (ticket 86caxjwb3 AC5). Registered by PopulateHitFeedback, fanned out
+        // across EVERY enemy's EnemyHitFeedback driver (the per-bush PopulateBerry precedent — no shared
+        // manager). DEV-CONSOLE rows by construction: they are absent from SettingsCategory.PlayerIds, and the
+        // player must never see juice amplitudes (DECISIONS 2026-07-01, the F1/F3 settings SPLIT). The master
+        // `enemy_hit_feedback_enabled` is the ONE-FLAG revert path for the whole feature; it defaults ON so the
+        // Sponsor sees the package at soak. `hit_flinch_stagger` is the only PER-TIER row here, so it carries
+        // the dead-knob guard (write the ACTIVE field AND the active tier's map entry, or the next
+        // ApplyDifficulty-on-hit clobbers the dial). Ids are stable (PlayerPrefs keys + test lookups).
+        public const string HitFeedbackEnabledId  = "enemy_hit_feedback_enabled";
+        public const string HitFlashIntensityId   = "hit_flash_intensity";
+        public const string HitFlashDurationId    = "hit_flash_duration";
+        public const string HitFlinchAmplitudeId  = "hit_flinch_amplitude";
+        public const string HitFlinchStaggerId    = "hit_flinch_stagger";
+        public const string HitPuffCountId        = "hit_puff_count";
+
         // FPS counter visibility (ticket 86cahmxmt — Sponsor #226 walk-soak item 3: "We need to introduce a
         // FPS counter to be displayed"). A BOOL row driving the FpsCounterHud component's enabled flag
         // (disabled = no Update, no OnGUI = zero cost). DEFAULT ON in this first build so the Sponsor sees it
@@ -301,6 +316,22 @@ namespace FarHorizon.Settings
         public const float BoarHpMaxMin = 15f, BoarHpMaxMax = 120f;          // boar HP-max band (around 32/40/50)
         public const float BoarGoreMin = 2f, BoarGoreMax = 50f;              // gore damage band (around 10/18/26)
         public const float BoarChargeSpeedMin = 1f, BoarChargeSpeedMax = 12f; // pursuit/charge speed band (around 3.2)
+        // Enemy hit-feedback bands (ticket 86caxjwb3 AC5). Every one is a CALM-TONE AMPLITUDE CAP the Sponsor
+        // tunes DOWNWARD as much as upward (game-juice.md §0 — "amplitude is the entire tuning variable"), so
+        // each band reaches 0 (the channel off) and stops well short of anything that would read as violent.
+        // Flash intensity tops out at 1.0 = a full lerp to the warm-white tone; the shipped default is 0.62.
+        public const float HitFlashIntensityMin = 0f, HitFlashIntensityMax = 1f;
+        // Flash duration around the brief §1.2 ~0.08s default — from an almost-subliminal blink to a long tell.
+        public const float HitFlashDurationMin = 0.02f, HitFlashDurationMax = 0.5f;
+        // Flinch recoil distance (u) around the 0.14 default. 0 = no recoil; the ceiling stays inside the
+        // calm-tone cap (a 0.5u lurch on a 1.1m boar would read as a launch, not a hitch).
+        public const float HitFlinchAmplitudeMin = 0f, HitFlinchAmplitudeMax = 0.5f;
+        // Per-tier flinch STAGGER seconds (brief §2.6 "flinch stagger duration"): 0 = hard's "it keeps coming",
+        // up to 1.2s = a very forgiving kid tier.
+        public const float HitFlinchStaggerMin = 0f, HitFlinchStaggerMax = 1.2f;
+        // Puff burst size. The ceiling is brief §1.2's HARD cap of 12 — this band cannot ask for more, and the
+        // emitter clamps independently so a hand-edited pref cannot exceed it either.
+        public const int HitPuffCountMin = 0, HitPuffCountMax = 12;
         // Find-in-world weapon FINDABILITY band (ticket 86cah7y5b AC5) — how many of the authored seeded find
         // SITES actually hold a weapon. 0 = a world with no gift in it (a legitimate hard-tier setting); the
         // ceiling is the authored pool size, so the row can never ask for more finds than there are places.
@@ -1133,6 +1164,116 @@ namespace FarHorizon.Settings
                 reg.AddFloat(BoarChargeSpeedId, "Boar charge speed",
                     () => ai.chaseSpeed, v => ai.chaseSpeed = Mathf.Clamp(v, BoarChargeSpeedMin, BoarChargeSpeedMax),
                     BoarChargeSpeedMin, BoarChargeSpeedMax, unit: "u/s");
+        }
+
+        /// <summary>
+        /// Register the ENEMY HIT-FEEDBACK dials (ticket 86caxjwb3 AC5) — the master
+        /// <c>enemy_hit_feedback_enabled</c> revert switch plus flash intensity / flash duration / flinch
+        /// amplitude / per-tier flinch stagger / puff burst count, FANNED OUT across every enemy's
+        /// <see cref="FarHorizon.Combat.EnemyHitFeedback"/> driver.
+        ///
+        /// This feature's OWN Populate method — the PopulateThirst / PopulateChop / PopulateCombat /
+        /// PopulateBoar / PopulateIron / PopulateWeaponFind de-collision precedent; the base
+        /// <see cref="Populate"/> signature is NEVER grown. Called from SettingsPanel.Start, NOT part of the
+        /// Build overload chain.
+        ///
+        /// FAN-OUT, not a singleton: each creature carries its own driver (no shared manager), exactly like
+        /// <see cref="PopulateBerry"/>'s per-bush regrowth row. Every setter writes EVERY driver so one dial
+        /// moves the whole world's feedback; each getter reads the FIRST live driver as the displayed value.
+        ///
+        /// DEAD-KNOB GUARD (the AC5 constraint + the <see cref="PopulateBoar"/> note): <c>hit_flinch_stagger</c>
+        /// is the one PER-TIER row here, and <see cref="FarHorizon.Combat.EnemyHitFeedback.ApplyDifficulty"/>
+        /// re-reads the per-tier map on EVERY hit — so the setter writes BOTH the active <c>staggerSeconds</c>
+        /// AND the ACTIVE tier's map entry, or the very next hit clobbers the Sponsor's dial back to the baked
+        /// default and the knob looks dead. Pinned by an AC7 test.
+        ///
+        /// A null/empty array registers NOTHING (the catalog never null-refs), so an enemy-less rig / bare test
+        /// is unaffected.
+        /// </summary>
+        public static void PopulateHitFeedback(SettingsRegistry reg,
+            IReadOnlyList<FarHorizon.Combat.EnemyHitFeedback> feedbacks)
+        {
+            if (reg == null || feedbacks == null || feedbacks.Count == 0) return;
+
+            // The FIRST live driver supplies every getter's displayed value (they are dialed in lockstep).
+            FarHorizon.Combat.EnemyHitFeedback First()
+            {
+                for (int i = 0; i < feedbacks.Count; i++) if (feedbacks[i] != null) return feedbacks[i];
+                return null;
+            }
+            if (First() == null) return;
+
+            void ForEach(System.Action<FarHorizon.Combat.EnemyHitFeedback> apply)
+            {
+                for (int i = 0; i < feedbacks.Count; i++) if (feedbacks[i] != null) apply(feedbacks[i]);
+            }
+
+            // MASTER SWITCH — the one-flag revert path for the WHOLE feature (flash + flinch + puff). Defaults
+            // ON so the Sponsor judges the package at soak; turning it off must leave the creature completely
+            // inert, which is why the setter also calls ResetVisuals (a mid-flash toggle-off would otherwise
+            // leave the body frozen at whatever amplitude it had reached).
+            reg.AddBool(HitFeedbackEnabledId, "Enemy hit feedback",
+                () => First().feedbackEnabled,
+                v => ForEach(f => { f.feedbackEnabled = v; if (!v) f.ResetVisuals(); }));
+
+            // FLASH INTENSITY — the PEAK amplitude the lit body lerps toward the warm-white tone. The dial the
+            // ticket's [DFC-2] exists for: without it the peak is pinned at a full replacement of the lit
+            // colour, tunable only by dragging the flash COLOUR toward each enemy's own base tone — which
+            // differs per enemy (SnakeRust vs BoarBrown), so there is no single colour that works for both.
+            reg.AddFloat(HitFlashIntensityId, "Hit flash intensity",
+                () => First().flashIntensity,
+                v => ForEach(f => f.flashIntensity = Mathf.Clamp(v, HitFlashIntensityMin, HitFlashIntensityMax)),
+                HitFlashIntensityMin, HitFlashIntensityMax, unit: "");
+
+            // FLASH DURATION — how long the eased pulse takes to decay back to base colour (brief §1.2 ~0.08s).
+            reg.AddFloat(HitFlashDurationId, "Hit flash duration",
+                () => First().flashSeconds,
+                v => ForEach(f => f.flashSeconds = Mathf.Clamp(v, HitFlashDurationMin, HitFlashDurationMax)),
+                HitFlashDurationMin, HitFlashDurationMax, unit: "s");
+
+            // FLINCH AMPLITUDE — the backward hitch distance at the peak of the recoil. The lift + nose-up toss
+            // scale off the SAME dial (a fixed ratio to the hitch) so the Sponsor rides ONE knob for "how hard
+            // does it flinch" instead of three that have to be kept in proportion by hand.
+            reg.AddFloat(HitFlinchAmplitudeId, "Hit flinch amplitude",
+                () => First().recoilBack,
+                v => ForEach(f =>
+                {
+                    float c = Mathf.Clamp(v, HitFlinchAmplitudeMin, HitFlinchAmplitudeMax);
+                    f.recoilBack = c;
+                    f.recoilLift = c * 0.36f;      // the shipped 0.05 / 0.14 ratio
+                    f.tossDegrees = c * 78.6f;     // the shipped 11 / 0.14 ratio
+                }),
+                HitFlinchAmplitudeMin, HitFlinchAmplitudeMax, unit: "u");
+
+            // FLINCH STAGGER (PER TIER — the dead-knob row). Writes the ACTIVE field AND the ACTIVE tier's map
+            // entry, so ApplyDifficulty-on-hit reads the DIALLED value back instead of the baked default, and
+            // the dialled number BAKES into that tier's preset ([[verify-soak-builds-or-bake-and-judge]]).
+            reg.AddFloat(HitFlinchStaggerId, "Hit flinch stagger",
+                () => First().staggerSeconds,
+                v => ForEach(f =>
+                {
+                    float c = Mathf.Clamp(v, HitFlinchStaggerMin, HitFlinchStaggerMax);
+                    f.staggerSeconds = c;
+                    switch (f.ActiveTier)
+                    {
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Easy: f.easyStaggerSeconds = c; break;
+                        case FarHorizon.SurvivalNeed.DifficultyTier.Hard: f.hardStaggerSeconds = c; break;
+                        default: f.medStaggerSeconds = c; break;
+                    }
+                }),
+                HitFlinchStaggerMin, HitFlinchStaggerMax, unit: "s");
+
+            // PUFF BURST COUNT — particles per hit puff. The death puff scales off the same dial (the shipped
+            // 10/7 ratio) so one knob moves both beats together. The band's ceiling IS brief §1.2's hard cap.
+            reg.AddInt(HitPuffCountId, "Hit dust puff",
+                () => First().puffCount,
+                v => ForEach(f =>
+                {
+                    int c = Mathf.Clamp(v, HitPuffCountMin, HitPuffCountMax);
+                    f.puffCount = c;
+                    f.deathPuffCount = Mathf.Clamp(Mathf.RoundToInt(c * 1.43f), HitPuffCountMin, HitPuffCountMax);
+                }),
+                HitPuffCountMin, HitPuffCountMax, unit: "");
         }
 
         /// <summary>

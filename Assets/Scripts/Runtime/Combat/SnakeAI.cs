@@ -108,6 +108,7 @@ namespace FarHorizon.Combat
         private Health _health;
         private NavMeshAgent _agent;
         private System.Random _patrolRnd;
+        private EnemyHitFeedback _feedback;
         private Vector3 _home;
         private Vector3 _wanderDest;
         private Vector3 _lungeDir;
@@ -194,6 +195,9 @@ namespace FarHorizon.Combat
             _enemy = GetComponent<SnakeEnemy>();
             _health = GetComponent<Health>();
             _agent = GetComponent<NavMeshAgent>();
+            // 86caxjwb3 AC3 — the hit-feedback STAGGER surface (may be absent on a bare rig; the gate in
+            // MoveTowards is null-safe). Re-resolved lazily there while still null rather than caching the miss.
+            _feedback = GetComponent<EnemyHitFeedback>();
             _home = transform.position;
             _wanderDest = _home;
             _patrolRnd = new System.Random(patrolSeed);
@@ -221,6 +225,11 @@ namespace FarHorizon.Combat
                 if (_agent.isOnNavMesh) _agent.ResetPath();
                 _agent.enabled = false; // a corpse doesn't path
             }
+            // 86caxjwb3 soak 2026-08-14 — the BoarAI.OnDied sibling, identical rationale: the settle was a word
+            // in a log line and nothing else (measured: uprightness 1,000 -> 1,000, meanY 0,296 -> 0,296 across
+            // the whole window, then a one-frame pop). The shared driver owns the visual; this AI owns the clock.
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>();
+            if (_feedback != null) _feedback.BeginDeathSettle(despawnSeconds);
             Debug.Log("[SnakeAI] snake DIED — settling, despawn in " + despawnSeconds.ToString("0.0") + "s");
         }
 
@@ -346,6 +355,14 @@ namespace FarHorizon.Combat
         // planar transform fallback otherwise (bare PlayMode rigs — the DeathHandler no-agent precedent).
         private void MoveTowards(Vector3 dest, float speed, float dt)
         {
+            // 86caxjwb3 AC3 — the HIT STAGGER, and the ONLY place it touches the AI (the BoarAI.MoveTowards
+            // sibling; identical rationale). It suppresses MOVEMENT for a brief per-tier window and NEVER writes
+            // State. MoveTowards is reached ONLY from Wander and Chase — Telegraph and Cooldown call HoldStill,
+            // Lunge calls LungeMove, Dead returns early — so a stagger physically cannot interrupt a COMMITTED,
+            // telegraphed lunge. At HARD tier hardStaggerSeconds is 0, so IsStaggered is never true.
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>(); // re-resolve; never cache the miss
+            if (_feedback != null && _feedback.IsStaggered) { HoldStill(); return; }
+
             if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
             {
                 _agent.isStopped = false;

@@ -108,6 +108,7 @@ namespace FarHorizon.Combat
         // --- runtime state (instance-only; no statics) ---
         private BoarEnemy _enemy;
         private Health _health;
+        private EnemyHitFeedback _feedback;
         private NavMeshAgent _agent;
         private System.Random _patrolRnd;
         private Vector3 _home;
@@ -192,6 +193,9 @@ namespace FarHorizon.Combat
             _enemy = GetComponent<BoarEnemy>();
             _health = GetComponent<Health>();
             _agent = GetComponent<NavMeshAgent>();
+            // 86caxjwb3 AC3 — the hit-feedback STAGGER surface (may be absent on a bare rig; the gate below is
+            // null-safe). Re-resolved lazily below while still null rather than caching the miss.
+            _feedback = GetComponent<EnemyHitFeedback>();
             _home = transform.position;
             _wanderDest = _home;
             _patrolRnd = new System.Random(patrolSeed);
@@ -219,6 +223,15 @@ namespace FarHorizon.Combat
                 if (_agent.isOnNavMesh) _agent.ResetPath();
                 _agent.enabled = false; // a corpse doesn't path
             }
+            // 86caxjwb3 soak 2026-08-14 — "when both snake and boar dies they just disappear". Before this line
+            // the word "settling" in the log below was the ONLY settling that happened: the body held its live
+            // upright pose, unchanged, for the whole despawn window (measured in the shipped exe:
+            // uprightness 0,991 -> 0,991, meanY 0,944 -> 0,944) and then SetActive(false) popped it out in a
+            // single frame. The SHARED feedback driver owns the visual (AC1 — no per-enemy branch); this AI
+            // keeps owning the CLOCK and hands it over, so there is never a second copy of despawnSeconds to
+            // drift out of step with it.
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>();
+            if (_feedback != null) _feedback.BeginDeathSettle(despawnSeconds);
             Debug.Log("[BoarAI] boar DIED — settling, despawn in " + despawnSeconds.ToString("0.0") + "s");
         }
 
@@ -341,6 +354,16 @@ namespace FarHorizon.Combat
         // (bare PlayMode rigs — the SnakeAI no-agent precedent). Throttled repath (86cahzycp).
         private void MoveTowards(Vector3 dest, float speed, float dt)
         {
+            // 86caxjwb3 AC3 — the HIT STAGGER, and the ONLY place it touches the AI. It suppresses MOVEMENT for
+            // a brief per-tier window and NEVER writes State. Placing it here (rather than in Update) is what
+            // makes the constraint STRUCTURAL rather than remembered: MoveTowards is reached ONLY from Wander and
+            // Chase — Windup and Cooldown call HoldStill, Charge calls ChargeMove, Dead returns early — so a
+            // stagger physically cannot interrupt a COMMITTED, telegraphed charge. That charge feel is
+            // Sponsor-PASSED (boar soak 2026-07-22) and regressing it is a hard fail. At HARD tier
+            // hardStaggerSeconds is 0, so IsStaggered is never true and the boar "keeps coming" (brief §2.5).
+            if (_feedback == null) _feedback = GetComponent<EnemyHitFeedback>(); // re-resolve; never cache the miss
+            if (_feedback != null && _feedback.IsStaggered) { HoldStill(); return; }
+
             if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
             {
                 _agent.isStopped = false;

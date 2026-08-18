@@ -2670,7 +2670,7 @@ namespace FarHorizon.EditorTools
 
             // --- THE SNAKE — the REAL serpent (86caaz4vn): findable banded body + wander/aggro AI +
             //     telegraphed lunge bite, on the 86cah7xxp shared Health surface. ---
-            BuildSnake(player, groundLayer);
+            var snakeGo = BuildSnake(player, groundLayer);
 
             // --- THE BOAR — the SECOND enemy (86cah7ydt): a charging wild boar on the SAME shared Health
             //     surface, weak-to-PIERCE (the systemic matchup) + a gore that applies bleed (the 2nd status
@@ -2682,6 +2682,10 @@ namespace FarHorizon.EditorTools
             //     walks up to acquire the spear onto the belt, then cycles-selects it to feel the long-reach
             //     pierce contrast vs the axe's medium-reach slash. ---
             BuildSpearPickup(player);
+
+            // --- ENEMY BODY-LEVEL HIT FEEDBACK (86caxjwb3) — the shared flash + flinch + pooled dust puff.
+            //     Authored AFTER both enemies exist so the ONE driver attaches to both roots identically. ---
+            var feedbacks = BuildHitFeedback(player, snakeGo, boar != null ? boar.gameObject : null, death);
 
             // --- Wire the HP bar (AC9) onto the SurvivalHud + the per-tier combat rows (AC8b) onto the panel. ---
             var hud = Object.FindObjectOfType<SurvivalHud>();
@@ -2695,6 +2699,7 @@ namespace FarHorizon.EditorTools
                 panel.combatRegen = regen;
                 panel.combatDeath = death;
                 panel.combatBoar = boar; // AC6 — the per-tier boar HP/gore/charge rows bind to this BoarEnemy
+                panel.hitFeedbacks = feedbacks; // 86caxjwb3 AC5 — the hit-feedback dials fan out across EVERY enemy
             }
 
             Debug.Log("[MovementCameraScene] authored Combat POC (player HP + regen + tiered death + melee " +
@@ -2705,7 +2710,9 @@ namespace FarHorizon.EditorTools
         // 86caaz4vn art) + Health + a pierce-weak ResistanceProfile + a StatusEffectController (so a weapon's
         // bleed applies to it). Collider-free — the player walks up + left-clicks to attack; never blocks the
         // ground raycast or the NavMesh bake. Authored editor-time (serializes into Boot.unity).
-        private static void BuildSnake(GameObject player, int groundLayer)
+        // Returns the snake ROOT so BuildCombat can attach the shared hit-feedback driver (86caxjwb3 AC1) — the
+        // SAME component the boar gets, with no per-enemy branch anywhere in it.
+        private static GameObject BuildSnake(GameObject player, int groundLayer)
         {
             var snake = new GameObject("Snake");
             snake.transform.position = SnakePosition;
@@ -2787,6 +2794,7 @@ namespace FarHorizon.EditorTools
                       ": head+" + SnakeBodyLinks + " banded links (~" +
                       (SnakeHeadLength + SnakeLinkSpacing * SnakeBodyLinks).ToString("0.00") +
                       "m), wander/aggro AI + telegraphed lunge, pierce-weak HP=" + health.max);
+            return snake;
         }
 
         // One snake segment child: baked mesh + MeshRenderer with the inline vertex-colour material
@@ -2946,6 +2954,162 @@ namespace FarHorizon.EditorTools
                 Debug.LogWarning("[MovementCameraScene] vertex-color shader not found; boar flat-brown fallback");
             }
             return go;
+        }
+
+        // ================= ENEMY HIT FEEDBACK (86caxjwb3) — flash + flinch + the FIRST pooled puff =============
+
+        /// <summary>The scene root that hosts the project's FIRST object pool + FIRST ParticleSystem.</summary>
+        public const string HitFeedbackRootName = "HitFeedbackJuice";
+        /// <summary>The authored, INACTIVE dust-puff template the pool clones.</summary>
+        public const string DustPuffTemplateName = "DustPuffTemplate";
+        // Dust-brown, every channel sub-1.0, NEVER red (brief §2.5 — red on a creature reads as gore and breaks
+        // the kid-safe tone). Warm ramp R>G>B like every other earthy tone in the palette.
+        private static readonly Color DustPuffBrown = new Color(0.55f, 0.44f, 0.31f);
+        // The chunk half-extent. Small: this is DEBRIS, not a boulder — a chunky faceted mote, never wispy smoke.
+        private const float DustChunkRadius = 0.045f;
+
+        // The shared hit-feedback driver on BOTH enemies + the pooled dust puff they share (86caxjwb3).
+        //
+        // ⚠ [DFC-5] THE CHUNK MESH, AND WHY IT IS BAKED HERE. `LowPolyMeshes` lives in the Editor-ONLY asmdef
+        // (FarHorizon.Editor declares "includePlatforms": ["Editor"] and REFERENCES FarHorizon.Runtime, not the
+        // reverse), so a RUNTIME path calling it does not compile and does not exist in the player. The ticket
+        // picked route (i): bake the mesh at SCENE-AUTHOR time here and serialize it onto the pooled template —
+        // "the idiom every other mesh here already uses, and it dodges the Awake-built-geometry-doesn't-serialize
+        // trap" (unity-conventions.md §Editor-vs-runtime). Route (ii) — moving a chunk generator into the Runtime
+        // asmdef — was NOT taken, and is not available without a STOP-and-report first.
+        //
+        // ⚠ [DFC-4a] THE PARTICLE SHADER IS `Universal Render Pipeline/Particles/Unlit`, NOT `Unlit/Particle`.
+        // The latter is carried in game-juice.md §3 and is a BUILT-IN-RP name that does not exist in URP: a
+        // wrong name resolves to null → MAGENTA. It is a SEPARATE material from the world palette material by
+        // construction (the palette material is the ~1-draw-call world batch), and it is NOT an MPB — particles
+        // are explicitly exempt from the no-MPB rule anyway (a ParticleSystemRenderer is not the disqualified
+        // MeshRenderer path, game-juice.md §2), so there is no conflict.
+        //
+        // ⚠ [DFC-4b] THE STRIP QUESTION, ANSWERED EMPIRICALLY RATHER THAN BY REFLEX. The AC asks for an
+        // AlwaysIncludedShaders registration, and its own sentence says the URP particle shader MAY instead
+        // survive via the serialized-material route — "do NOT assume it; verify in the BUILT exe". This build
+        // takes the serialized-material route DELIBERATELY, because that is the mechanism the project already
+        // measured and adopted: the R5 unpin (86cahne3d) REMOVED URP/Lit + URP/Unlit from AlwaysIncludedShaders
+        // precisely because pinning a URP package shader force-compiles its FULL addressable variant space on
+        // every build, while a serialized material reference in Boot.unity ships it for free — and
+        // ZoneDLookTests.R5_UrpLitAndUnlit_NotPinnedAlwaysIncluded_FourFarHorizonShadersRemain pins that
+        // decision. The four PINNED shaders are the FarHorizon ones, and they are pinned for a different reason:
+        // they are reached at runtime by Shader.Find-BY-NAME, so nothing serialized keeps them alive. This
+        // material is serialized onto the template in Boot.unity, exactly like every URP/Lit material in the
+        // scene. VERIFIED IN THE BUILT EXE, not assumed: -verifyHitFeedback asserts the live puff material's
+        // shader resolves + is not Unity's error shader, and its frames go through frame_check.py's magenta
+        // detector. If that ever reds, the one-line fix is EnsureShaderAlwaysIncluded(puffShader) below.
+        private static FarHorizon.Combat.EnemyHitFeedback[] BuildHitFeedback(
+            GameObject player, GameObject snake, GameObject boar, FarHorizon.Combat.DeathHandler death)
+        {
+            // --- The pool host + its authored template. ONE emitter shared by every enemy: a second juice
+            //     effect adds its OWN emitter + template, never a second pool implementation. ---
+            var root = new GameObject(HitFeedbackRootName);
+            root.transform.position = Vector3.zero;
+
+            var tmplGo = new GameObject(DustPuffTemplateName);
+            tmplGo.transform.SetParent(root.transform, false);
+
+            var ps = tmplGo.AddComponent<ParticleSystem>(); // also adds the ParticleSystemRenderer
+            var main = ps.main;
+            main.duration = 0.12f;
+            main.loop = false;
+            main.playOnAwake = false;
+            main.simulationSpace = ParticleSystemSimulationSpace.World; // the puff stays where it landed
+            main.startLifetime = 0.42f;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 1.4f); // ~0.3-0.6u of travel over the lifetime
+            // ⚠ IN MESH RENDER MODE `startSize` is a MULTIPLIER ON THE MESH, not an absolute world size. Sizing
+            // it like a billboard sprite is how the first shipped build got an INVISIBLE puff: 0.05-0.11 × a
+            // 0.09u chunk = 4-10 MILLIMETRE debris, which at the default gameplay framing subtends well under
+            // one pixel. The capture gate was GREEN on it (`puffed=True` — the burst really did fire), and only
+            // eyeballing the frame caught it. A metric is green on nonsense.
+            // The figure, with its plane stated (game-juice.md §2b): the chunk's extent is near-isotropic so no
+            // projection factor applies; at pitch 55° / dist 14u / FOV 45° / 720p the frame-plane scale is
+            // 62.080 px/m, so 0.8-1.8 × 0.09u = 0.072-0.162u reads as ~4.5-10 px per chunk. Seven of those,
+            // spread over a 0.12u shape radius and arcing outward, is a PUFF — deliberately not a beacon.
+            main.startSize = new ParticleSystem.MinMaxCurve(0.8f, 1.8f);
+            main.startColor = DustPuffBrown;
+            main.gravityModifier = 0.55f;   // chunks ARC and fall — debris, not smoke
+            main.maxParticles = 24;
+            // Seeded random start tumble so no two chunks align (the lowpoly-quality Rec 7 seeded-rotation
+            // pattern, applied to particles). Script rotation values are RADIANS.
+            main.startRotation3D = true;
+            main.startRotationX = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            main.startRotationY = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            main.startRotationZ = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            // [DFC-4c] LOAD-BEARING: without Callback, OnParticleSystemStopped is NEVER delivered, the pool
+            // never gets its instances back, and the "pooled" claim is silently false while every other
+            // assertion still passes. Pinned by HitFeedbackSceneTests (serialized) + the PlayMode pool test.
+            main.stopAction = ParticleSystemStopAction.Callback;
+
+            var em = ps.emission;
+            em.enabled = true;
+            em.rateOverTime = 0f;          // bursts ONLY — never an ambient trickle (game-juice.md §1 #4)
+            em.burstCount = 1;             // index 0 always exists so the emitter can SetBurst(0, ...)
+            em.SetBurst(0, new ParticleSystem.Burst(0f, (short)7));
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = 0.12f;          // a tight cluster at the contact point, not a cloud
+
+            // Chunks SHRINK away rather than alpha-fading: an eased size curve reads right on faceted debris and
+            // keeps the material on the cheap OPAQUE surface (an alpha fade would need the transparent queue +
+            // blend setup, and transparent-water is the project's cautionary tale there). Easing on everything
+            // that moves — game-juice.md §1 must-have #1.
+            var sol = ps.sizeOverLifetime;
+            sol.enabled = true;
+            var shrink = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(0.55f, 0.86f), new Keyframe(1f, 0f));
+            for (int k = 0; k < shrink.length; k++) shrink.SmoothTangents(k, 0f);
+            sol.size = new ParticleSystem.MinMaxCurve(1f, shrink);
+
+            var rol = ps.rotationOverLifetime;
+            rol.enabled = true;
+            rol.z = new ParticleSystem.MinMaxCurve(-3.8f, 3.8f); // radians/sec — a lazy tumble, not a spin
+
+            var psr = tmplGo.GetComponent<ParticleSystemRenderer>();
+            psr.renderMode = ParticleSystemRenderMode.Mesh;
+            // [DFC-5] route (i): the chunk mesh is BAKED HERE, editor-time, and serializes onto this renderer.
+            psr.mesh = LowPolyMeshes.FacetedRock(DustChunkRadius, 0.45f, 74130);
+            psr.alignment = ParticleSystemRenderSpace.World;
+            psr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; // debris pays no shadow pass
+            psr.receiveShadows = false;
+
+            var puffShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (puffShader == null)
+            {
+                puffShader = Shader.Find("Universal Render Pipeline/Unlit");
+                Debug.LogWarning("[MovementCameraScene] URP Particles/Unlit not found — dust puff falls back to URP/Unlit");
+            }
+            var puffMat = new Material(puffShader) { name = "DustPuffMat" };
+            if (puffMat.HasProperty("_BaseColor")) puffMat.SetColor("_BaseColor", Color.white); // colour = the burst's startColor
+            psr.sharedMaterial = puffMat; // inline -> serializes into the scene (no .mat churn), and this is the
+                                          // reference that keeps the shader out of the stripper (see the note above)
+
+            tmplGo.SetActive(false); // INACTIVE template: it never plays on its own, and clones start inactive
+
+            var emitter = root.AddComponent<FarHorizon.Juice.PooledBurstEmitter>();
+            emitter.template = ps;
+
+            // --- The ONE driver, attached identically to both enemies. No per-enemy branch exists anywhere in
+            //     EnemyHitFeedback; a THIRD creature lights up by getting this component and nothing else. ---
+            var list = new System.Collections.Generic.List<FarHorizon.Combat.EnemyHitFeedback>();
+            foreach (var go in new[] { boar, snake })
+            {
+                if (go == null) continue;
+                var fb = go.GetComponent<FarHorizon.Combat.EnemyHitFeedback>();
+                if (fb == null) fb = go.AddComponent<FarHorizon.Combat.EnemyHitFeedback>();
+                fb.puff = emitter;
+                fb.contactBias = player.transform; // generic: a Transform to bias the puff toward, not an enemy type
+                fb.deathHandler = death;           // the LIVE difficulty tier the per-tier stagger reads
+                list.Add(fb);
+            }
+
+            Debug.Log("[MovementCameraScene] authored ENEMY HIT FEEDBACK (86caxjwb3): " + list.Count +
+                      " driver(s) + the project's FIRST pooled ParticleSystem (mesh verts=" +
+                      (psr.mesh != null ? psr.mesh.vertexCount : 0) + ", shader=" +
+                      (puffShader != null ? puffShader.name : "<null>") + ", stopAction=" + main.stopAction + ")");
+            return list.ToArray();
         }
 
         // World position of the wired SPEAR pickup (Combat POC 86cah7xxp AC4). A DETERMINISTIC scene-author ADD
@@ -5213,6 +5377,12 @@ namespace FarHorizon.EditorTools
             // spear, shooting gameplay-cam + side-profile frames. Inert unless -verifyBoar.
             WireBoarVerifyCapture(player);
 
+            // Wire the ENEMY HIT-FEEDBACK shipped-build capture (86caxjwb3 AC7) — lands a real hit on each
+            // creature and shoots the impact frame, the flinch a few frames later, the death settle + death puff,
+            // an UN-HIT control, and (the [DFC-1] discriminator) the SAME creature ~0.5s after the hit, back at
+            // base colour. Inert unless -verifyHitFeedback.
+            WireHitFeedbackVerifyCapture(player);
+
             Debug.Log("[MovementCameraScene] WASD locomotion wired (camera-relative, speed=" +
                       wasd.moveSpeed.ToString("0.0") + ", click-to-move disabled on Start)");
         }
@@ -5447,6 +5617,23 @@ namespace FarHorizon.EditorTools
             }
             var cap = bootGo.GetComponent<BoarVerifyCapture>();
             if (cap == null) cap = bootGo.AddComponent<BoarVerifyCapture>();
+            cap.player = player.GetComponent<WasdMovement>();
+            EditorUtility.SetDirty(bootGo);
+        }
+
+        // Wire the ENEMY HIT-FEEDBACK shipped-build verify capture (86caxjwb3 AC7) onto the Boot object so it
+        // SERIALIZES into Boot.unity (the component-in-source-but-not-in-scene trap — it would ship inert
+        // otherwise). Inert unless launched with -verifyHitFeedback. Sibling of WireBoarVerifyCapture.
+        private static void WireHitFeedbackVerifyCapture(GameObject player)
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host HitFeedbackVerifyCapture");
+                return;
+            }
+            var cap = bootGo.GetComponent<HitFeedbackVerifyCapture>();
+            if (cap == null) cap = bootGo.AddComponent<HitFeedbackVerifyCapture>();
             cap.player = player.GetComponent<WasdMovement>();
             EditorUtility.SetDirty(bootGo);
         }
