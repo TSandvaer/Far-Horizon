@@ -935,3 +935,34 @@ wpn_pickaxe_stone_01 + wpn_pickaxe_iron_01 extend the locked weapon family (knap
   deliberately automatic so reversal-by-drift is detectable within a week.
 - Affects: all roles, `CLAUDE.md`, `.claude/settings.json`, the `maintain-docs` skill, the
   dispatch template, `team/TESTING_BAR.md`, `team/STATE.md`, all six persona files, `TEAM.md`.
+
+## 2026-08-18 — Enemy-HP pip-row NOT NEEDED: the body read answers AC6(c)
+- Decided by: Sponsor
+- Decision: The above-head enemy-HP pip-row (`86caxhfg2`) is closed as not-needed — with the #436
+  body-level package (flash / flinch / dust / topple-death) in front of him, "is it nearly down?"
+  is already answered. Given via popup immediately after PASSING the #436 r3 soak (build
+  `zoned | 2026-08-15T07:12:23Z | 2fa9789`); #436 merged the same day (2026-08-18) on that soak,
+  the second gameplay `feat` under the 2026-08-02 doctrine.
+- Why: this is the deferred AC6(c) judgement item from the 2026-07-27 "Enemy-HP read SEQUENCED"
+  decision — body feedback shipped first precisely so this question could be answered by feel
+  rather than in the abstract. The body read carries the primary signal; the screen stays free of
+  floating UI, which fits the calm low-poly tone.
+- Reversibility: reversible — the ticket's spec (`team/uma-ux/hp-hud-polish-spec.md` §6) and its
+  full AC survive on the closed ticket; reopening needs only a new Sponsor yes.
+- Affects: `86caxhfg2` (complete/not-needed), combat UX surface, `86cah7yuh` (status-effect head
+  cues no longer arbitrate against a pip-row).
+
+## 2026-08-18 — Post-#436 priorities: swing direction FIRST, boar charge-snap ticketed behind it
+- Decided by: Sponsor
+- Decision: (1) The single most important issue is that held weapons/tools do not POINT in the
+  right direction while swinging — filed as `86cb6v03j` (high), Drew dispatched same day.
+  (2) The pre-existing boar charge-snap (no NavMesh at runtime — 3× `Failed to create agent` in
+  the soak Player.log — so `BoarAI.MoveTowards`'s transform fallback snaps the boar onto the
+  player's XZ, observed as "the player and boar are repositioned" in the 2026-08-14 failed soak)
+  is ticketed at normal priority as `86cb6vjf8`, explicitly queued BEHIND the swing work, no
+  dispatch until its turn.
+- Why: (1) is the Sponsor's verbatim ranking the moment #436 closed; (2) preserves a triaged
+  observation (Tess, 2026-08-14) without letting it jump the queue — it sits on charge feel the
+  Sponsor previously soak-PASSED, so only the snap is the defect.
+- Reversibility: reversible (priority ordering).
+- Affects: Drew (dispatched on `86cb6v03j`), the swing/held-prop surface, `BoarAI`, the board.
