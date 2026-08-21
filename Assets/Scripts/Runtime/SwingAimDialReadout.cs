@@ -154,9 +154,21 @@ namespace FarHorizon
                           "  weight=" + liveWeight.ToString("0.00", CultureInfo.InvariantCulture) +
                           (liveWeight <= 0.001f ? "  (not swinging — the dial only shows mid-swing)" : "");
 
+            // PARKED UPPER-RIGHT, and the corner is CHOSEN rather than default. The first cut sat bottom-LEFT
+            // and the shipped-exe capture (swing_axe.png from the dialled run) showed it BURIED under
+            // SurvivalHud's warmth/hunger/thirst bars and the belt strip — the live: line and the axe row were
+            // unreadable. That is the #158 loot-prompt-burier class: a dev overlay parked on top of gameplay UI.
+            // An instrument nobody can read is not an instrument, and the eye that would otherwise have caught
+            // it at the soak is the Sponsor's — which is exactly the spend this round exists to stop.
+            //
+            // The occupied corners, measured off that same frame: bottom-LEFT = need bars + belt slots,
+            // top-LEFT = the "Far Horizon" title plate, top-RIGHT top strip = the BUILD stamp + FPS counter.
+            // Starting BELOW that stamp strip on the right edge clears all four.
             const float w = 620f, h = 168f;
-            GUI.Box(new Rect(8f, Screen.height - h - 8f, w, h), GUIContent.none);
-            GUI.Label(new Rect(16f, Screen.height - h - 2f, w - 16f, h),
+            const float stampStrip = 64f;   // the BUILD stamp + FPS rows own the top of the right edge
+            float x = Mathf.Max(8f, Screen.width - w - 8f);
+            GUI.Box(new Rect(x, stampStrip, w, h), GUIContent.none);
+            GUI.Label(new Rect(x + 8f, stampStrip + 6f, w - 16f, h),
                       "SWING-AIM DIALS — F3 console rows 'Swing aim <class> pitch/yaw/roll'   [F4] hide\n" +
                       live + "\n" + _cachedBlock + "\n" +
                       "these lines are also in Player.log — grep " + SwingAimNudge.LogTag, _style);
