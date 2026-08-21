@@ -34,7 +34,7 @@ A 3D survival game built in **Unity 6 (6000.4.11f1) / URP**, desktop-first (Wind
 - **Shipped-build capture gate** (successor to the HTML5 gate): anything UX/visually-visible needs evidence captured from the BUILT exe (not just the editor) before merge — editor-vs-runtime divergence is a proven failure class (spike iter6 "legs-up" incident).
 - **Self-Test Report gate.** UX-visible PRs need an author-posted Self-Test Report comment before Tess reviews.
 - **ClickUp status as hard gate.** Every dispatch / PR-open / merge pairs with a status move on list `901523878268` in the same tool round.
-- **Orchestrator never codes** (R&D-lane exception for MCP-bound generation + Sponsor-interactive iteration; every R&D burst closes with a harvest PR + productionization tickets).
+- **Orchestrator never codes** (R&D-lane exception for MCP-bound generation + Sponsor-interactive iteration; every R&D burst closes with a harvest PR + productionization tickets). **The exception is about the SESSION, not the model:** MCP-bound generation runs wherever the MCP connection lives — normally here — **on opus**, never on fable; fable stays advisor-only (2026-08-18 CORRECTION entry in `team/DECISIONS.md`, amending the 2026-07-07 advisor-only entry). No persona holds a Blender MCP tool, so "dispatch it to an opus agent" is not currently an option.
 - **Always parallel dispatch** where dependencies allow; tickets aren't progress, dispatches are.
 - **Agent liveness from probe, NEVER assumption.** Report in-flight state only from a fresh `SendMessage`-by-agentId probe + `git log` on the worktree + `gh pr view`. Enforced by the `agent-liveness-stop.sh` hook.
 - **Tightened final-report contract.** Sub-agent reports ≤200 words: verdict + blockers + key paths + doc-updates; every claim cites verifiable evidence (run/commit/path). Detail goes in PR body / ticket comments.
@@ -149,39 +149,53 @@ past it. The roadmap is stale as a plan. Do not treat it as the destination; ask
 
 ## Detailed Documentation
 
-Auto-loaded into the orchestrator session at start via `.claude/hooks/session-start-read-docs.sh`.
+**The docs are INDEXED, not preloaded** (changed 2026-08-14). `.claude/hooks/session-start-read-docs.sh`
+injects the ~2KB index below's mechanical half — filename, size, title — and nothing else. It
+used to `cat` all twelve bodies into context: 451,785 bytes, which **exceeded the harness
+injection limit**, so the payload was silently persisted to a file and only a ~2KB preview
+arrived — while the hook's own text claimed the docs were loaded and told the session **not to
+Read them**. Every session in that window ran blind on suppressed reads. **Read the doc your
+task routes to.** Nothing below is in context until you do.
 
-**Sub-agents do NOT inherit the auto-load — but they no longer read all twelve.** The blanket
+**Sub-agents do NOT inherit the index — and nobody reads all twelve.** The blanket
 read-everything rule was retired 2026-08-02 (Sponsor decision): ~1,855 lines of context on
 every dispatch including trivial ones, paid in full by ~13 agents that died mid-task in a
 single week. **Dispatch briefs NAME the 1–3 docs the task class requires** — the routing table
 lives in `team/orchestrator/dispatch-template.md` § "Read BEFORE any code". Reading a doc
 outside your list is fine when you have a reason; reading all of them by default is not.
 
-Still non-negotiable within their scope: **`unity6-mastery.md` for ALL Unity code**
-(Sponsor-stressed 2026-06-16), **`blender-asset-pipeline.md` before ANY Blender / weapon /
-tool / prop / asset task** (Sponsor-directed 2026-06-19), **`procedural-animation-verbs.md`
-before ANY action-verb animation work** (chop / pick-up / drink / throw, or any
-`CastawayArmPose` / `HeldAxeRig` / held-prop-seating change).
-
 **These docs do not grow on their own any more.** `maintain-docs` is manual-only and gated on
 a named incident with a named cost — see § Orchestration doctrine.
 
-- [Asset-Class Routing Index](.claude/docs/asset-routing.md) — **read FIRST on any "model / create a new X" task**: the index table mapping asset class → route (Procedural / Blender / Hyper3D-Mixamo / action-verb-animation) → that route's MANDATORY doc → a one-line when/when-not rule, plus the "source when procedural fights the style" route-switch rule. A routing slip ABOVE the per-route docs; it does not duplicate their content.
-- [Art Direction](.claude/docs/art-direction.md) — Sponsor's inspiration board (`inspiration/*.png`): warm/lush, human-scale landmarks, small-player/big-alive-world; **look at the actual images before any visual work** (engine-agnostic carry from RandomGame)
-- [Unity Conventions](.claude/docs/unity-conventions.md) — hard-won Unity/URP findings from the eval spike + bootstrap: headless rituals, editor-vs-runtime serialization traps, FBX/rig gotchas, low-poly mesh/normals patterns
-- [Character Pipeline](.claude/docs/character-pipeline.md) — generate a chunky-low-poly character via Hyper3D Rodin Image-to-3D → Mixamo auto-rig → Unity Generic; non-obvious gotchas (pose is driven by the reference image, Quad-not-Tri, de-light, with-skin/without-skin Mixamo split)
-- [Unity 6 Mastery](.claude/docs/unity6-mastery.md) — **MANDATORY Unity 6/URP daily-use guardrails** (rendering path/Forward+, GPU Resident Drawer, draw-call batching, lighting budget, GC/scripting rules, ScriptableObject architecture, UI Toolkit, texture/mesh import, IL2CPP build) — read before ANY Unity code, every action. Full cited reference: `team/erik-consult/unity6-mastery-research.md` (Sponsor-commissioned 2026-06-16)
-- [Low-Poly Quality](.claude/docs/lowpoly-quality.md) — **MANDATORY pre-work read for all visual/mesh/shader work** (props, rocks, trees, water, terrain, hero props): the seven adoptable procedural-mesh + URP-shader patterns from Erik's R&D (`_FlatShading` ddx/ddy toggle, depth-fade water foam, Fresnel/rim, vertex-AO bake, seeded scatter rotation, white-edge chamfer, the `QuantizeFine` fix) + the already-correct patterns NOT to regress + what's ruled out. Auto-loads via the SessionStart hook; the "sub-agents Read every `.claude/docs/*.md` before work" rule above already makes it mandatory for dispatched agents. Full cited reference: `team/erik-consult/procedural-shadergraph-quality-research.md` (Sponsor-directed "apply Erik findings to all developers" 2026-06-17)
-- [Elite Techniques](.claude/docs/elite-techniques.md) — **reach-for-these external references + not-yet-adopted techniques** (imported-rig grounding incl. Two-Bone IK, Sebastian Lague chunk-LOD terrain + the PR #226 ~800u single-scaled-mesh scaling checkpoint with its Static-Batching-vs-GPU-Resident-Drawer reconciliation flag, URP flat-shading / gradient-skybox / water shader references). Pointers, not tutorials — a lean index ABOVE the anchor docs: hard-won incident findings live in `unity-conventions.md`, adoptable mesh/shader patterns in `lowpoly-quality.md`, daily-use guardrails in `unity6-mastery.md`. Full source: `team/erik-consult/unity-3d-mastery-path.md` + `developer-accuracy-performance-research.md`
-- [Blender Asset Pipeline](.claude/docs/blender-asset-pipeline.md) — **MANDATORY pre-work read for ALL Blender / weapon / tool / prop work** (Sponsor-directed "build into the memory of every developer" 2026-06-19): the style contract (shared palette material — one URP/Unlit mat + one `weapon_palette.png`, NO per-asset texture atlases; the live in-house `Assets/Art/Props/WeaponPack/` set **IS** the style anchor — the CC-BY `CastawayAxe/` placeholder that predated this pipeline was never the anchor and no longer exists, deleted with its licence file in PR #100 (`031d43a`, `86cabh907`), so do not go looking for that path), scene/units setup, naming convention (`wpn_`/`prop_`/`env_`), and the faceted-chunky modeling + FBX-export rules for the weapon/tool/prop family. Read before modeling any new asset. Full cited reference: `team/erik-consult/blender-weapon-asset-pipeline-research.md` (Sponsor-commissioned 2026-06-19)
-- [Procedural Animation Verbs](.claude/docs/procedural-animation-verbs.md) — **MANDATORY pre-work read before ANY action-verb animation work** (chop / pick-up / drink / throw, or any `CastawayArmPose` / `HeldAxeRig` / held-prop-seating change): the non-negotiable Animator → `CastawayArmPose` (order 50) → `HeldAxeRig` (order 100) chain, the additive-`LateUpdate`-offset idiom (NO new Animator clip / state / layer / AvatarMask), the bone-axis-measurement ritual, and the headless test traps (`WaitForEndOfFrame` / `Time.deltaTime≈0`). Read before authoring any swing/reach/raise verb. Full cited reference: `team/erik-consult/procedural-action-verb-animation.md` (Sponsor-commissioned, ticket `86cae5tb3`)
-- [Agent-file CRLF + colon registration trap](.claude/docs/agent-file-crlf-colon-registration-trap.md) — **read before editing ANY `.claude/agents/*.md` frontmatter**: CRLF line endings + an unquoted `: ` inside a frontmatter value make the agent load **silently** fail (no error, nothing in `--debug`); `tess` was dead project-wide for a week behind a doc that said RESOLVED. Also carries the general rule that a `.claude/` fix is only real once merged to `main` — a worktree edit has a half-life of one dispatch (`git checkout -B ... origin/main` wipes it), and a coordination-branch commit reaches nobody.
-- [Game Juice](.claude/docs/game-juice.md) — **MANDATORY pre-work read for any feel / polish / feedback dispatch** (chop-impact feedback, pickup feel, need-bar transitions, campfire/world liveness, jump feel): the five must-haves — easing-on-everything, 2–3-frame hit-stop (capped), audio variation, pooled faceted particle bursts, ambient micro-animation — calibrated to the calm-tone amplitude caps, plus the hard-don'ts (no sustained/high-amplitude shake, no hit-stop > 3 frames, no squash/stretch on the rig, no MaterialPropertyBlock on juice VFX, no shadowed campfire point light). Full cited reference: `team/erik-consult/game-juice-research.md`
-- [Far Horizon — game concept](.claude/docs/vision-far-horizon-game-concept.md) — Sponsor's full survival-arc vision (shipwreck → branches/stones → crafting table → axe → chop wood → bonfire → berries/hunger → fresh-water/thirst); difficulty/scariness adjustable for kids + adults. The hunger+thirst needs are now IN M-U2 scope (expanded 2026-06-17; see the Core-feel line above + DECISIONS 2026-06-17 + tickets `86caamkp8`/`86caamkv7`/`86caamkxv`)
+| Doc (`.claude/docs/`) | Read when |
+|---|---|
+| `asset-routing.md` | **FIRST on any "model / create a new X" task** — maps asset class → route (Procedural / Blender / Hyper3D-Mixamo / action-verb-animation) → that route's mandatory doc, plus the "source when procedural fights the style" route-switch rule |
+| `unity6-mastery.md` | **MANDATORY before ANY Unity code, every action** (Sponsor-stressed 2026-06-16) — rendering path/Forward+, GPU Resident Drawer, batching, lighting budget, GC/scripting, ScriptableObject architecture, UI Toolkit, IL2CPP |
+| `blender-asset-pipeline.md` | **MANDATORY before ANY Blender / weapon / tool / prop / asset task** (Sponsor-directed 2026-06-19) — style contract, scene/units, `wpn_`/`prop_`/`env_` naming, faceted-chunky modeling + FBX export |
+| `procedural-animation-verbs.md` | **MANDATORY before ANY action-verb animation** — chop / pick-up / drink / throw, or any `CastawayArmPose` / `HeldAxeRig` / held-prop-seating change |
+| `lowpoly-quality.md` | **MANDATORY for all visual / mesh / shader work** — props, rocks, trees, water, terrain, hero props |
+| `game-juice.md` | **MANDATORY for any feel / polish / feedback dispatch** — chop impact, pickup feel, need-bar transitions, world liveness, jump feel |
+| `art-direction.md` | Before any visual work — and **look at the actual `inspiration/*.png` images**, not just the doc |
+| `unity-conventions.md` | Unity/URP incident findings: headless rituals, editor-vs-runtime serialization traps, FBX/rig gotchas. **241KB — search it, never read it whole** |
+| `character-pipeline.md` | Hero-character work: Hyper3D Rodin Image-to-3D → Mixamo auto-rig → Unity **Generic** |
+| `elite-techniques.md` | Reaching for an external reference or a not-yet-adopted technique (pointers, not tutorials) |
+| `agent-file-crlf-colon-registration-trap.md` | **Before editing ANY `.claude/agents/*.md` frontmatter** |
+| `vision-far-horizon-game-concept.md` | Scoping a survival-arc feature against the Sponsor's full vision |
+
+Three carve-outs kept resident because they stop a wasted search before it starts:
+
+- **Weapon/prop style anchor:** the live in-house `Assets/Art/Props/WeaponPack/` set **IS** the anchor. The CC-BY `CastawayAxe/` placeholder that predated the pipeline was never the anchor and no longer exists — deleted with its licence file in PR #100 (`031d43a`, `86cabh907`). Do not go looking for that path.
+- **A `.claude/` fix is only real once merged to `main`.** A worktree edit has a half-life of one dispatch (`git checkout -B ... origin/main` wipes it); a coordination-branch commit reaches nobody.
+- **Doc ≠ full research.** Each doc's fully-cited source lives under `team/erik-consult/`; the `.claude/docs/` file is the distilled guardrail.
 
 ## Key references
 
 - **Team / process docs:** [`team/`](team/) — TESTING_BAR.md (Unity testing bar; incl. Predict-Before-Soak + bounded silence), GIT_PROTOCOL.md, ROLES.md, STATE.md (live coordination), DECISIONS.md (append-only log; see its header protocol), RESUME.md, quality-bars.md (Sponsor-confirmed standing quality bars; maintained via the `/name-the-bar` skill), per-role subdirs, `team/orchestrator/dispatch-template.md`.
 - **Godot-era archive:** `c:/Trunk/PRIVATE/RandomGame` (repo + ClickUp list "RandomGame") — full history, decisions, and the `.claude/docs` Godot doc set. Cite it for history; never resume development there.
 - **Eval spike (read-only):** `c:/Trunk/PRIVATE/EmbergraveUnitySlice` — working reference for the M-U1 ports (click-move, orbit camera, Zone-D look, castaway, FINDINGS.txt).
+
+# Orchestration rules (imported)
+
+Orchestrator disciplines moved from the user-global CLAUDE.md (2026-08-07, token-burn audit R3) — they load only in orchestrated projects now:
+
+@~/.claude/orchestration-rules.md
