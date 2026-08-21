@@ -240,6 +240,21 @@ namespace FarHorizon.Settings
         // panel + tests share the stable PlayerPrefs-key/lookup string.
         public const string ConsoleTextScaleId = "console_text_scale";
 
+        // === SWING-AIM DIALS (86cb6v03j round 2) — the Sponsor's per-class knob for where a weapon POINTS
+        // through its strike. Fifteen rows: five classes (axe / pickaxe / dagger / spear / sword) ×
+        // pitch / yaw / roll. Ids are DERIVED from the class name + axis name so a row id, its label and the
+        // Player.log readout cannot drift apart — all three read SwingAimNudge's own name tables.
+        //
+        // WHY A DIAL AND NOT ANOTHER FIT: round 1 derived these values in closed form, the gate passed, and the
+        // Sponsor soak-FAILED them by eye ("the axe is still positioned wrong on swing, sword is also wrong",
+        // 2026-08-18 @ a1c1e22). A second rejection on one surface is the
+        // [[sponsor-prefers-direct-tweak-tools-for-fiddly-placement]] trigger: his eye is the instrument, so he
+        // gets the knob and his numbers get baked.
+        /// <summary>The stable console-row id for one class/axis dial — e.g. "swing_aim_axe_pitch".</summary>
+        public static string SwingAimRowId(int weaponClass, int axis)
+            => "swing_aim_" + FarHorizon.SwingAimNudge.ClassName(weaponClass) + "_" +
+               FarHorizon.SwingAimNudge.AxisNames[axis];
+
         // Range hard-limits (the absolute band each range can be dialed within — generous around the
         // current OrbitCamera defaults so the Sponsor has real room, but bounded so a dial can't break the
         // camera). Distances in world units; angles in degrees.
@@ -1515,6 +1530,53 @@ namespace FarHorizon.Settings
             // OFF = the component is fully idle (no Update, no OnGUI — the toggle IS the zero-cost switch).
             reg.AddBool(FpsCounterId, "FPS counter",
                 () => fps.enabled, v => fps.enabled = v);
+        }
+
+        /// <summary>
+        /// THE PER-CLASS SWING-AIM NUDGE ROWS (86cb6v03j round 2) — 15 dials: axe / pickaxe / dagger / spear /
+        /// sword × pitch / yaw / roll, each an ADDITIVE nudge on top of that class's shipped swing-aim seat
+        /// delta. Every dial defaults to 0, and 0 is EXACTLY what ships today (the neutrality is structural —
+        /// <see cref="FarHorizon.SwingAimNudge.Compose"/> short-circuits on an all-zero nudge rather than
+        /// round-tripping the baked euler through a quaternion).
+        ///
+        /// NO SEAM ARGUMENT, deliberately. Every other Populate* here binds to a live component; the swing-aim
+        /// delta is a per-CLASS static (five values shared by whatever tool is in hand — see
+        /// procedural-animation-verbs.md §"Held-weapon seat dials are per weapon CLASS, not per material TIER"),
+        /// so binding it to one found MonoBehaviour would be an invented dependency that silently drops all 15
+        /// rows on any rig that happens to lack that component. The rows bind to the static seam directly and
+        /// therefore register unconditionally.
+        ///
+        /// PERSIST:FALSE — a DIAL-TO-BAKE INSTRUMENT, the same call the world-look rows make (86cah90cp
+        /// round-3). Its persistence mechanism is the BAKE, not PlayerPrefs. This is not hygiene here, it is the
+        /// point of the round: a persisted dial would silently become the shipped aim on the Sponsor's next
+        /// launch WITHOUT ever being baked — reproducing, on this very surface, the "a soaked override stomps
+        /// the baked value at every boot" incident that made persist:false exist. It also keeps every -verify*
+        /// run reading the committed constants no matter what was dialled in a previous session.
+        ///
+        /// CATEGORY: no SettingsCategory change is needed or wanted — SettingsCategory.IsDev is
+        /// "everything not on the player allowlist", so these 15 land in the F3 dev console by construction.
+        /// </summary>
+        public static void PopulateSwingAim(SettingsRegistry reg)
+        {
+            if (reg == null) return;
+
+            for (int c = 0; c < FarHorizon.SwingAimNudge.ClassCount; c++)
+            {
+                string cls = FarHorizon.SwingAimNudge.ClassName(c);
+                for (int a = 0; a < FarHorizon.SwingAimNudge.AxisNames.Length; a++)
+                {
+                    // Locals captured per iteration so each row's delegates close over ITS OWN class/axis — a
+                    // loop variable captured by reference would give all 15 rows the last pair (the classic
+                    // closure-capture bug; C#5+ makes `c`/`a` per-iteration for foreach but NOT for `for`).
+                    int weaponClass = c, axis = a;
+                    reg.AddFloat(SwingAimRowId(weaponClass, axis),
+                        "Swing aim " + cls + " " + FarHorizon.SwingAimNudge.AxisNames[axis],
+                        () => FarHorizon.SwingAimNudge.GetAxis(weaponClass, axis),
+                        v => FarHorizon.SwingAimNudge.SetAxis(weaponClass, axis, v),
+                        -FarHorizon.SwingAimNudge.LimitDeg, FarHorizon.SwingAimNudge.LimitDeg,
+                        unit: "°", persist: false);
+                }
+            }
         }
     }
 }

@@ -119,7 +119,7 @@ fi
 # downloading the artifact. Curated rather than "every marker line": a healthy run emits ~68 marker
 # lines (the release pass alone traces 30 frames), and the full log ships as an artifact anyway.
 # The needle set is the four criterion-bearing lines PLUS every skip/FAIL warning Check 2 reds on.
-DECISIVE_RE='\[SwingVerifyCapture\] verification complete|\[swing-twohand\] engaged=|\[swing-twohand\] LEFT-ARM PIN|\[swing-release\] crossfade OUT|\[swing-release\] FAIL|SKIPPED|no CastawayLeftArmHaftIk|no HeldWeaponCycleDebug|no AxeNudgeTool'
+DECISIVE_RE='\[SwingVerifyCapture\] verification complete|\[swing-twohand\] engaged=|\[swing-twohand\] LEFT-ARM PIN|\[swing-release\] crossfade OUT|\[swing-release\] FAIL|SKIPPED|no CastawayLeftArmHaftIk|no HeldWeaponCycleDebug|no AxeNudgeTool|\[swing-point\] AIM VERDICT|\[swing-point\] SUMMARY|\[swing-aim-fit\]'
 if [ -f "$LOG_FILE" ]; then
   grep -E "$DECISIVE_RE" "$LOG_FILE" | sed 's/^/[verify_swings]   /' || true
 fi
@@ -180,6 +180,24 @@ REQUIRED_NEEDLES=(
   "rightWristOnHaft=True"                       # LOAD-BEARING (in-block): seat kept the haft in the right hand
   "releaseOk=True"                              # THE round-5 term: the left arm let go on time (TAUTOLOGY on
                                                 #   the skipped-rig path -- see the header)
+  # 86cb6v03j -- THE SWING-AIM (weapon-POINTING) terms.
+  # `pointOk=True` is THE criterion: every gated class's weapon points into the half-space it is attacking into,
+  #   at that class's own measured strike frame (SwingPointRead.StrikeAimOk, floor fwdDot > 0.00). It is emitted on
+  #   BOTH the [swing-point] SUMMARY line and the one-line verdict, so on its own it proves the value, not the pass.
+  #   Demonstrated RED: `verify_swings S9` (the sword sweeps its strike BACKWARDS, fwdDot -0.113).
+  # `coverageOk=True` is this pass's IN-BLOCK PRESENCE needle -- the exact parallel to pinEngaged/palmMeasured for
+  #   the grip pass. It appears on the [swing-point] SUMMARY line ALONE, the line that carries the per-class strike
+  #   table and the gatedCovered==gatedTotal arithmetic. NOT redundant with pointOk: a run that sets _pointOk true
+  #   and then never writes the SUMMARY still matches `pointOk=True` off the verdict line, and only coverageOk
+  #   catches it. Demonstrated RED: `verify_swings S11`.
+  #   ⚠ HONEST BOUND, do not overstate it in a review: coverageOk is NOT an independent detector of a coverage
+  #   HOLE, because the runtime computes `_pointOk = aimAll && coverageOk` -- a genuine hole already drags pointOk
+  #   false. Its detection value is the SUMMARY-line presence case above, and it is a second line of defence if a
+  #   future refactor decouples the two.
+  # NOTE the pickaxe is deliberately NOT gated -- see the EXCLUDED FROM THE AIM GATE line in the log and the block
+  # comment on HeldToolRig.SwingAimPickaxe.
+  "coverageOk=True"
+  "pointOk=True"
 )
 # Each of these is a verbatim fragment of a Debug.LogWarning whose own text says some variant of
 # "do NOT read a PASS here as proof ...". Any hit means the evidence for a criterion is MISSING from
@@ -193,6 +211,12 @@ ABSENT_NEEDLES=(
   "no HeldWeaponCycleDebug"      # :309 -- the held weapon was never forced to the pickaxe, so any
                                  #   grip figure describes whatever tool happened to be in hand
   "no AxeNudgeTool"              # :749 -- the F9 mine-seat instrument is absent from this build
+  "[swing-point] SKIPPED"        # 86cb6v03j -- the weapon-POINTING pass never ran (unresolved rig/cycle/hand), so
+                                 #   pointOk is its fail-closed FALSE rather than a measurement. Present as an
+                                 #   ABSENT needle as well as via pointOk=True so the run reddens on BOTH halves,
+                                 #   and so the log NAMES the cause instead of only withholding a criterion.
+                                 #   Demonstrated RED: `verify_swings S10`, whose fixture reports every
+                                 #   PRE-86cb6v03j criterion True -- i.e. the exact log this needle un-greens.
 )
 
 evidence_rc=0

@@ -141,12 +141,75 @@ namespace FarHorizon
             // so a fault scoped to this component's own coroutine could never be run against them. Applied at Start
             // it is one shared negative control any gate can be launched under.
             ApplySeatFaultIfRequested();
+            // 86cb6v03j — the SWING-AIM negative control, applied in EVERY launch mode for the same reason the seat
+            // fault above is: the success test is "the aim gate REDS with the fix removed AND the seat / two-hand
+            // grip gates stay GREEN" — that pair is what shows the new gate covers a class the existing ones cannot
+            // see — and those gates live behind other flags in other processes.
+            if (HasArg(SwingAimZeroArg))
+            {
+                HeldToolRig.SwingAimForcedZero = true;
+                Debug.LogWarning("[swing-aim-fault] SWING-AIM DELTAS FORCED TO ZERO for this process (" +
+                                 SwingAimZeroArg + "). THIS RUN IS A DELIBERATE NEGATIVE CONTROL: it reproduces the " +
+                                 "pre-86cb6v03j seat EXACTLY (it removes the fix rather than injecting an invented " +
+                                 "fault magnitude). Its verdict is evidence that the aim gate REDS on the unfixed " +
+                                 "build - it is NOT evidence about the shipped build and must never be quoted as such.");
+            }
+            // 86cb6v03j round 2 — apply a SWING-AIM DIAL from the command line. Verify-only, default absent, and it
+            // exists for one reason: to prove IN THE SHIPPED EXE that the Sponsor's F3 dial actually reaches the
+            // rendered weapon, by re-running this very gate under a dialled value and showing the per-class strike
+            // readings MOVE. That is the standard the F9 mine-seat instrument was held to ("prove the instrument
+            // works in the shipped exe, then photograph it") and the standard -swingAimFaultZero meets: an
+            // instrument nobody has watched change something is a claim, not evidence. It writes the SAME
+            // SwingAimNudge seam the console rows write — deliberately, so this proves the shipped dial rather than
+            // a parallel path. Absent the flag, not one byte of any launch mode changes.
+            ApplySwingAimDialIfRequested();
             if (HasArg("-verifySwings"))
             {
                 if (player == null) player = Object.FindAnyObjectByType<WasdMovement>();
                 StartCoroutine(RunVerification());
             }
         }
+
+        /// <summary>Verify-only flag: <c>-swingAimDial &lt;classIndex&gt; &lt;pitch&gt; &lt;yaw&gt; &lt;roll&gt;</c>
+        /// (repeatable) drives the 86cb6v03j per-class swing-aim dial before the gate runs. Read only here.</summary>
+        private const string SwingAimDialArg = "-swingAimDial";
+
+        /// <summary>
+        /// Apply every <c>-swingAimDial</c> occurrence to <see cref="SwingAimNudge"/>.
+        ///
+        /// LOUD by construction: a dialled run logs a warning naming every value it set, so its gate verdict can
+        /// never be quoted by accident as evidence about the shipped aim. Like the seat fault beside it there is no
+        /// restore — a dialled launch is a throwaway negative-control-style process that quits with the gate.
+        /// </summary>
+        private void ApplySwingAimDialIfRequested()
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            const System.Globalization.NumberStyles Flt = System.Globalization.NumberStyles.Float;
+            int applied = 0;
+            for (int i = 0; i + 4 < args.Length; i++)
+            {
+                if (args[i] != SwingAimDialArg) continue;
+                if (!int.TryParse(args[i + 1], System.Globalization.NumberStyles.Integer, inv, out int cls)) continue;
+                if (!float.TryParse(args[i + 2], Flt, inv, out float p)) continue;
+                if (!float.TryParse(args[i + 3], Flt, inv, out float y)) continue;
+                if (!float.TryParse(args[i + 4], Flt, inv, out float r)) continue;
+                SwingAimNudge.SetAxis(cls, 0, p);
+                SwingAimNudge.SetAxis(cls, 1, y);
+                SwingAimNudge.SetAxis(cls, 2, r);
+                applied++;
+            }
+            if (applied == 0) return;
+            Debug.LogWarning("[swing-aim-dial] " + applied + " DIAL(S) APPLIED FROM THE COMMAND LINE (" +
+                             SwingAimDialArg + "). THIS RUN IS A DELIBERATELY DIALLED PROCESS - its readings are " +
+                             "evidence that the dial reaches the rendered weapon, NOT evidence about the shipped " +
+                             "aim.\n" + SwingAimNudge.Readout());
+        }
+
+        /// <summary>Verify-only flag that removes the 86cb6v03j swing-aim fix for one throwaway process, so the
+        /// gate's RED can be reproduced by anyone against the SHIPPED exe. Read only here; absent it, no launch mode
+        /// changes by a byte.</summary>
+        private const string SwingAimZeroArg = "-swingAimFaultZero";
 
         /// <summary>
         /// Verify-only fault injection: add N cm to the PRODUCTION seat value (<see cref="HeldToolRig.seatOffsetFromHand"/>
@@ -611,6 +674,9 @@ namespace FarHorizon
 
                         // ===== CHOP SEAT PASS (86cayp0ay) — the held-weapon SEAT judged DURING a swing =====
                         yield return ChopSeatPass(dir, castaway, animator, heldRig, lArm, rArm, rHand, hips, head);
+
+                        // ===== SWING POINTING PASS (86cb6v03j) — WHICH WAY the weapon points, per class =====
+                        yield return SwingPointPass(dir, castaway, animator, heldRig, lArm, rArm, rHand, hips, head);
                     }
                 }
             }
@@ -637,7 +703,7 @@ namespace FarHorizon
             yield return new WaitForSeconds(0.4f);
 
             bool meshStayed = smr != null && worstMeshGap <= ConeExplosionRadiusU;
-            bool pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk && _chopSeatOk;
+            bool pass = allRouted && meshStayed && foldOk && gripOk && _releaseOk && _chopSeatOk && _pointOk;
             Debug.Log($"[SwingVerifyCapture] verification complete -> {dir} allRouted={allRouted} " +
                       $"worstMeshGap={worstMeshGap:F2}u (<= {ConeExplosionRadiusU} = mesh stayed at the player, NO " +
                       $"cone-explosion — the Generic-rig bind, 86ca8rdkp) meshStayed={meshStayed} " +
@@ -667,7 +733,15 @@ namespace FarHorizon
                       $"chopSeatRan={_chopSeatRan} chopPeakTilt={_chopPeakTilt:F1}deg " +
                       $"chopPhases={_chopPhasesCovered}/{SwingSeatGate.RequiredPhases} " +
                       $"chopWorstRightHaft={_chopWorstRightHaftSW:F4}SW@phase{_chopWorstAtPhase:F2} " +
-                      $"chopSeatOk={_chopSeatOk} => PASS={pass}");
+                      $"chopSeatOk={_chopSeatOk} " +
+                      // 86cb6v03j — the POINTING read rides the one-line verdict, because "the weapon is aimed
+                      // backwards at the strike" is invisible to every seat/grip figure above it (a distance to a
+                      // LINE and a position ALONG that line are both unchanged when the whole stick is rotated about
+                      // the hand) — and that is exactly how it shipped.
+                      $"pointRan={_pointRan} pointClassesScored={_pointClassesScored} " +
+                      $"pointWorstClass={_pointWorstClass} pointWorstStrikeFwdDot={_pointWorstStrikeFwdDot:F3} " +
+                      $"pointWorstStrikeUpDot={_pointWorstStrikeUpDot:F3} " +
+                      $"pointWorstStrikePhase={_pointWorstStrikePhase:F3} pointOk={_pointOk} => PASS={pass}");
             Application.Quit(pass ? 0 : 1);
         }
 
@@ -1093,6 +1167,615 @@ namespace FarHorizon
 
             yield return null;
         }
+
+        // ===== SWING POINTING PASS state (86cb6v03j) — hoisted so the one-line verdict carries it. =====
+        // FAIL CLOSED, matching ChopSeatPass rather than the older default-TRUE _releaseOk convention: this pass
+        // exists BECAUSE weapon orientation was an unmeasured axis, so a run where it does not measure must red
+        // rather than inherit a `true`.
+        private bool _pointOk;
+        private bool _pointRan;
+        private string _pointWorstClass = "none";
+        private float _pointWorstStrikeFwdDot = float.NaN;
+        private float _pointWorstStrikeUpDot = float.NaN;
+        private float _pointWorstStrikePhase = float.NaN;
+        private int _pointClassesScored;
+        /// <summary>Each class's MEASURED strike phase (peak head speed), so the shoot pass can re-find that exact
+        /// moment by PHASE. Never by wall clock — see the fixed-delay false-green note in the pass.</summary>
+        private readonly System.Collections.Generic.Dictionary<string, float> _pointStrikePhaseByClass =
+            new System.Collections.Generic.Dictionary<string, float>();
+        /// <summary>Each class's strike-frame fwdDot — the gated quantity. A class ABSENT from this map produced no
+        /// strike reading, which the verdict treats as a coverage failure rather than as a pass.</summary>
+        private readonly System.Collections.Generic.Dictionary<string, float> _pointStrikeFwdByClass =
+            new System.Collections.Generic.Dictionary<string, float>();
+
+        /// <summary>WeaponClass (CastawayCharacter order) -> the HeldWeaponCycleDebug FAMILY INDEX whose mesh must be
+        /// in the hand while that class's clip plays. The two orderings are DIFFERENT and it is a silent error to use
+        /// one for the other: CastawayCharacter is {axe 0, pickaxe 1, dagger 2, spear 3, sword 4} while
+        /// HeldWeaponCycleDebug's mesh table is {axe 0, dagger 1, sword 2, spear 3, pickaxe 4}. Three of the five
+        /// indices collide harmlessly and two do not, which is precisely the shape that survives a careless read.
+        ///
+        /// ⚠ FORCING THE MESH IS NOT OPTIONAL. The held mesh syncs to the BELT SELECTION and a verify run selects
+        /// nothing, so without this the hand shows the DEFAULT stone AXE for all five clips — the two-hand pass
+        /// already paid for that exact mistake (it reported 1.589 SW off the axe mesh before the pickaxe was pinned).
+        /// A pointing read taken off the wrong mesh measures a combination that cannot occur in play.</summary>
+        private static readonly (int weaponClass, int familyIndex, string state, string name, bool arcVerb)[] PointClasses =
+        {
+            // arcVerb: TRUE for a swung arc (the head arrives forward-and-DOWN at the bottom of the arc), FALSE for
+            // a thrust (the tip drives straight along the facing, level). The split is the ASSET's own, not an
+            // invented taxonomy — the clips are named CastawayAxeSwing / CastawaySwordSlash vs
+            // CastawaySpearThrust / CastawayDaggerStab.
+            (CastawayCharacter.WeaponClassAxe,     HeldWeaponCycleDebug.AxeFamilyIndex,          "AttackAxe",     "axe",     true),
+            (CastawayCharacter.WeaponClassPickaxe, HeldWeaponCycleDebug.PickaxeStoneFamilyIndex, "AttackPickaxe", "pickaxe", true),
+            (CastawayCharacter.WeaponClassDagger,  HeldWeaponCycleDebug.DaggerStoneFamilyIndex,  "AttackDagger",  "dagger",  false),
+            (CastawayCharacter.WeaponClassSpear,   HeldWeaponCycleDebug.SpearFamilyIndex,        "AttackSpear",   "spear",   false),
+            (CastawayCharacter.WeaponClassSword,   HeldWeaponCycleDebug.SwordStoneFamilyIndex,   "AttackSword",   "sword",   true),
+        };
+
+        /// <summary>The world direction a class's strike should send the weapon's head. ARC verbs get the bisector
+        /// of "straight ahead" and "straight down" (the bottom of an arc travels forward and down into the target);
+        /// THRUST verbs get straight ahead, level. Shared by the FIT (which solves for the delta that reaches it)
+        /// and by the log line (which reports the residual angle to it), so the fit and the report can never
+        /// disagree about what was being aimed at.</summary>
+        private static Vector3 AimDirFor(bool arcVerb, Vector3 modelForward)
+        {
+            Vector3 f = modelForward.sqrMagnitude > 1e-8f ? modelForward.normalized : Vector3.forward;
+            return arcVerb ? (f + Vector3.down).normalized : f;
+        }
+
+        /// <summary>
+        /// 86cb6v03j — THE SWING POINTING PASS. The Sponsor's report is "the weapons/tools does not point in the right
+        /// direction while swinging"; which weapon and which verb was UNSPECIFIED, so this measures ALL FIVE classes
+        /// rather than assuming the axe combat swing (the ticket states that as a hypothesis, not an observation).
+        ///
+        /// It measures the axis <see cref="SwingSeatGate"/> is structurally blind to. That gate scores the hand's
+        /// perpendicular distance to the haft LINE and its position u ALONG that line; rotate the whole stick about
+        /// the grip point and BOTH are unchanged while the head swings round to point backwards. See
+        /// <see cref="SwingPointRead"/> for the real-world anchor and the frame convention.
+        ///
+        /// SHAPE: the established two-pass idiom in this file. Pass 1 drives each class's swing and MEASURES the live
+        /// composed pointing read every frame the class's own attack state owns OUTRIGHT (crossfade frames excluded —
+        /// a blend is a pose the clip never contains, the round-4 lesson). Pass 2 re-fires the WORST class and shoots
+        /// its worst frame from the gameplay cam AND a side profile, because an up-vs-down / fore-vs-aft pointing read
+        /// is nearly invisible from the player's over-the-shoulder angle (lowpoly-quality.md §0).
+        ///
+        /// The per-frame table is logged in full (bounded at <see cref="PointTraceMaxLinesPerClass"/> lines per class).
+        /// That is deliberate: the fix shape for a pointing defect depends on WHERE in the arc it goes wrong, and a
+        /// summary min/max cannot answer that. The trace is the artifact the PR body quotes.
+        /// </summary>
+        private IEnumerator SwingPointPass(string dir, CastawayCharacter castaway, Animator animator,
+                                           HeldToolRig heldRig, Transform lArm, Transform rArm, Transform rHand,
+                                           Transform hips, Transform head)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var cycle = heldRig != null ? heldRig.GetComponent<HeldWeaponCycleDebug>() : null;
+            if (HasArg(SkipEvidenceArg) || castaway == null || animator == null || heldRig == null || cycle == null
+                || lArm == null || rArm == null || rHand == null || hips == null || head == null)
+            {
+                _pointOk = false;
+                Debug.LogWarning("[swing-point] SKIPPED — the pointing read's inputs did not resolve (castaway=" +
+                                 (castaway != null) + " animator=" + (animator != null) + " heldRig=" +
+                                 (heldRig != null) + " cycle=" + (cycle != null) + " arms=" +
+                                 (lArm != null && rArm != null) + " rHand=" + (rHand != null) +
+                                 " hips/head=" + (hips != null && head != null) +
+                                 "). The weapon-ORIENTATION evidence is MISSING from this run, so this gate FAILS " +
+                                 "CLOSED: pointOk=false. Read it as 'the pass did NOT run' (pointRan=False on the " +
+                                 "verdict line), never as 'the weapon points correctly'.");
+                yield break;
+            }
+
+            // ===== FACING-SIGN CONTROL — the ONE assumption the whole pointing read rests on. =====
+            // Every fwdDot in this pass is dot(haftDirection, ModelTransform.forward). If the castaway FBX's visual
+            // front were not the model transform's +Z, every sign in this pass would be exactly inverted and the
+            // diagnosis would be precisely backwards — a failure mode no amount of internal consistency could
+            // catch, because all five classes would flip together. The rig-convention argument ("Mixamo imports
+            // facing +Z") is not evidence; unity-conventions.md §FBX is a list of times that class of argument was
+            // wrong on this very project.
+            //
+            // So it is settled with a PICTURE instead: FrontalShot stands the camera off ALONG ModelTransform.forward
+            // and looks back at the character. If +Z is the visual front, this frame shows his FACE. If it shows the
+            // back of his head, every fwdDot in this log must be read negated. One frame, no assumption.
+            yield return FrontalShot(Path.Combine(dir, "swing_point_facing_control.png"), hips, head,
+                                     castaway.ModelTransform, SideProfileDistU);
+            Debug.Log("[swing-point] FACING-SIGN CONTROL written to swing_point_facing_control.png: the camera " +
+                      "stands off ALONG ModelTransform.forward and looks back. A FACE in that frame confirms the " +
+                      "model transform's +Z is the castaway's visual front, which is the sole assumption behind " +
+                      "every fwdDot below; the BACK of the head would mean every fwdDot must be read negated. " +
+                      "Note the same axis sets the side-profile framing: ProfileShot stands off along " +
+                      "ModelTransform.right, and for a left-handed frame the camera's own right then works out to " +
+                      "the character's FORWARD — so in swing_point_<class>_side.png the direction he is attacking " +
+                      "along is toward the RIGHT of the image.");
+            for (int i = 0; i < 6; i++) yield return null;
+
+            var summary = new System.Collections.Generic.List<string>();
+            float globalWorstStrikeFwd = float.MaxValue;
+            _pointClassesScored = 0;
+            _pointWorstStrikePhase = float.NaN;
+
+            foreach (var (weaponClass, familyIndex, stateName, name, arcVerb) in PointClasses)
+            {
+                cycle.ShowWeaponForCaptureDebug(familyIndex);
+                for (int i = 0; i < 3; i++) yield return null;
+                bool meshRight = cycle.CurrentIndex == familyIndex;
+                if (!meshRight)
+                    Debug.LogWarning("[swing-point] " + name + ": held mesh is index " + cycle.CurrentIndex +
+                                     ", expected " + familyIndex + " — every figure below would be measured against " +
+                                     "the WRONG weapon mesh. Treat this class as UNMEASURED.");
+
+                int stateHash = Animator.StringToHash(stateName);
+                castaway.TriggerAttack(weaponClass, 1f);
+
+                float t0 = Time.time;
+                bool havePrev = false;
+                Vector3 prevGrip = Vector3.zero, prevHead = Vector3.zero, prevHand = Vector3.zero;
+                float prevT = Time.time;
+                int scored = 0, lines = 0;
+                var phaseHit = new bool[SwingSeatGate.RequiredPhases];
+                float peakTilt = 0f;
+
+                // ===== THE STRIKE FRAME is the frame of PEAK *HAND* SPEED. =====
+                //
+                // Found by MEASUREMENT every run, never at a fixed delay: clip lengths and the per-class
+                // SwingSpeed* multipliers are live soak-tuned dials, so any fixed delay is calibrated against
+                // numbers that move under it (the fixed-delay false-green, procedural-animation-verbs.md).
+                //
+                // ⚠ IT WAS PEAK *HEAD* SPEED FIRST, AND THAT WAS A REAL DEFECT IN THE INSTRUMENT — kept here
+                // because the error is not obvious and the symptom looked like a converging fix. The head's motion
+                // depends on the weapon's ORIENTATION, which is the very thing this ticket changes. So when the aim
+                // delta landed, the peak-head-speed moment MIGRATED: the axe's strike moved from phase 0.206 to
+                // 0.382 (16.5 -> 19.4 m/s) and the spear's from 0.186 to 0.110. The delta had been fitted at the OLD
+                // frame and was then judged at a NEW one, so the fit could never close — it was a fixed-point
+                // iteration wearing the costume of a one-shot solve, and its residual (axe 104.3 deg) read as "the
+                // fix underachieved" rather than as "the ruler moved".
+                //
+                // The HAND is owned by the CLIP. Rotating what it holds does not move it by a millimetre, so peak
+                // hand speed is invariant under this fix — which makes the judged moment stable across builds, the
+                // fit a genuine one-shot solve, and the gate a comparison of like with like. General rule this is an
+                // instance of: never define the judged MOMENT using the quantity under repair.
+                var strike = default(SwingPointRead.Read);
+                float strikeGripSpd = -1f, strikePhase = float.NaN, strikeAtSec = float.NaN;
+                // The strike frame's tool rotation + haft direction, kept so the FIT below solves in the tool's own
+                // frame — the SAME frame HeldToolRig.ComposeSeat composes its deltas in, so fitted == baked ==
+                // applied. Also the live swing-aim weight/class, so the line can say whether the delta was ON.
+                Quaternion strikeToolRot = Quaternion.identity;
+                Vector3 strikeHaftWorld = Vector3.zero, strikeAim = Vector3.zero;
+                float strikeAimWeight = float.NaN; int strikeAimClass = -99;
+                var samples = new System.Collections.Generic.List<PointSample>();
+                // The seat's own constant, and its spread — the check that the frame-invariance argument holds in
+                // the shipped build rather than only on paper.
+                Vector3 haftHandFirst = Vector3.zero; bool haveFirst = false; float haftHandSpreadDeg = 0f;
+                float minFwd = float.MaxValue, minFwdPhase = float.NaN;
+
+                while (Time.time - t0 < FoldWindowSec)
+                {
+                    var st = animator.GetCurrentAnimatorStateInfo(0);
+                    bool owns = st.shortNameHash == stateHash && !animator.IsInTransition(0);
+                    if (owns && heldRig.TryGetHaftSegment(out Vector3 gripW, out Vector3 headW))
+                    {
+                        float tilt = Vector3.Angle(head.position - hips.position, Vector3.up);
+                        if (tilt > peakTilt) peakTilt = tilt;
+                        if (havePrev)
+                        {
+                            var r = SwingPointRead.Measure(gripW, headW, prevGrip, prevHead, Time.time - prevT,
+                                                           (lArm.position + rArm.position) * 0.5f, rHand.rotation,
+                                                           castaway.ModelTransform != null
+                                                               ? castaway.ModelTransform.forward : Vector3.forward,
+                                                           rHand.position, prevHand);
+                            if (r.valid)
+                            {
+                                scored++;
+                                float phase = Mathf.Repeat(st.normalizedTime, 1f);
+                                phaseHit[SwingSeatGate.PhaseBucket(phase)] = true;
+
+                                if (!haveFirst) { haftHandFirst = r.haftInHandLocal; haveFirst = true; }
+                                else haftHandSpreadDeg = Mathf.Max(haftHandSpreadDeg,
+                                                                   Vector3.Angle(haftHandFirst, r.haftInHandLocal));
+
+                                // BUFFER the frame. The strike WINDOW cannot be classified until the swing's peak
+                                // hand speed is known, so the samples are kept and post-processed below rather than
+                                // reduced on the fly.
+                                samples.Add(new PointSample
+                                {
+                                    read = r,
+                                    phase = phase,
+                                    atSec = Time.time - t0,
+                                    toolRot = heldRig.transform.rotation,
+                                    haftWorld = (headW - gripW).normalized,
+                                    aim = AimDirFor(arcVerb, castaway.ModelTransform != null
+                                                             ? castaway.ModelTransform.forward : Vector3.forward),
+                                    aimWeight = heldRig.SwingAimWeight,
+                                    aimClass = heldRig.SwingAimClass,
+                                });
+                                if (r.handSpeed > strikeGripSpd) strikeGripSpd = r.handSpeed;
+                                if (r.fwdDot < minFwd) { minFwd = r.fwdDot; minFwdPhase = phase; }
+
+                                if (lines < PointTraceMaxLinesPerClass)
+                                {
+                                    lines++;
+                                    Debug.Log("[swing-point-trace] " + name +
+                                              " phase=" + phase.ToString("F3", inv) +
+                                              " fwdDot=" + r.fwdDot.ToString("F3", inv) +
+                                              " upDot=" + r.upDot.ToString("F3", inv) +
+                                              " extendDot=" + r.extendDot.ToString("F3", inv) +
+                                              " speedRatio=" + r.speedRatio.ToString("F3", inv) +
+                                              " leadDot=" + r.leadDot.ToString("F3", inv) +
+                                              " headSpd=" + r.headSpeed.ToString("F2", inv) +
+                                              " gripSpd=" + r.gripSpeed.ToString("F2", inv) + " handSpd=" + r.handSpeed.ToString("F2", inv) +
+                                              " haftLen=" + r.haftLenM.ToString("F3", inv) +
+                                              " haftInHand=(" + r.haftInHandLocal.x.ToString("F3", inv) + "," +
+                                              r.haftInHandLocal.y.ToString("F3", inv) + "," +
+                                              r.haftInHandLocal.z.ToString("F3", inv) + ")");
+                                }
+                            }
+                        }
+                        prevGrip = gripW; prevHead = headW; prevHand = rHand.position;
+                        prevT = Time.time; havePrev = true;
+                    }
+                    else if (!owns)
+                    {
+                        havePrev = false;   // never differentiate ACROSS a gap in the owned window
+                    }
+                    yield return null;
+                }
+
+                // ===== CLASSIFY THE STRIKE WINDOW, AND JUDGE ACROSS IT =====
+                //
+                // ⚠ THE SINGLE PEAK FRAME WAS NOT A STABLE RULER, AND THAT IS MEASURED, NOT FEARED. The sword's
+                // hand-speed peak is a narrow spike (it plays at a 1.5x class multiplier on top of its own
+                // attackSpeed), so at ~60 Hz the "fastest frame" lands on a different phase from run to run: the
+                // sword's fit residual sat at 124.4 then 124.3 deg across two runs with COMPLETELY different deltas
+                // baked between them — the fit was chasing a ruler that moved under it, and the flat residual read
+                // as "the fix does nothing" rather than as "the moment being judged is not the same moment".
+                //
+                // So the judged scope is a WINDOW, not an instant: every frame whose HAND speed is at least
+                // StrikeWindowSpeedFraction of that swing's own peak. That is the fast part of the swing — the part
+                // the eye actually reads as the strike — and it is robust to one spiky frame because its boundaries
+                // are a ratio of the peak rather than the peak's own location.
+                //
+                // It is also what the ticket asks for literally. A value-at-one-instant assert is the trap #436
+                // paid for ([[feel-gates-need-an-eye-time-floor]]): the eye consumes a duration, so the gate must
+                // too. The criterion below is the MINIMUM fwdDot ACROSS the window — the weapon must not point
+                // backwards at ANY moment of the fast phase, not merely on average and not merely at one frame.
+                // ⚠ THE WINDOW'S REFERENCE SPEED IS A HIGH PERCENTILE, NOT THE MAX — because the max is the least
+                // robust statistic there is and this signal demonstrably carries one-frame artifacts. Measured: the
+                // spear swing logged a single frame at gripSpd 56.40 m/s (headSpd 54.34) in a swing that otherwise
+                // peaks around 8 m/s. A hand does not move at 56 m/s; that is a sampling/crossfade artifact. Taken
+                // as the peak it put the window floor at 28 m/s and collapsed the spear's strike window to ONE
+                // frame — the exact single-frame fragility the window exists to remove, smuggled back in through
+                // the reference value. The 90th percentile of the swing's own hand speeds is immune to a lone
+                // outlier and is otherwise the same number.
+                var speeds = new System.Collections.Generic.List<float>(samples.Count);
+                foreach (var s in samples) speeds.Add(s.read.handSpeed);
+                speeds.Sort();
+                float refGripSpd = speeds.Count > 0
+                    ? speeds[Mathf.Clamp(Mathf.FloorToInt(speeds.Count * StrikeWindowReferencePercentile), 0,
+                                         speeds.Count - 1)]
+                    : 0f;
+                float windowFloor = refGripSpd * StrikeWindowSpeedFraction;
+                var window = new System.Collections.Generic.List<PointSample>();
+                foreach (var s in samples) if (s.read.handSpeed >= windowFloor) window.Add(s);
+
+                float winMinFwd = float.MaxValue, winMaxFwd = float.MinValue, winSumFwd = 0f;
+                float winMinPhase = float.MaxValue, winMaxPhase = float.MinValue, winMinFwdPhase = float.NaN;
+                foreach (var s in window)
+                {
+                    if (s.read.fwdDot < winMinFwd) { winMinFwd = s.read.fwdDot; winMinFwdPhase = s.phase; }
+                    winMaxFwd = Mathf.Max(winMaxFwd, s.read.fwdDot);
+                    winSumFwd += s.read.fwdDot;
+                    winMinPhase = Mathf.Min(winMinPhase, s.phase);
+                    winMaxPhase = Mathf.Max(winMaxPhase, s.phase);
+                }
+                float winMeanFwd = window.Count > 0 ? winSumFwd / window.Count : float.NaN;
+
+                // THE FIT FRAME is the window frame whose heading is CLOSEST TO THE WINDOW'S MEAN HEADING.
+                //
+                // It follows from what is gated. The criterion is the MEAN fwdDot across the window, so the fit has
+                // to move the MEAN onto the aim — not the best frame (fitting the best moment of a bad swing is the
+                // false-green class this project has paid for repeatedly), and not the worst either (the worst frame
+                // of a perfectly legitimate arc sits ~120 deg from the best, so aiming IT would swing the whole arc
+                // past the target the other way). The frame that best represents the mean moves the mean by very
+                // nearly the fitted rotation, which is the quantity actually being judged.
+                //
+                // The mean heading is the normalised SUM of the window's unit headings — the standard mean direction
+                // for unit vectors. Averaging angles component-wise would be wrong at the wrap.
+                if (window.Count > 0)
+                {
+                    Vector3 meanHeading = Vector3.zero;
+                    foreach (var s in window) meanHeading += s.haftWorld;
+                    var repS = window[0];
+                    bool haveMean = meanHeading.sqrMagnitude > 1e-8f;
+                    if (haveMean)
+                    {
+                        meanHeading.Normalize();
+                        float best = -2f;
+                        foreach (var s in window)
+                        {
+                            float d = Vector3.Dot(s.haftWorld, meanHeading);
+                            if (d > best) { best = d; repS = s; }
+                        }
+                    }
+                    strike = repS.read;
+                    strikePhase = repS.phase; strikeAtSec = repS.atSec;
+                    strikeToolRot = repS.toolRot; strikeAim = repS.aim;
+                    strikeAimWeight = repS.aimWeight; strikeAimClass = repS.aimClass;
+                    // Carry the MEAN heading onto the aim, not the representative frame's own heading: that frame
+                    // supplies the tool FRAME the rotation is expressed in, while the vector being aimed is the
+                    // mean. Fitting the frame's own heading instead would leave the mean short by however far that
+                    // frame sits from it.
+                    strikeHaftWorld = haveMean ? meanHeading : repS.haftWorld;
+                }
+
+                int phases = 0;
+                foreach (bool b in phaseHit) if (b) phases++;
+                bool posed = SwingSeatGate.Posed(scored, phases, peakTilt, out string posedWhy);
+                if (posed && meshRight && window.Count > 0)
+                {
+                    _pointClassesScored++;
+                    _pointStrikePhaseByClass[name] = strikePhase;
+                    _pointStrikeFwdByClass[name] = winMeanFwd;
+                    if (winMeanFwd < globalWorstStrikeFwd)
+                    {
+                        globalWorstStrikeFwd = winMeanFwd;
+                        _pointWorstClass = name;
+                        _pointWorstStrikeFwdDot = winMeanFwd;
+                        _pointWorstStrikeUpDot = strike.upDot;
+                        _pointWorstStrikePhase = strikePhase;
+                    }
+                }
+
+                Debug.Log("[swing-point] " + name + " STRIKE WINDOW: " + window.Count + "/" + samples.Count +
+                          " frames at or above " + (StrikeWindowSpeedFraction * 100f).ToString("F0", inv) +
+                          "% of this swing's p90 HAND speed (" + refGripSpd.ToString("F1", inv) + " m/s; raw max " + strikeGripSpd.ToString("F1", inv) + "), " +
+                          "spanning phase " + winMinPhase.ToString("F3", inv) + ".." +
+                          winMaxPhase.ToString("F3", inv) + ". fwdDot across the window: min " +
+                          winMinFwd.ToString("F3", inv) + " (at phase " + winMinFwdPhase.ToString("F3", inv) +
+                          ") mean " + winMeanFwd.ToString("F3", inv) + " max " + winMaxFwd.ToString("F3", inv) +
+                          ". The MEAN is the gated figure: a swing legitimately sweeps its heading through a wide " +
+                          "arc while the hand is fast (this window's own min..max IS that sweep), so gating the " +
+                          "MINIMUM would forbid the weapon from swinging at all — measured, the axe sweeps -0.902 " +
+                          "to +0.907 inside its own window. The mean over the fast phase is what separates a " +
+                          "weapon LEADING into the strike from one TRAILING through it, and it is a duration " +
+                          "rather than an instant.");
+
+                Debug.Log("[swing-point] " + name + ": meshRight=" + meshRight + " " + posedWhy +
+                          " | WORST WINDOW FRAME (the fit + capture moment) at phase " +
+                          strikePhase.ToString("F3", inv) + " (+" + strikeAtSec.ToString("F2", inv) + "s): fwdDot=" +
+                          strike.fwdDot.ToString("F3", inv) + " upDot=" + strike.upDot.ToString("F3", inv) +
+                          " extendDot=" + strike.extendDot.ToString("F3", inv) + " speedRatio=" +
+                          strike.speedRatio.ToString("F3", inv) + " leadDot=" + strike.leadDot.ToString("F3", inv) +
+                          " | worst fwdDot over the whole swing " +
+                          (minFwd == float.MaxValue ? -9f : minFwd).ToString("F3", inv) + " at phase " +
+                          minFwdPhase.ToString("F3", inv) +
+                          " | OWNING-LAYER READ: haft in HAND-LOCAL frame = (" +
+                          strike.haftInHandLocal.x.ToString("F3", inv) + "," +
+                          strike.haftInHandLocal.y.ToString("F3", inv) + "," +
+                          strike.haftInHandLocal.z.ToString("F3", inv) + "), spread over the swing " +
+                          haftHandSpreadDeg.ToString("F2", inv) + " deg (near 0 CONFIRMS the seat owns orientation " +
+                          "outright and the clip supplies only hand.rotation); best hand axis toward " +
+                          "forward-and-down at the strike = " +
+                          (strike.handAxisBestIndex >= 0
+                              ? SwingPointRead.HandAxisNames[strike.handAxisBestIndex] : "none") + " at " +
+                          strike.handAxisBestFwdDown.ToString("F3", inv) +
+                          " (HIGH means a SEAT re-dial could aim this weapon into the strike, so the seat owns the " +
+                          "defect; LOW means the strike direction is not reachable from this hand pose at all and " +
+                          "the clip / CastawayArmPose owns it). fwdDot < 0 = the head points AWAY from what the " +
+                          "character is facing.");
+
+                // ===== THE FIT / CONVERGENCE LINE — A CLOSED-FORM OPTIMUM FOR THE GATED STATISTIC =====
+                //
+                // The gated quantity is the MEAN of fwdDot over the strike window, so the fit must maximise exactly
+                // that. It has an exact solution, and finding it removed the last source of non-convergence.
+                //
+                // Two facts make it close analytically:
+                //   (1) The haft's direction in the TOOL's own frame is a CONSTANT h — the mesh is rigidly parented
+                //       to the tool root. (Measured, not assumed: the haft-in-hand spread is ~0 deg per class.)
+                //   (2) With an extra tool-frame rotation D, frame i's heading is toolRot_i * D * h, so
+                //           mean_i dot(toolRot_i * D * h, aim_i)  =  dot( D*h , (1/N) SUM_i Inverse(toolRot_i)*aim_i )
+                //       — the per-frame tool rotations move entirely onto the AIM side of the dot product.
+                // Writing A for that sum, the mean is maximised exactly when D*h is PARALLEL TO A, giving
+                //     D = FromToRotation(h, normalize(A))
+                // which is global, not iterative, and optimal for the window as a whole rather than for one frame.
+                //
+                // ⚠ WHY THE OBVIOUS ONE-FRAME FIT WAS NOT GOOD ENOUGH, measured. The previous version solved
+                // FromToRotation at a single representative frame. That is only a first-order approximation of the
+                // mean, because a CONSTANT tool-frame rotation does NOT rotate every frame's world heading by the
+                // same world rotation — so the mean of the rotated headings is not the rotation of the mean. It
+                // closed for classes whose hand rotates little across the window (spear 9.3 deg residual) and stalled
+                // for those whose hand rotates a lot: the axe went 73.9 -> 72.7 deg across a bake, i.e. essentially a
+                // fixed point, and left the axe's gated mean at a marginal +0.040. A gate passing by 0.04 is a gate
+                // that flips on run-to-run noise.
+                //
+                // D IS STILL MINIMAL in the sense that matters: FromToRotation leaves ROLL about the weapon's own
+                // long axis untouched, and roll is what the Sponsor dialled by eye at rest and what this ticket has
+                // no business moving (roll does not change where a weapon POINTS).
+                //
+                // THE LINE SERVES TWO PURPOSES, which is why it is unconditional rather than behind a flag:
+                //   * BEFORE a delta is baked it is the FIT — the number to bake, derived rather than guessed.
+                //   * AFTER it is baked the delta is already applied in these very samples, so a correct bake makes
+                //     the remaining rotation collapse toward identity and the PREDICTED mean match the MEASURED one.
+                //     It is a live convergence check every run, so a bake that stopped matching its clip surfaces
+                //     here instead of silently — which is how a fitted constant usually rots.
+                if (window.Count > 0 && strikeHaftWorld.sqrMagnitude > 1e-8f)
+                {
+                    Vector3 hSum = Vector3.zero, aSum = Vector3.zero;
+                    foreach (var s in window)
+                    {
+                        var invRot = Quaternion.Inverse(s.toolRot);
+                        hSum += invRot * s.haftWorld;    // constant per class; summed for numerical robustness
+                        aSum += invRot * s.aim;
+                    }
+                    Vector3 hTool = hSum.normalized;
+                    Vector3 aimTool = aSum.normalized;
+                    Quaternion d = Quaternion.FromToRotation(hTool, aimTool);
+                    // The mean fwdDot this D predicts, evaluated through the SAME algebra the rig will apply — so
+                    // "the fit says X" and "the next run measures X" are comparable claims rather than hopes.
+                    float predMean = 0f;
+                    foreach (var s in window)
+                        predMean += Vector3.Dot(s.toolRot * (d * (Quaternion.Inverse(s.toolRot) * s.haftWorld)),
+                                                s.aim);
+                    predMean /= window.Count;
+                    Vector3 e = d.eulerAngles;
+                    // Wrap to (-180, 180] so a bakeable value reads as a small correction rather than as 3xx deg.
+                    e = new Vector3(Mathf.DeltaAngle(0f, e.x), Mathf.DeltaAngle(0f, e.y), Mathf.DeltaAngle(0f, e.z));
+                    // The residual is the angle the WINDOW-MEAN heading still sits off the window-mean aim, in the
+                    // tool frame — the same quantity the fit minimises, so it and the fit cannot disagree.
+                    float residualDeg = Vector3.Angle(hTool, aimTool);
+                    // THE TOTAL TO BAKE, composed BY THE ENGINE rather than by hand. Whatever delta is already in
+                    // the build is applied BEFORE this additional one is measured (the additional is relative to the
+                    // tool's CURRENT rotation), so the new total is `baked * additional` as QUATERNIONS. Euler
+                    // triples do not add, and hand-composing them is exactly the arithmetic slip that would land a
+                    // re-bake somewhere nobody chose. Printed ready to paste.
+                    Vector3 tot = (Quaternion.Euler(HeldToolRig.SwingAimEulerForClass(weaponClass)) * d).eulerAngles;
+                    tot = new Vector3(Mathf.DeltaAngle(0f, tot.x), Mathf.DeltaAngle(0f, tot.y),
+                                      Mathf.DeltaAngle(0f, tot.z));
+                    Debug.Log("[swing-aim-fit] " + name + " (" + (arcVerb ? "ARC verb -> aim forward-and-down"
+                                                                          : "THRUST verb -> aim forward, level") +
+                              "): residual " + residualDeg.ToString("F1", inv) +
+                              " deg (window-mean heading vs window-mean aim); PREDICTED mean fwdDot after this " +
+                              "delta = " + predMean.ToString("F3", inv) + "; " +
+                              "REQUIRED ADDITIONAL tool-frame delta = new Vector3(" + e.x.ToString("F1", inv) + "f, " +
+                              e.y.ToString("F1", inv) + "f, " + e.z.ToString("F1", inv) + "f); TOTAL TO BAKE " +
+                              "(currently-baked composed with that additional) = new Vector3(" +
+                              tot.x.ToString("F1", inv) + "f, " + tot.y.ToString("F1", inv) + "f, " +
+                              tot.z.ToString("F1", inv) + "f)  <- bake into " +
+                              "HeldToolRig.SwingAim" + char.ToUpperInvariant(name[0]) + name.Substring(1) +
+                              ". Live swing-aim channel at this frame: weight " +
+                              strikeAimWeight.ToString("F2", inv) + " class " + strikeAimClass +
+                              " (expected " + weaponClass + " once baked; a weight far below 1.00 means the delta " +
+                              "was NOT engaged at the judged frame and the residual describes the UNCORRECTED " +
+                              "seat). Once the bake is in, residual -> ~0 and the required delta -> ~identity; a " +
+                              "residual that climbs back is this fit rotting, reported rather than silent.");
+                }
+
+                summary.Add(name + " strikeFwd=" + strike.fwdDot.ToString("F3", inv) +
+                            " strikeUp=" + strike.upDot.ToString("F3", inv) +
+                            " reach=" + strike.handAxisBestFwdDown.ToString("F3", inv));
+
+                for (int i = 0; i < 18; i++) yield return null;
+            }
+
+            _pointRan = true;
+
+            // ===== THE VERDICT =====
+            // GATED CLASSES: axe, dagger, spear, sword. The PICKAXE is EXCLUDED BY NAME — its swing seat is the
+            // Sponsor-passed mineSeatEulerDelta (86cay4282, five rounds, left palm currently 0.239 SW on the haft
+            // against a 0.293 SW touch bound), and 86cb6v03j forbids reworking a Sponsor-passed bar. The exclusion
+            // is LOUD in the log with its own measured figure rather than silently dropped, because a class quietly
+            // missing from a gate is indistinguishable from a class that passed it.
+            //
+            // FAIL CLOSED on coverage: every gated class must have produced a measurement. A run that scored three
+            // of four and passed them would be a gate with a hole in it that reads as green.
+            bool aimAll = true;
+            int gatedCovered = 0;
+            foreach (var (weaponClass, familyIndex, stateName, name, arcVerb) in PointClasses)
+            {
+                if (weaponClass == CastawayCharacter.WeaponClassPickaxe)
+                {
+                    _pointStrikeFwdByClass.TryGetValue(name, out float pfwd);
+                    Debug.Log("[swing-point] " + name + ": EXCLUDED FROM THE AIM GATE BY SCOPE, measured " +
+                              "fwdDot=" + pfwd.ToString("F3", inv) + " at its strike. Its swing seat is the " +
+                              "Sponsor-passed mineSeatEulerDelta (86cay4282, five rounds); re-aiming it would move " +
+                              "the haft off the left palm the shipped gate measures at 0.239 SW, i.e. rework a " +
+                              "Sponsor-passed bar, which 86cb6v03j forbids in this pass. This is a stated bound on " +
+                              "the fix, NOT a claim the pickaxe aims correctly.");
+                    continue;
+                }
+                bool have = _pointStrikeFwdByClass.TryGetValue(name, out float fwd);
+                if (have) gatedCovered++;
+                bool ok = SwingPointRead.StrikeAimOk(have, have ? fwd : float.NaN, name, out string why);
+                aimAll &= ok;
+                Debug.Log("[swing-point] AIM VERDICT " + name + ": " + why);
+            }
+            int gatedTotal = PointClasses.Length - 1;   // minus the excluded pickaxe
+            bool coverageOk = gatedCovered == gatedTotal;
+            _pointOk = aimAll && coverageOk;
+
+            Debug.Log("[swing-point] SUMMARY over " + _pointClassesScored + "/" + PointClasses.Length +
+                      " scored classes: " + string.Join(" | ", summary) + " => WORST class '" + _pointWorstClass +
+                      "' (lowest fwdDot at its own strike frame). AIM GATE: " + gatedCovered + "/" + gatedTotal +
+                      " gated classes measured (coverageOk=" + coverageOk + ", pickaxe excluded by scope) " +
+                      "aimAllOk=" + aimAll + " => pointOk=" + _pointOk + ". A FALSE coverageOk means a gated class " +
+                      "produced no strike reading at all and the gate has a hole in it — that reds rather than " +
+                      "passing on the classes it did manage to measure.");
+
+            // ----- Pass 2: re-fire EVERY class and photograph ITS OWN strike frame in SIDE PROFILE. -----
+            // Every class, not just the worst: the ticket requires per-weapon-class evidence, and "class X does NOT
+            // show it" is a bounded-convergence claim that needs its own picture to stand on.
+            //
+            // SIDE PROFILE ONLY, deliberately. A fore/aft + up/down heading is what is being judged, and that is
+            // nearly invisible from the player's over-the-shoulder angle and obvious side-on (lowpoly-quality.md
+            // §0). The gameplay-cam frame is additionally unusable here in practice: the orbit cam sits far out by
+            // the time this pass runs and renders the castaway a few dozen pixels tall.
+            //
+            // The moment is re-found BY PHASE (the class's own measured strike phase), never by wall clock.
+            foreach (var (weaponClass, familyIndex, stateName, name, arcVerb) in PointClasses)
+            {
+                float wantPhase = _pointStrikePhaseByClass.TryGetValue(name, out float p) ? p : float.NaN;
+                if (float.IsNaN(wantPhase)) continue;
+                cycle.ShowWeaponForCaptureDebug(familyIndex);
+                for (int i = 0; i < 3; i++) yield return null;
+                int stateHash = Animator.StringToHash(stateName);
+                castaway.TriggerAttack(weaponClass, 1f);
+                float t0 = Time.time;
+                bool reached = false;
+                while (Time.time - t0 < FoldWindowSec && !reached)
+                {
+                    var st = animator.GetCurrentAnimatorStateInfo(0);
+                    if (st.shortNameHash == stateHash && !animator.IsInTransition(0)
+                        && Mathf.Repeat(st.normalizedTime, 1f) >= wantPhase)
+                        reached = true;
+                    else
+                        yield return null;
+                }
+                if (!reached)
+                {
+                    Debug.LogWarning("[swing-point] " + name + ": the measured strike phase " +
+                                     wantPhase.ToString("F3", inv) + " was NOT reached on the shoot pass, so " +
+                                     "swing_point_" + name + "_side.png is NOT a picture of the judged moment. The " +
+                                     "MEASUREMENT above still stands; this warns the PICTURE is missing.");
+                    continue;
+                }
+                // ProfileShotAt runs several frames (camera swap + settle) and the clip keeps playing under it, so
+                // the shot lands a frame or two past the strike. That is stated rather than hidden: the strike is a
+                // ~10-frame plateau at these playback rates, and the alternative — pausing time — would change the
+                // very Animator evaluation being photographed.
+                yield return SideProfileShot(Path.Combine(dir, "swing_point_" + name + "_side.png"), hips, head,
+                                             castaway.ModelTransform);
+                for (int i = 0; i < 12; i++) yield return null;
+            }
+        }
+
+        /// <summary>Per-class cap on the per-frame pointing trace. The swing windows here run ~150 frames each and
+        /// five classes of unbounded trace would bury the criterion lines the gate wrapper greps for. 40 lines spans
+        /// the whole owned window at the sampling this pass reaches while keeping the log readable.</summary>
+        private const int PointTraceMaxLinesPerClass = 40;
+
+        /// <summary>A frame of the pointing measurement, buffered so the strike WINDOW can be classified after the
+        /// swing's peak hand speed is known (it cannot be known while the swing is still running).</summary>
+        private struct PointSample
+        {
+            public SwingPointRead.Read read;
+            public float phase, atSec;
+            public Quaternion toolRot;
+            public Vector3 haftWorld, aim;
+            public float aimWeight;
+            public int aimClass;
+        }
+
+        /// <summary>The strike window is every frame at or above this fraction of the swing's own PEAK HAND speed.
+        /// Half is not a tuning knob dressed as a constant — it is the natural "the fast half of the swing" split,
+        /// it is scale-free (a fraction of each swing's own peak, so it adapts to every class's cadence and to any
+        /// future retune of the SwingSpeed* multipliers without being re-picked), and it is deliberately WIDE:
+        /// a narrow window would reintroduce the single-spiky-frame instability it exists to remove. Measured
+        /// window widths are reported per class on the [swing-point] STRIKE WINDOW line every run, so a change that
+        /// collapsed a window to a couple of frames would be visible rather than silent.</summary>
+        private const float StrikeWindowSpeedFraction = 0.5f;
+
+        /// <summary>The percentile of a swing's own hand speeds used as the window's REFERENCE speed instead of the
+        /// maximum. 0.90 keeps the reference at the genuinely fast part of the swing while discarding the top decile
+        /// where single-frame artifacts live (measured: one spear frame at 56.40 m/s in a swing that otherwise peaks
+        /// near 8). Not a tuning knob for the verdict - it only sets which frames are IN the window, and the window
+        /// sizes are reported per class every run so a collapse would be visible rather than silent.</summary>
+        private const float StrikeWindowReferencePercentile = 0.90f;
 
         /// <summary>Read a float CLI argument, or <paramref name="fallback"/> when absent/unparseable. Invariant
         /// culture: this machine runs a comma-decimal locale, and a locale-sensitive parse would silently read

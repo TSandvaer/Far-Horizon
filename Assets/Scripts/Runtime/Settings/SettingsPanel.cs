@@ -300,6 +300,7 @@ namespace FarHorizon
             SettingsCatalog.PopulateIron(Registry);                          // iron-progression dials (86cakkmgw — extension hooks; I-2/I-3 flip live)
             SettingsCatalog.PopulateIronLive(Registry, mineOre);             // I-2 (86cakkmr0): flip `iron ore rarity` LIVE → MineOre.ActiveNodeCount
             SettingsCatalog.PopulateSmeltLive(Registry, forge);              // I-3 (86cakkmvc): flip the three `smelt_*` LIVE → Forge smelt-cost fields
+            SettingsCatalog.PopulateSwingAim(Registry);                      // 86cb6v03j round 2 — per-class swing-aim nudge (5 classes × pitch/yaw/roll, default 0 == ships today)
 
             // 86cabeqj9 soak NIT — CONSOLE UI SCALE. A FloatSettingEntry the PANEL itself registers (not the
             // catalog: it binds to this panel's own UI scale, a pure-UI concern the catalog has no game target

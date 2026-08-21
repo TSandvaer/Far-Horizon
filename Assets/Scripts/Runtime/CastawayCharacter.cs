@@ -872,6 +872,95 @@ namespace FarHorizon
             }
         }
 
+        // ===== 86cb6v03j — THE PER-CLASS ATTACK-STATE GATE (the general form of the mine gate above) =====
+        //
+        // WHY THIS EXISTS. The held weapon's ORIENTATION is owned entirely by the seat: the rig writes
+        // `toolRotation = hand.rotation * Euler(seatEuler)` and the mesh holder is rigidly parented under that, so
+        // the haft's direction RELATIVE TO THE HAND is a constant that the clip cannot influence — the clip supplies
+        // hand.rotation and nothing else. MEASURED in the shipped exe rather than argued: the haft direction in the
+        // hand's own frame moved 0.00 deg across the whole axe / spear / sword swing (25.26 deg for the pickaxe,
+        // which is exactly the class that HAS a state-gated seat delta easing in). See the [swing-point] OWNING-LAYER
+        // lines in the -verifySwings log.
+        //
+        // Those seat dials were all dialled by the Sponsor at REST (the soak-6/7 in-hand look-soaks,
+        // HeldWeaponCycleDebug.WeaponMeshLocalEuler), so they are correct for CARRY and were never fitted against a
+        // swing. The consequence measured at each class's own strike frame (peak head speed): the head points AWAY
+        // from the direction the character is facing on 4 of 5 classes. A swing-time seat correction therefore needs
+        // to be ADDITIVE and STATE-GATED — engaged only while that class's attack state holds the pose, zero
+        // everywhere else — so the approved carry seat is byte-identical at rest by construction. That is precisely
+        // the mine-delta idiom above; this generalises its gate from the one pickaxe state to all five.
+        //
+        // Per-class state names mirror CharacterAssetGen.WireAttackClass(sm, "Attack<Class>", ...). Kept as literals
+        // because Runtime cannot reference the Editor asmdef — the same duplication convention AttackPickaxeState
+        // already uses, pinned by an EditMode test against the shipped controller.
+        public const string AttackAxeStateName = "AttackAxe";
+        public const string AttackDaggerStateName = "AttackDagger";
+        public const string AttackSpearStateName = "AttackSpear";
+        public const string AttackSwordStateName = "AttackSword";
+
+        private static readonly int[] AttackStateHashByClass =
+        {
+            Animator.StringToHash(AttackAxeStateName),      // WeaponClassAxe = 0
+            AttackPickaxeStateHash,                          // WeaponClassPickaxe = 1
+            Animator.StringToHash(AttackDaggerStateName),    // WeaponClassDagger = 2
+            Animator.StringToHash(AttackSpearStateName),     // WeaponClassSpear = 3
+            Animator.StringToHash(AttackSwordStateName),     // WeaponClassSword = 4
+        };
+
+        /// <summary>The layer-0 state name a WeaponClass routes to. Unknown class -&gt; the axe state, matching
+        /// <see cref="AttackClipNameForClass"/>'s convention.</summary>
+        public static string AttackStateNameForClass(int weaponClass)
+        {
+            switch (weaponClass)
+            {
+                case WeaponClassPickaxe: return AttackPickaxeState;
+                case WeaponClassDagger:  return AttackDaggerStateName;
+                case WeaponClassSpear:   return AttackSpearStateName;
+                case WeaponClassSword:   return AttackSwordStateName;
+                default:                 return AttackAxeStateName;
+            }
+        }
+
+        /// <summary>
+        /// WHICH WeaponClass's attack state is HOLDING the layer-0 pose, or -1 when none is. The general form of
+        /// <see cref="MineSwingHoldsPoseFor"/>: same transition pairing (engages on the FIRST frame of the crossfade
+        /// IN so an additive offset is never a crossfade late, drops on the FIRST frame of the crossfade OUT so it
+        /// starts returning on the same frame the body does), applied per class.
+        ///
+        /// PURE, so the transition semantics are pinned in EditMode with no Animator rig — the same discipline the
+        /// mine gate follows.
+        /// </summary>
+        public static int AttackClassHoldingPoseFor(int currentShortNameHash, bool inTransition, int nextShortNameHash)
+        {
+            for (int c = 0; c < AttackStateHashByClass.Length; c++)
+            {
+                int h = AttackStateHashByClass[c];
+                bool owns = currentShortNameHash == h || (inTransition && nextShortNameHash == h);
+                if (!owns) continue;
+                // ...minus the hand-back window: while THIS state is crossfading OUT to something else, it is
+                // handing the pose back, so the offset must start returning now rather than a crossfade later.
+                if (currentShortNameHash == h && inTransition && nextShortNameHash != h) return -1;
+                return c;
+            }
+            return -1;
+        }
+
+        /// <summary>Live layer-0 read of <see cref="AttackClassHoldingPoseFor"/>. FAIL-CLOSED with no
+        /// Animator/controller (returns -1) for the same reason <see cref="MineSwingHoldsPose"/> is: its only
+        /// consumer can only ever ADD a swing-time offset, so a rig without a controller reproduces the previous
+        /// behaviour exactly.</summary>
+        public int AttackClassHoldingPose
+        {
+            get
+            {
+                if (_animator == null || _animator.runtimeAnimatorController == null) return -1;
+                bool inTransition = _animator.IsInTransition(0);
+                int next = inTransition ? _animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+                return AttackClassHoldingPoseFor(_animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
+                                                 inTransition, next);
+            }
+        }
+
         /// <summary>Is this layer-0 state name part of the LOCOMOTION LANE the run-lower was dialed against
         /// (Idle / Locomotion / JumpIdle / JumpRunning)? Pure + name-based so the allow-list is exhaustively
         /// testable in EditMode against the shipped controller's authored state set (86caxj30g).</summary>
