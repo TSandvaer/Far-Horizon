@@ -131,9 +131,35 @@ namespace FarHorizon.EditTests
             // would change. This pins the SetAxis no-change guard.
             var reg = new SettingsRegistry();
             SettingsCatalog.PopulateSwingAim(reg);
+            // A DELTA, not an absolute: NUnit gives no test ORDER guarantee, so an earlier test in this class
+            // may legitimately have left the counter above zero. The claim under test is "ApplyAll moved
+            // nothing", and that is exactly what a zero delta says.
+            int revisionBefore = SwingAimNudge.Revision;
             reg.ApplyAll();
             Assert.IsTrue(SwingAimNudge.IsPristine, "ApplyAll at defaults must leave every dial at 0");
-            Assert.AreEqual(0, SwingAimNudge.Revision, "a no-op write must not bump the revision");
+            Assert.AreEqual(revisionBefore, SwingAimNudge.Revision,
+                "a no-op write must not bump the revision - otherwise the registry's own startup ApplyAll() " +
+                "would mark a stock launch 'dialled', painting the readout and filling the log on a build " +
+                "nobody touched (and changing every -verify* capture)");
+        }
+
+        [Test]
+        public void ClearAll_OnAnAlreadyPristineBuild_DoesNotBumpTheRevision()
+        {
+            // The sibling of the ApplyAll guard above, at the other no-op entry point. This one is not
+            // hypothetical: ClearAll bumped unconditionally in the first cut and reddened the ApplyAll test on
+            // the very first EditMode run, because this suite's own SetUp calls it.
+            Assert.IsTrue(SwingAimNudge.IsPristine);
+            int before = SwingAimNudge.Revision;
+            SwingAimNudge.ClearAll();
+            Assert.AreEqual(before, SwingAimNudge.Revision);
+
+            // ...and it MUST still bump when it really clears something, or a stale readout would survive.
+            SwingAimNudge.SetAxis(CastawayCharacter.WeaponClassDagger, 1, 33f);
+            int dialled = SwingAimNudge.Revision;
+            SwingAimNudge.ClearAll();
+            Assert.Greater(SwingAimNudge.Revision, dialled);
+            Assert.IsTrue(SwingAimNudge.IsPristine);
         }
 
         // ---------------------------------------------------------------------------------------------------

@@ -123,8 +123,19 @@ namespace FarHorizon
         /// pristine state without reaching into the array.</summary>
         public static void ClearAll()
         {
-            for (int i = 0; i < ClassCount; i++) _nudge[i] = Vector3.zero;
-            _revision++;
+            // Only bumps the revision if something ACTUALLY changed - the same no-op guard SetAxis carries, and
+            // for the same reason: Revision means "a dialled value moved", so clearing an already-pristine build
+            // must leave it indistinguishable from one nobody touched. Without this, any caller that defensively
+            // clears (a test SetUp, a reset-to-defaults on a stock launch) would mark the build dialled, the
+            // readout would paint and the log would fill on a build at its shipped default.
+            bool changed = false;
+            for (int i = 0; i < ClassCount; i++)
+            {
+                if (_nudge[i] == Vector3.zero) continue;
+                _nudge[i] = Vector3.zero;
+                changed = true;
+            }
+            if (changed) _revision++;
         }
 
         /// <summary>

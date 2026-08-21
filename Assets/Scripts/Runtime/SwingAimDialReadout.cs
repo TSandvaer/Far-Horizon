@@ -71,7 +71,16 @@ namespace FarHorizon
         /// pristine-build invariant without scraping pixels).</summary>
         public bool ReadoutVisible => _forced || !SwingAimNudge.IsPristine;
 
-        private void Awake() => ResolveRig();
+        private void Awake()
+        {
+            // OPT OUT OF THE IMGUI LAYOUT PASS (86cahhfp4 C2a). This panel draws with EXPLICIT Rects only, so
+            // the per-frame Layout event pass is pure waste - an extra OnGUI invocation per frame plus layout
+            // bookkeeping. Every OnGUI component in the runtime assembly does this, and ImguiLayoutPassTests
+            // reflects over the whole assembly to enforce it; this component failed that guard on its first
+            // EditMode run, which is the guard working exactly as designed.
+            useGUILayout = false;
+            ResolveRig();
+        }
 
         private void ResolveRig()
         {
