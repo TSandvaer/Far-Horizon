@@ -395,5 +395,44 @@ namespace FarHorizon.EditTests
             }
             finally { Object.DestroyImmediate(go); }
         }
+
+        [Test]
+        public void Readout_LogsNothing_WhileEveryDialIsAtDefault()
+        {
+            // THE SIBLING THE FIRST CUT WAS MISSING, and it cost a real defect. "Silent while pristine" has TWO
+            // halves — the DRAWING (above) and the LOGGING — gated by different state. The drawing half was
+            // correct; the logging half compared against the OnGUI text-cache cursor, which starts at -1 and is
+            // only advanced INSIDE OnGUI, and OnGUI early-returns while pristine. So a stock build wrote a full
+            // block every 0.5 s: 582 [swing-aim-dial] lines in one clean -verifySwings run, found by grepping the
+            // shipped log, NOT by any capture frame — no screenshot could have shown it.
+            var go = new GameObject("readout-log-test");
+            try
+            {
+                var readout = go.AddComponent<SwingAimDialReadout>();
+                InvokeAwake(readout);
+                Assert.IsTrue(SwingAimNudge.IsPristine);
+                Assert.IsFalse(readout.LogFlushDue,
+                    "a stock launch must owe the log NOTHING — otherwise the soak Player.log fills with " +
+                    "identical pristine blocks and the Sponsor's actual dialled block is buried in them");
+
+                SwingAimNudge.SetAxis(CastawayCharacter.WeaponClassSpear, 2, 8f);
+                Assert.IsTrue(readout.LogFlushDue, "a moved dial must owe a flush");
+
+                readout.FlushLog("test");
+                Assert.IsFalse(readout.LogFlushDue, "and the flush must clear the debt exactly once");
+
+                // Dialling back to zero must ALSO be logged: the last block in the log has to be the FINAL
+                // state, or a reset-to-defaults would leave the log claiming values he had abandoned.
+                SwingAimNudge.ClearAll();
+                Assert.IsTrue(readout.LogFlushDue, "returning to zero is a change and must be written too");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>Awake does not auto-run in EditMode; invoke it the way ImguiLayoutPassTests does.</summary>
+        private static void InvokeAwake(MonoBehaviour c)
+            => c.GetType()
+                .GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.Invoke(c, null);
     }
 }

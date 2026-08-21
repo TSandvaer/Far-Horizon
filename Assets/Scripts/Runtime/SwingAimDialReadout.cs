@@ -63,13 +63,27 @@ namespace FarHorizon
         private int _renderedRevision = -1;    // which SwingAimNudge.Revision the cached text was built from
         private string _cachedBlock;           // the per-class block (rebuilt only when a dial moves)
         private bool _forced;                  // F4 state
-        private int _pendingRevision = -1;     // the revision awaiting a log flush (-1 = nothing pending)
+        private bool _flushPending;            // a dial moved and its block has not been written yet
+        // The revision the LOG is up to date with. Seeded from the LIVE revision in Awake, which is what makes a
+        // stock launch silent: rev == _loggedRevision, so nothing is ever scheduled. The first cut compared
+        // against the OnGUI text-cache field instead, which starts at -1 and is only advanced INSIDE OnGUI - and
+        // OnGUI early-returns while the build is pristine. So on a pristine build the comparison was permanently
+        // unequal and the readout wrote a full block every 0.5 s forever: 582 [swing-aim-dial] lines in one clean
+        // -verifySwings run (ci-out/verify-swings-r2-final.log, before this fix). The DRAWING was correctly gated
+        // the whole time, so no capture ever showed it - only the log did, which is exactly the kind of defect a
+        // screenshot cannot catch. Keeping the log cursor separate from the render cache is the fix.
+        private int _loggedRevision;
         private float _lastFlushAt = -999f;
         private GUIStyle _style;
 
         /// <summary>Whether the on-screen readout is currently drawn (public so a test/capture can assert the
         /// pristine-build invariant without scraping pixels).</summary>
         public bool ReadoutVisible => _forced || !SwingAimNudge.IsPristine;
+
+        /// <summary>True when a dial has moved since the last block was written, i.e. the log owes a flush. On a
+        /// stock launch this is FALSE and stays false, which is the "silent while pristine" half of the contract -
+        /// the half a capture frame cannot verify, because the drawing is gated separately.</summary>
+        public bool LogFlushDue => SwingAimNudge.Revision != _loggedRevision;
 
         private void Awake()
         {
@@ -79,6 +93,8 @@ namespace FarHorizon
             // reflects over the whole assembly to enforce it; this component failed that guard on its first
             // EditMode run, which is the guard working exactly as designed.
             useGUILayout = false;
+            // Seed the log cursor from the LIVE revision so a stock launch owes no flush (see _loggedRevision).
+            _loggedRevision = SwingAimNudge.Revision;
             ResolveRig();
         }
 
@@ -108,10 +124,9 @@ namespace FarHorizon
 
             // A dial moved → schedule a flush. The revision counter is the whole change-detection mechanism, so
             // no per-frame vector diffing and no per-frame string work happens while nothing is being dialled.
-            int rev = SwingAimNudge.Revision;
-            if (rev != _renderedRevision && _pendingRevision != rev) _pendingRevision = rev;
+            if (LogFlushDue) _flushPending = true;
 
-            if (_pendingRevision >= 0 && Time.unscaledTime - _lastFlushAt >= Mathf.Max(0.05f, logCoalesceSeconds))
+            if (_flushPending && Time.unscaledTime - _lastFlushAt >= Mathf.Max(0.05f, logCoalesceSeconds))
                 FlushLog("dial");
         }
 
@@ -119,7 +134,8 @@ namespace FarHorizon
         /// Public so the quit path, the F4 path and a test can all drive the one implementation.</summary>
         public void FlushLog(string reason)
         {
-            _pendingRevision = -1;
+            _flushPending = false;
+            _loggedRevision = SwingAimNudge.Revision;
             _lastFlushAt = Time.unscaledTime;
             Debug.Log(SwingAimNudge.LogTag + " BLOCK (" + reason + ") — bake the 'effective' triples into " +
                       "HeldToolRig.SwingAim<Class>\n" + SwingAimNudge.Readout());
