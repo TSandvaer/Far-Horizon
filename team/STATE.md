@@ -24,7 +24,7 @@ bug. The failure this queue exists to prevent is the *other* one: 2026-08-03 →
 |---|---|---|---|---|
 | 1 | `86cb6v03j` | Held weapons/tools do not POINT in the swing direction — Sponsor: "the single most important issue" | FULL (combat) | **in flight** — PR #439 |
 | 2 | `86cb6vjf8` | Boar charge-snap: no NavMesh at runtime → `BoarAI.MoveTowards` transform fallback snaps the boar onto the player's XZ | FULL (enemy AI) | queued, explicitly BEHIND slot 1 |
-| 3 | *(empty)* | — | — | **needs a Sponsor yes** |
+| 3 | `86cb87tyy` | `capture` greens every gameplay gate against a STALE exe when `build`'s bootstrap fails — the upload step succeeds with no build produced | CI/infra | queued — Sponsor yes 2026-08-21 |
 
 Slots 1–2 are transcribed from the Sponsor decision "Post-#436 priorities: swing direction FIRST,
 boar charge-snap ticketed behind it" (`team/DECISIONS.md`, 2026-08-18, merged `8c1b479`). Slot 3
