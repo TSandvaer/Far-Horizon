@@ -203,6 +203,24 @@ namespace FarHorizon
         public static Vector3 SwingAimEulerForClass(int weaponClass)
         {
             if (SwingAimForcedZero) return Vector3.zero;
+            // 86cb6v03j round 2 — the Sponsor's LIVE per-class dial composes here, and ONLY here, so the rig, the
+            // shipped gate and the EditMode suite all read one number. At the dial default (every axis 0)
+            // SwingAimNudge.Compose SHORT-CIRCUITS and hands the baked euler back UNTOUCHED — not round-tripped
+            // through a quaternion, which would re-decompose the dagger's 163.6 deg yaw into a different (but
+            // equal) triple and ship a literal 70583d8 never had. "0 == ships today" is therefore a structural
+            // property, not a tolerance claim. The dial sits BELOW the SwingAimForcedZero negative control on
+            // purpose: -swingAimFaultZero must keep reproducing the pre-86cb6v03j seat exactly, dialled or not.
+            return SwingAimNudge.Compose(SwingAimBakedEulerForClass(weaponClass), SwingAimNudge.Get(weaponClass));
+        }
+
+        /// <summary>The BAKED per-class swing-aim euler with NO live dial applied — the committed constants alone.
+        /// Split out from <see cref="SwingAimEulerForClass"/> so the readout can print "baked vs effective", and so
+        /// a test can assert the dial is neutral at default WITHOUT re-listing the constants beside the rig (the
+        /// tautological-assert trap, unity-conventions.md §Editor-vs-runtime). <see cref="SwingAimForcedZero"/> is
+        /// honoured here too, so the negative control zeroes the baked term at its source.</summary>
+        public static Vector3 SwingAimBakedEulerForClass(int weaponClass)
+        {
+            if (SwingAimForcedZero) return Vector3.zero;
             switch (weaponClass)
             {
                 case CastawayCharacter.WeaponClassAxe:     return SwingAimAxe;

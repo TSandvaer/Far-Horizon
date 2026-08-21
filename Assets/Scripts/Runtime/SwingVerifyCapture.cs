@@ -154,11 +154,56 @@ namespace FarHorizon
                                  "fault magnitude). Its verdict is evidence that the aim gate REDS on the unfixed " +
                                  "build - it is NOT evidence about the shipped build and must never be quoted as such.");
             }
+            // 86cb6v03j round 2 — apply a SWING-AIM DIAL from the command line. Verify-only, default absent, and it
+            // exists for one reason: to prove IN THE SHIPPED EXE that the Sponsor's F3 dial actually reaches the
+            // rendered weapon, by re-running this very gate under a dialled value and showing the per-class strike
+            // readings MOVE. That is the standard the F9 mine-seat instrument was held to ("prove the instrument
+            // works in the shipped exe, then photograph it") and the standard -swingAimFaultZero meets: an
+            // instrument nobody has watched change something is a claim, not evidence. It writes the SAME
+            // SwingAimNudge seam the console rows write — deliberately, so this proves the shipped dial rather than
+            // a parallel path. Absent the flag, not one byte of any launch mode changes.
+            ApplySwingAimDialIfRequested();
             if (HasArg("-verifySwings"))
             {
                 if (player == null) player = Object.FindAnyObjectByType<WasdMovement>();
                 StartCoroutine(RunVerification());
             }
+        }
+
+        /// <summary>Verify-only flag: <c>-swingAimDial &lt;classIndex&gt; &lt;pitch&gt; &lt;yaw&gt; &lt;roll&gt;</c>
+        /// (repeatable) drives the 86cb6v03j per-class swing-aim dial before the gate runs. Read only here.</summary>
+        private const string SwingAimDialArg = "-swingAimDial";
+
+        /// <summary>
+        /// Apply every <c>-swingAimDial</c> occurrence to <see cref="SwingAimNudge"/>.
+        ///
+        /// LOUD by construction: a dialled run logs a warning naming every value it set, so its gate verdict can
+        /// never be quoted by accident as evidence about the shipped aim. Like the seat fault beside it there is no
+        /// restore — a dialled launch is a throwaway negative-control-style process that quits with the gate.
+        /// </summary>
+        private void ApplySwingAimDialIfRequested()
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            const System.Globalization.NumberStyles Flt = System.Globalization.NumberStyles.Float;
+            int applied = 0;
+            for (int i = 0; i + 4 < args.Length; i++)
+            {
+                if (args[i] != SwingAimDialArg) continue;
+                if (!int.TryParse(args[i + 1], System.Globalization.NumberStyles.Integer, inv, out int cls)) continue;
+                if (!float.TryParse(args[i + 2], Flt, inv, out float p)) continue;
+                if (!float.TryParse(args[i + 3], Flt, inv, out float y)) continue;
+                if (!float.TryParse(args[i + 4], Flt, inv, out float r)) continue;
+                SwingAimNudge.SetAxis(cls, 0, p);
+                SwingAimNudge.SetAxis(cls, 1, y);
+                SwingAimNudge.SetAxis(cls, 2, r);
+                applied++;
+            }
+            if (applied == 0) return;
+            Debug.LogWarning("[swing-aim-dial] " + applied + " DIAL(S) APPLIED FROM THE COMMAND LINE (" +
+                             SwingAimDialArg + "). THIS RUN IS A DELIBERATELY DIALLED PROCESS - its readings are " +
+                             "evidence that the dial reaches the rendered weapon, NOT evidence about the shipped " +
+                             "aim.\n" + SwingAimNudge.Readout());
         }
 
         /// <summary>Verify-only flag that removes the 86cb6v03j swing-aim fix for one throwaway process, so the

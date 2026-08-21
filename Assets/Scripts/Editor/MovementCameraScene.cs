@@ -2146,6 +2146,27 @@ namespace FarHorizon.EditorTools
             EditorUtility.SetDirty(bootGo);
         }
 
+        // Wire the SWING-AIM DIAL READOUT (86cb6v03j round 2). Sibling of WireDebugOverlayMaster /
+        // WireClickGateDiagnostic: hosted on Boot so it SERIALIZES into Boot.unity and ships in the soak exe.
+        private static void WireSwingAimDialReadout()
+        {
+            var bootGo = GameObject.Find("Boot");
+            if (bootGo == null)
+            {
+                Debug.LogWarning("[MovementCameraScene] no Boot object found to host SwingAimDialReadout");
+                return;
+            }
+            var readout = bootGo.GetComponent<SwingAimDialReadout>();
+            if (readout == null) readout = bootGo.AddComponent<SwingAimDialReadout>();
+            // EXPLICITLY re-assert the key every bootstrap — a bare AddComponent leaves whatever KeyCode was
+            // already SERIALIZED in the committed binary Boot.unity when the component exists, so a code-only
+            // default change would never reach the shipped exe (the editor-vs-runtime serialization trap +
+            // [[unity-procedural-committed-assets-go-stale]]). F4 is free: F1 player Settings / F3 dev console /
+            // F7 / F8 / F9 / F10 are the bound F-keys, F2 is UNBOUND by decision.
+            readout.readoutKey = KeyCode.F4;
+            EditorUtility.SetDirty(bootGo);
+        }
+
         // Wire the gameplay-cam walk-grounding capture (86ca8rdkp attempt-9). Serializes onto Boot (the
         // component-in-source-but-not-in-scene trap) so -verifyWalkGround ships in the exe; inert otherwise.
         private static void WireWalkGroundingVerifyCapture()
@@ -5102,6 +5123,13 @@ namespace FarHorizon.EditorTools
             // onto Boot so the [ClickGateDiag] line ships in the soak; it dumps which consumer claimed each left-click
             // + every non-claiming verb's first failing guard with values, behind the F10 overlay master. Reads-only.
             WireClickGateDiagnostic();
+
+            // Wire the SWING-AIM DIAL READOUT (86cb6v03j round 2 — the read-back half of the Sponsor's nudge
+            // handle). Serializes onto Boot so the on-screen block + the [swing-aim-dial] Player.log lines SHIP
+            // in the soak exe (the component-in-source-but-not-in-scene trap: a readout that only exists in the
+            // editor loses exactly the numbers this round exists to capture). Silent + invisible until a dial
+            // moves, so every -verify* capture is unaffected.
+            WireSwingAimDialReadout();
 
             // Wire the BUILD-GATED CAMERA-FOLLOW nudge tool (86caaqhj5 ATTEMPT 2 — the jump-pull-back precision
             // handoff). Serializes onto Boot so the F7 panel ships; inert until toggled. Lets the Sponsor dial the
